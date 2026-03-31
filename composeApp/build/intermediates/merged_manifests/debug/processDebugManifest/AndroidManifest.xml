@@ -1,23 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.jetbrains.kmpapp"
+    package="com.example.androidios"
     android:versionCode="1"
     android:versionName="1.0" >
 
     <uses-sdk
         android:minSdkVersion="24"
-        android:targetSdkVersion="35" />
-
-    <uses-permission android:name="android.permission.INTERNET" />
+        android:targetSdkVersion="36" />
 
     <permission
-        android:name="com.jetbrains.kmpapp.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        android:name="com.example.androidios.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         android:protectionLevel="signature" />
 
-    <uses-permission android:name="com.jetbrains.kmpapp.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+    <uses-permission android:name="com.example.androidios.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
 
     <application
-        android:name="com.jetbrains.kmpapp.KmpLoginApp"
         android:allowBackup="true"
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
@@ -26,12 +23,10 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:testOnly="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar" >
         <activity
-            android:name="com.jetbrains.kmpapp.MainActivity"
-            android:exported="true"
-            android:windowSoftInputMode="adjustResize" >
+            android:name="com.example.androidios.MainActivity"
+            android:exported="true" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -41,7 +36,7 @@
 
         <provider
             android:name="org.jetbrains.compose.resources.AndroidContextProvider"
-            android:authorities="com.jetbrains.kmpapp.resources.AndroidContextProvider"
+            android:authorities="com.example.androidios.resources.AndroidContextProvider"
             android:enabled="true"
             android:exported="false" >
         </provider>
@@ -52,7 +47,7 @@
 
         <provider
             android:name="androidx.startup.InitializationProvider"
-            android:authorities="com.jetbrains.kmpapp.androidx-startup"
+            android:authorities="com.example.androidios.androidx-startup"
             android:exported="false" >
             <meta-data
                 android:name="androidx.emoji2.text.EmojiCompatInitializer"
@@ -64,6 +59,13 @@
                 android:name="androidx.profileinstaller.ProfileInstallerInitializer"
                 android:value="androidx.startup" />
         </provider>
+
+        <uses-library
+            android:name="androidx.window.extensions"
+            android:required="false" />
+        <uses-library
+            android:name="androidx.window.sidecar"
+            android:required="false" />
 
         <receiver
             android:name="androidx.profileinstaller.ProfileInstallReceiver"

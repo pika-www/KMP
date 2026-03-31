@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.jetbrains.kmpapp.composeApp-mergeDebugResources-59:/values-v30/values-v30.xml",
+            "outputFile": "com.example.androidios.composeApp-mergeDebugResources-47:/values-v30/values-v30.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\Administrator\\.gradle\\caches\\8.13\\transforms\\22c8ebe7fa293f8b6a9b25031f00c293\\transformed\\material3-release\\res\\values-v30\\values-v30.xml",
+                    "source": "/Users/hongzaitou/.gradle/caches/9.3.1/transforms/b9bc179f3abd637045ab7454eb30bc71/transformed/material3/res/values-v30/values-v30.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

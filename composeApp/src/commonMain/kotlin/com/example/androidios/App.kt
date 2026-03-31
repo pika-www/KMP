@@ -1,49 +1,32 @@
 package com.example.androidios
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import org.jetbrains.compose.resources.painterResource
-
-import androidios.composeapp.generated.resources.Res
-import androidios.composeapp.generated.resources.compose_multiplatform
+import com.jetbrains.kmpapp.screens.LoginScreen
 
 @Composable
 @Preview
 fun App() {
     MaterialTheme {
-        var showContent by remember { mutableStateOf(false) }
-        Column(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .safeContentPadding()
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Button(onClick = { showContent = !showContent }) {
-                Text("Click me!")
-            }
-            AnimatedVisibility(showContent) {
-                val greeting = remember { Greeting().greet() }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(painterResource(Res.drawable.compose_multiplatform), null)
-                    Text("Compose: $greeting")
+        // 1. 定义一个状态来记录当前是否已登录
+        var isLoggedIn by remember { mutableStateOf(false) }
+
+        // 2. 根据登录状态显示不同的页面
+        if (!isLoggedIn) {
+            // 如果未登录，显示登录界面
+            LoginScreen(
+                onLoginSuccess = {
+                    // 3. 登录成功时，修改状态为 true
+                    isLoggedIn = true
+                    println("登录成功！状态已更新")
                 }
-            }
+            )
+        } else {
+            // 4. 如果已登录，显示主页内容（这里暂时用简单的 Text 代替）
+            // 你以后可以把这里换成你的主页组件，比如 HomeScreen()
+            Text("恭喜！你已成功进入主页 🎉")
         }
     }
 }
