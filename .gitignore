@@ -1,19 +1,72 @@
-*.iml
-.kotlin
-.gradle
-**/build/
-xcuserdata
-!src/**/build/
-local.properties
-.idea
+############################
+# General
+############################
 .DS_Store
-captures
-.externalNativeBuild
-.cxx
-*.xcodeproj/*
+Thumbs.db
+
+############################
+# IDE (Android Studio / IntelliJ)
+############################
+.idea/
+*.iml
+*.ipr
+*.iws
+
+############################
+# Gradle / Kotlin
+############################
+.gradle/
+.kotlin/
+local.properties
+
+############################
+# Build outputs (ALL)
+############################
+build/
+**/build/
+
+# 允许 src 下的 build（防止误伤）
+!src/**/build/
+
+############################
+# Android
+############################
+*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+
+############################
+# iOS / Xcode
+############################
+
+# 忽略用户数据
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# 忽略 workspace 临时状态
+*.xcworkspace/contents.xcworkspacedata
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# 保留必要工程文件
 !*.xcodeproj/project.pbxproj
 !*.xcodeproj/xcshareddata/
-!*.xcodeproj/project.xcworkspace/
 !*.xcworkspace/contents.xcworkspacedata
-**/xcshareddata/WorkspaceSettings.xcsettings
+
+# 忽略 build
+iosApp/build/
+
+############################
+# KMP 特有
+############################
+# Kotlin Multiplatform cache
+.kotlin/
+
+############################
+# Node (如果有前端依赖)
+############################
 node_modules/
