@@ -23,31 +23,51 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jetbrains.kmpapp.api.AuthRepository
+import com.jetbrains.kmpapp.api.LoginRequest
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
+    // 1. 注入 AuthRepository (通过 Koin)
+    val authRepository = koinInject<AuthRepository>()
+    val scope = rememberCoroutineScope()
+
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) } // 2. 登录加载状态
     var passwordVisible by remember { mutableStateOf(false) }
 
-    // 获取键盘控制器，用于关闭键盘
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // 登录逻辑封装
-    val performLogin = {
-        keyboardController?.hide() // 1. 点击登录时隐藏键盘
-        if (username == "admin" && password == "123456") {
-            onLoginSuccess()
+    // 3. 登录逻辑封装：接通拦截器与接口请求
+    val performLogin: () -> Unit = {
+        if (username.isBlank() || password.isBlank()) {
+            error = "请输入用户名和密码"
         } else {
-            error = "用户名或密码错误 (提示: admin/123456)"
+            keyboardController?.hide()
+            isLoading = true
+            error = ""
+
+            scope.launch {
+                val response = authRepository.login(LoginRequest(username, password))
+                isLoading = false
+
+                if (response.code == 20000 && response.data != null) {
+                    onLoginSuccess()
+                } else {
+                    error = response.msg
+                }
+            }
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)), // 2. 适配深色模式的背景色
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
         contentAlignment = Alignment.Center
     ) {
         ElevatedCard(
@@ -56,7 +76,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 .padding(24.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surface // 3. 卡片背景跟随系统深色模式
+                containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
             Column(
@@ -93,6 +113,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true,
+                    enabled = !isLoading,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
 
@@ -119,11 +140,12 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true,
+                    enabled = !isLoading,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done
                     ),
-                    keyboardActions = KeyboardActions(onDone = { performLogin() }) // 4. 键盘“完成”键触发登录
+                    keyboardActions = KeyboardActions(onDone = { performLogin() })
                 )
 
                 if (error.isNotEmpty()) {
@@ -144,12 +166,21 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(12.dp),
+                    enabled = !isLoading, // 4. 加载中禁用按钮
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
                 ) {
-                    Text(
-                        "登 录",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            "登 录",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 }
             }
         }
