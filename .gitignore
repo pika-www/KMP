@@ -1,19 +1,36 @@
-*.iml
-.kotlin
-.gradle
-**/build/
-xcuserdata
-!src/**/build/
+# Gradle files
+.gradle/*
+.kotlin/
+build/
+
+# Local configuration files
 local.properties
-.idea
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Xcode files
+*.xcworkspace
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# Android build files
+.gradle/
+local.properties
+Captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# OS-generated files
+iosApp/build/
+iosApp/iosApp.xcworkspace/xcuserdata/
 .DS_Store
-captures
-.externalNativeBuild
-.cxx
-*.xcodeproj/*
-!*.xcodeproj/project.pbxproj
-!*.xcodeproj/xcshareddata/
-!*.xcodeproj/project.xcworkspace/
-!*.xcworkspace/contents.xcworkspacedata
-**/xcshareddata/WorkspaceSettings.xcsettings
-node_modules/
+Thumbs.db
+
+# Build artifacts from KMP
+**/build/
