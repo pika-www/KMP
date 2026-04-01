@@ -32,6 +32,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.8.0-alpha08")
+                implementation(libs.jetbrains.navigation.compose)
 
                 // --- 2. Koin (保持不变) ---
                 implementation("io.insert-koin:koin-core:3.5.6")
@@ -69,7 +70,7 @@ kotlin {
 
         val androidMain by getting {
             dependencies {
-                implementation("io.ktor:ktor-client-okhttp:2.3.11")
+                implementation("io.ktor:ktor-client-okhttp:2.3.12")
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.compose.uiToolingPreview)
             }
@@ -79,7 +80,7 @@ kotlin {
         val iosMain by creating {
             dependsOn(commonMain)
             dependencies {
-                implementation("io.ktor:ktor-client-darwin:2.3.11")
+                implementation("io.ktor:ktor-client-darwin:2.3.12")
             }
         }
 

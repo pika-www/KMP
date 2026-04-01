@@ -1,5 +1,5 @@
 import SwiftUI
-import composeApp // 确保导入了编译后的共享库
+import ComposeApp // 确保导入了编译后的共享库
 
 @main
 struct iOSApp: App {

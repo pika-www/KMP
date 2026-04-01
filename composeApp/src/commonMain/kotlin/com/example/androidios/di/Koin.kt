@@ -18,7 +18,12 @@ val appModule = module {
 }
 
 fun initKoin() {
-    startKoin {
-        modules(appModule)
+    // 使用 startKoin 的变体或手动检查，防止重复启动
+    try {
+        startKoin {
+            modules(appModule)
+        }
+    } catch (e: Exception) {
+        println("Koin 已经启动或初始化失败: ${e.message}")
     }
 }

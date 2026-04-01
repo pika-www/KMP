@@ -6,10 +6,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.example.androidios.screens.HomeScreen
 import com.example.androidios.screens.LoginScreen
 import kotlinx.serialization.Serializable
@@ -26,23 +26,17 @@ fun App() {
         colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     ) {
         Surface {
-            val navController: NavHostController = rememberNavController()
-            NavHost(navController = navController, startDestination = LoginDestination) {
-                composable<LoginDestination> {
-                    LoginScreen(onLoginSuccess = {
-                        navController.navigate(HomeDestination) {
-                            // 登录成功后清空回退栈，防止返回到登录页
-                            popUpTo(LoginDestination) { inclusive = true }
-                        }
-                    })
-                }
-                composable<HomeDestination> {
-                    HomeScreen(onLogout = {
-                        navController.navigate(LoginDestination) {
-                            popUpTo(HomeDestination) { inclusive = true }
-                        }
-                    })
-                }
+            var isLoggedIn by remember { mutableStateOf(false) }
+
+            if (!isLoggedIn) {
+                LoginScreen(onLoginSuccess = {
+                    // 登录成功后清空回退栈，防止返回到登录页
+                    isLoggedIn = true
+                })
+            } else {
+                HomeScreen(onLogout = {
+                    isLoggedIn = false
+                })
             }
         }
     }
