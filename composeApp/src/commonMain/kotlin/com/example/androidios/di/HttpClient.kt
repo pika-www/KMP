@@ -1,4 +1,4 @@
-package com.jetbrains.kmpapp.di
+package com.example.androidios.di
 
 import io.ktor.client.*
 import io.ktor.client.plugins.*

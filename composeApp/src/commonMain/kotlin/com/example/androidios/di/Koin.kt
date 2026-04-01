@@ -1,6 +1,6 @@
-package com.jetbrains.kmpapp.di
+package com.example.androidios.di
 
-import com.jetbrains.kmpapp.api.AuthRepository
+import com.example.androidios.api.AuthRepository
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
 

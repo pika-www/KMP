@@ -1,4 +1,4 @@
-package com.jetbrains.kmpapp.di
+package com.example.androidios.di
 
 /**
  * 项目环境配置

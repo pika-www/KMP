@@ -1,4 +1,4 @@
-package com.jetbrains.kmpapp.screens
+package com.example.androidios.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
@@ -14,7 +14,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -23,8 +22,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jetbrains.kmpapp.api.AuthRepository
-import com.jetbrains.kmpapp.api.LoginRequest
+import com.example.androidios.api.AuthRepository
+import com.example.androidios.api.LoginRequest
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 

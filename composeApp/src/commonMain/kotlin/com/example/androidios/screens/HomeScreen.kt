@@ -1,4 +1,4 @@
-package com.jetbrains.kmpapp.screens
+package com.example.androidios.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*

@@ -1,4 +1,4 @@
-package com.jetbrains.kmpapp.api
+package com.example.androidios.api
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
