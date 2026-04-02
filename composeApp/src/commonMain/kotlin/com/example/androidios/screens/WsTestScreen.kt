@@ -30,18 +30,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.androidios.auth.AuthTokenStore
 import com.example.androidios.ws.WsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 private const val TEST_CORN_ID = "1f07ccda-a297-6930-b363-9040bfec5880"
-private const val TEST_JWT_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJJbmZvIjoiMTkzODg0NDkyMjg0NTk0NTg1NiIsImV4cCI6MTc3NTYxOTEzOH0.1HTPOkw9-SsVVo8yZOZ_3dm3kUUicniU0eQtjjMB2Mk"
 
 @Composable
 fun WsTestScreen(onBack: () -> Unit) {
     val wsRepository = koinInject<WsRepository>()
+    val authTokenStore = koinInject<AuthTokenStore>()
     val messages by wsRepository.messages.collectAsState()
     val scope = rememberCoroutineScope()
+    val currentToken = authTokenStore.getValidTokenOrNull()
 
     Scaffold(
         containerColor = Color(0xFFF1F1F1)
@@ -73,6 +75,14 @@ fun WsTestScreen(onBack: () -> Unit) {
                 color = Color(0xFF444444)
             )
 
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = if (currentToken != null) "当前 Token: 已读取" else "当前 Token: 不存在或已过期",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF444444)
+            )
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -92,7 +102,10 @@ fun WsTestScreen(onBack: () -> Unit) {
                 Button(
                     onClick = {
                         scope.launch {
-                            wsRepository.sendJwt(TEST_JWT_TOKEN)
+                            val token = authTokenStore.getValidTokenOrNull()
+                            if (token != null) {
+                                wsRepository.sendJwt("Bearer $token")
+                            }
                         }
                     },
                     modifier = Modifier.weight(1f)
