@@ -116,6 +116,47 @@ fun WsTestScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            wsRepository.sendEvent(1)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("订阅钱包")
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            wsRepository.sendEvent(2)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("订阅消息")
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            wsRepository.sendEvent(3)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("订阅任务")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
