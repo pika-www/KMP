@@ -31,12 +31,12 @@ kotlin {
 
         val commonMain by getting {
             dependencies {
-                implementation("org.jetbrains.androidx.navigation:navigation-compose:2.8.0-alpha08")
-                implementation(libs.jetbrains.navigation.compose)
-
                 // --- 2. Koin (保持不变) ---
                 implementation("io.insert-koin:koin-core:3.5.6")
                 implementation("io.insert-koin:koin-compose:1.1.5")
+
+                implementation("com.arkivanov.decompose:decompose:3.5.0")
+                implementation("com.arkivanov.decompose:extensions-compose:3.5.0")
 
                 // --- 3. Serialization (保持 1.7.3) ---
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -55,6 +55,7 @@ kotlin {
                 // --- 5. 原有：其他依赖 ---
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
                 implementation("com.russhwolf:multiplatform-settings:1.1.1")
+                implementation("com.russhwolf:multiplatform-settings-no-arg:1.1.1")
                 implementation("com.russhwolf:multiplatform-settings-serialization:1.1.1")
 
                 implementation(libs.compose.runtime)

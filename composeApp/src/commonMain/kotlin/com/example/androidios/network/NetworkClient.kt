@@ -1,5 +1,6 @@
 package com.example.androidios.network
 
+import com.example.androidios.auth.AuthTokenStore
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpResponseValidator
@@ -20,7 +21,10 @@ import kotlinx.serialization.json.Json
 /**
  * 统一的网络客户端，HTTP 与 WebSocket 共用一套配置和拦截能力。
  */
-fun createNetworkClient(config: NetworkConfig): HttpClient {
+fun createNetworkClient(
+    config: NetworkConfig,
+    tokenStore: AuthTokenStore
+): HttpClient {
     return HttpClient {
         defaultRequest {
             url(config.baseUrl)
@@ -48,9 +52,10 @@ fun createNetworkClient(config: NetworkConfig): HttpClient {
         }
 
         install(DefaultRequest) {
-            // 这里可以添加全局 Token
-            // val token = getToken()
-            // if (token != null) header(HttpHeaders.Authorization, token)
+            val token = tokenStore.getValidTokenOrNull()
+            if (token != null) {
+                header(HttpHeaders.Authorization, token)
+            }
         }
 
         install(WebSockets)
@@ -58,8 +63,9 @@ fun createNetworkClient(config: NetworkConfig): HttpClient {
         HttpResponseValidator {
             validateResponse { response ->
                 val statusCode = response.status.value
-                if (statusCode == 401 || statusCode == 40000) {
+                if (statusCode == 401 || statusCode == 40000) {                         
                     println("登录凭证失效，请重新登录")
+                    tokenStore.clear()
                 }
             }
 

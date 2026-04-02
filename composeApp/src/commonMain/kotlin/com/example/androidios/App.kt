@@ -6,14 +6,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import com.arkivanov.decompose.extensions.compose.stack.Children
+import com.arkivanov.decompose.Child
+import com.example.androidios.api.AuthRepository
+import com.example.androidios.navigation.RootComponent
+import com.example.androidios.navigation.RootComponentImpl
+import com.example.androidios.navigation.createDefaultComponentContext
+import com.example.androidios.screens.ForgotPasswordScreen
 import com.example.androidios.screens.HomeScreen
 import com.example.androidios.screens.LoginScreen
 import com.example.androidios.screens.WsTestScreen
 import kotlinx.serialization.Serializable
+import org.koin.compose.koinInject
 
 @Serializable
 object LoginDestination
@@ -30,41 +35,39 @@ fun App() {
         colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     ) {
         Surface {
-            var isLoggedIn by remember { mutableStateOf(false) }
-            var currentDestination by remember { mutableStateOf<Any>(LoginDestination) }
+            val authRepository = koinInject<AuthRepository>()
 
-            if (!isLoggedIn) {
-                LoginScreen(onLoginSuccess = {
-                    isLoggedIn = true
-                    currentDestination = HomeDestination
-                })
-            } else {
-                when (currentDestination) {
-                    HomeDestination -> HomeScreen(
-                        onLogout = {
-                            isLoggedIn = false
-                            currentDestination = LoginDestination
-                        },
-                        onOpenWsTest = {
-                            currentDestination = WsTestDestination
-                        }
-                    )
+            val root: RootComponent = remember {
+                RootComponentImpl(createDefaultComponentContext(), authRepository)
+            }
 
-                    WsTestDestination -> WsTestScreen(
-                        onBack = {
-                            currentDestination = HomeDestination
-                        }
-                    )
+            Children(stack = root.stack) { child: Child.Created<*, RootComponent.Child> ->
+                when (val instance = child.instance) {
+                    is RootComponent.Child.Login -> {
+                        LoginScreen(
+                            onLoginSuccess = instance.component::onLoginSuccess,
+                            onForgotPassword = instance.component::onForgotPassword
+                        )
+                    }
 
-                    else -> HomeScreen(
-                        onLogout = {
-                            isLoggedIn = false
-                            currentDestination = LoginDestination
-                        },
-                        onOpenWsTest = {
-                            currentDestination = WsTestDestination
-                        }
-                    )
+                    is RootComponent.Child.ForgotPassword -> {
+                        ForgotPasswordScreen(
+                            onBack = instance.component::onBack
+                        )
+                    }
+
+                    is RootComponent.Child.Home -> {
+                        HomeScreen(
+                            onLogout = instance.component::onLogout,
+                            onOpenWsTest = instance.component::onOpenWsTest
+                        )
+                    }
+
+                    is RootComponent.Child.WsTest -> {
+                        WsTestScreen(
+                            onBack = instance.component::onBack
+                        )
+                    }
                 }
             }
         }

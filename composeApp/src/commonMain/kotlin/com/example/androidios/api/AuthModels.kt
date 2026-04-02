@@ -8,13 +8,53 @@ import kotlinx.serialization.SerialName
  */
 @Serializable
 data class LoginRequest(
-    val phone: String,
-    val pwd: String,
+    val phone: String? = null,
+
+    val email: String? = null,
+
+    val pwd: String? = null,
+
+    @SerialName("confirm_pwd")
+    val confirmPwd: String? = null,
+
+    @SerialName("track_id")
+    val trackId: String,
 
     @SerialName("app_type")
     val appType: String = "platform",
 
     val way: String = "phone_pwd"
+)
+
+@Serializable
+data class CodeRequest(
+    @SerialName("action_type")
+    val actionType: String,
+
+    @SerialName("app_type")
+    val appType: String? = null,
+
+    val email: String? = null,
+    val phone: String? = null,
+
+    @SerialName("point_dots")
+    val pointDots: String = "",
+
+    @SerialName("secret_key")
+    val secretKey: String = ""
+)
+
+@Serializable
+data class ForgetPasswordRequest(
+    val account: String,
+    val code: String,
+
+    @SerialName("confirm_pwd")
+    val confirmPwd: String,
+
+    val pwd: String,
+
+    val type: String
 )
 
 /**
@@ -36,3 +76,9 @@ data class LoginData(
     val userId: String? = null,
     val nickname: String? = null
 )
+
+object AuthInput {
+    fun isEmail(input: String): Boolean = input.contains('@')
+
+    fun normalizeAccount(input: String): String = input.trim()
+}

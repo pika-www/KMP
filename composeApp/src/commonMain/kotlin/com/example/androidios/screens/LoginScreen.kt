@@ -22,13 +22,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.androidios.api.AuthInput
 import com.example.androidios.api.AuthRepository
 import com.example.androidios.api.LoginRequest
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 @Composable
-fun LoginScreen(onLoginSuccess: () -> Unit) {
+fun LoginScreen(
+    onLoginSuccess: () -> Unit,
+    onForgotPassword: () -> Unit
+) {
     // 1. 注入 AuthRepository (通过 Koin)
     val authRepository = koinInject<AuthRepository>()
     val scope = rememberCoroutineScope()
@@ -51,7 +55,20 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             error = ""
 
             scope.launch {
-                val response = authRepository.login(LoginRequest(username, password))
+                val account = AuthInput.normalizeAccount(username)
+                val isEmail = AuthInput.isEmail(account)
+
+                val request = LoginRequest(
+                    phone = if (isEmail) null else account,
+                    email = if (isEmail) account else null,
+                    pwd = password,
+                    confirmPwd = password,
+                    trackId = "kmp",
+                    appType = "platform",
+                    way = if (isEmail) "email_pwd" else "phone_pwd"
+                )
+
+                val response = authRepository.login(request)
                 isLoading = false
 
                 if (response.code == 20000 && response.data != null) {
@@ -180,6 +197,15 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                TextButton(
+                    onClick = onForgotPassword,
+                    enabled = !isLoading
+                ) {
+                    Text("忘记密码")
                 }
             }
         }

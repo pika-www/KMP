@@ -1,9 +1,11 @@
 package com.example.androidios.di
 
+import com.example.androidios.auth.AuthTokenStore
 import com.example.androidios.api.AuthApi
 import com.example.androidios.api.AuthRepository
 import com.example.androidios.network.NetworkUrlFactory
 import com.example.androidios.network.createNetworkClient
+import com.example.androidios.settings.createSettings
 import com.example.androidios.ws.WsApi
 import com.example.androidios.ws.WsRepository
 import org.koin.core.context.startKoin
@@ -15,12 +17,14 @@ import org.koin.dsl.module
 val appModule = module {
     // 1. 环境配置与 HttpClient
     single { AppConfig.networkConfig }
+    single { createSettings() }
+    single { AuthTokenStore(get()) }
     single { NetworkUrlFactory(get()) }
-    single { createNetworkClient(get()) }
+    single { createNetworkClient(get(), get()) }
 
     // 2. 业务 API 与 Repository
     single { AuthApi(get(), get()) }
-    single { AuthRepository(get()) }
+    single { AuthRepository(get(), get()) }
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
 
