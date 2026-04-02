@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>CFBundleDisplayName</key>
+	<string></string>
+	<key>CFBundleName</key>
+	<string></string>
 	<key>NSCameraUsageDescription</key>
 	<string>需要使用相机拍照进行本地部署测试</string>
 	<key>NSMicrophoneUsageDescription</key>
