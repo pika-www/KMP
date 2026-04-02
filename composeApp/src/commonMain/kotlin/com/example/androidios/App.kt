@@ -14,6 +14,7 @@ import com.example.androidios.navigation.RootComponent
 import com.example.androidios.navigation.RootComponentImpl
 import com.example.androidios.navigation.createDefaultComponentContext
 import com.example.androidios.screens.ForgotPasswordScreen
+import com.example.androidios.screens.BrainBoxGuideScreen
 import com.example.androidios.screens.HomeScreen
 import com.example.androidios.screens.LoginScreen
 import com.example.androidios.screens.WsTestScreen
@@ -59,7 +60,15 @@ fun App() {
                     is RootComponent.Child.Home -> {
                         HomeScreen(
                             onLogout = instance.component::onLogout,
-                            onOpenWsTest = instance.component::onOpenWsTest
+                            onOpenWsTest = instance.component::onOpenWsTest,
+                            onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide
+                        )
+                    }
+
+                    is RootComponent.Child.BrainBoxGuide -> {
+                        BrainBoxGuideScreen(
+                            onBack = instance.component::onBack,
+                            onFinish = instance.component::onFinish
                         )
                     }
 

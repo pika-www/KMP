@@ -24,7 +24,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun HomeScreen(
     onLogout: () -> Unit,
-    onOpenWsTest: () -> Unit
+    onOpenWsTest: () -> Unit,
+    onOpenBrainBoxGuide: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val options = listOf(
@@ -75,8 +76,9 @@ fun HomeScreen(
                     AccessOptionCard(
                         option = option,
                         onClick = {
-                            if (option.title == "端脑云用户") {
-                                onOpenWsTest()
+                            when (option.title) {
+                                "脑花盒子用户" -> onOpenBrainBoxGuide()
+                                "端脑云用户" -> onOpenWsTest()
                             }
                         }
                     )

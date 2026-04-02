@@ -61,6 +61,22 @@ class RootComponentImpl(
                     override fun onOpenWsTest() {
                         navigation.push(Config.WsTest)
                     }
+
+                    override fun onOpenBrainBoxGuide() {
+                        navigation.push(Config.BrainBoxGuide)
+                    }
+                }
+            )
+
+            Config.BrainBoxGuide -> RootComponent.Child.BrainBoxGuide(
+                component = object : BrainBoxGuideComponent {
+                    override fun onBack() {
+                        navigation.pop()
+                    }
+
+                    override fun onFinish() {
+                        navigation.pop()
+                    }
                 }
             )
 
@@ -84,6 +100,9 @@ class RootComponentImpl(
 
         @Serializable
         data object Home : Config
+
+        @Serializable
+        data object BrainBoxGuide : Config
 
         @Serializable
         data object WsTest : Config
