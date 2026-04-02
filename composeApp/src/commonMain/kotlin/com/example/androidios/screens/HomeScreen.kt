@@ -22,7 +22,10 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onLogout: () -> Unit) {
+fun HomeScreen(
+    onLogout: () -> Unit,
+    onOpenWsTest: () -> Unit
+) {
     val scrollState = rememberScrollState()
     val options = listOf(
         AccessOption(
@@ -69,7 +72,14 @@ fun HomeScreen(onLogout: () -> Unit) {
                 Spacer(modifier = Modifier.height(6.dp))
 
                 options.forEach { option ->
-                    AccessOptionCard(option = option)
+                    AccessOptionCard(
+                        option = option,
+                        onClick = {
+                            if (option.title == "端脑云用户") {
+                                onOpenWsTest()
+                            }
+                        }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -93,12 +103,15 @@ private data class AccessOption(
 )
 
 @Composable
-private fun AccessOptionCard(option: AccessOption) {
+private fun AccessOptionCard(
+    option: AccessOption,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 108.dp)
-            .clickable { },
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7F7))
     ) {

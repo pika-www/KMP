@@ -19,7 +19,8 @@
   - 共享 UI：`App`、`LoginScreen`、`HomeScreen`
   - 共享业务：`AuthRepository`
   - 共享接口：`AuthApi`
-  - 共享网络：`createHttpClient()`（Ktor + 拦截/超时/日志）
+  - 共享网络：`createNetworkClient()`、`NetworkUrlFactory`
+  - 共享 WebSocket：`WsApi`、`WsRepository`
   - 共享模型：`LoginRequest`、`BaseResponse`、`LoginData`
   - 共享 DI：`initKoin()`、`appModule`
 
@@ -46,6 +47,13 @@
 5. `HttpClient` 自动附加基础域名、Header、超时、日志与响应校验
 6. 返回 `BaseResponse<LoginData>` 并在 UI 层处理成功/失败状态
 7. 登录成功后切换到 `HomeScreen`，可执行退出登录
+
+WebSocket 流程（简化）：
+
+1. 通过 Koin 注入 `WsRepository`
+2. `WsRepository.connect(cornId)` 调用 `WsApi.connect(cornId)`
+3. `WsApi` 复用公共前缀 `/cephalon/user-center/v1`，拼出 `/ws/{cornId}`
+4. `NetworkUrlFactory` 基于当前环境域名自动转换为 `ws/wss`
 
 该结构的优点：
 
@@ -200,15 +208,21 @@ KMP/
 
 网络客户端配置在：
 
-- `composeApp/src/commonMain/kotlin/com/example/androidios/di/HttpClient.kt`
+- `composeApp/src/commonMain/kotlin/com/example/androidios/network/NetworkClient.kt`
+
+公共路径与 URL 构造在：
+
+- `composeApp/src/commonMain/kotlin/com/example/androidios/network/NetworkConfig.kt`
+- `composeApp/src/commonMain/kotlin/com/example/androidios/network/NetworkUrlFactory.kt`
 
 已包含：
 
-- 默认请求头（`Content-Type`、`Lang`）
+- 默认请求头（`Lang`）
 - 超时策略
 - JSON 序列化配置
 - 请求/响应日志
 - 响应状态校验与异常处理
+- WebSocket 插件
 
 ---
 

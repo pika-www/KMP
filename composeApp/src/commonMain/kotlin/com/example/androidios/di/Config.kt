@@ -1,12 +1,6 @@
 package com.example.androidios.di
 
-/**
- * 网络基础配置，只负责环境与域名，不承载业务路径。
- */
-data class NetworkConfig(
-    val baseUrl: String,
-    val timeoutMillis: Long
-)
+import com.example.androidios.network.NetworkConfig
 
 object AppConfig {
     // 是否为生产环境（后续可以再切到 Gradle 或平台侧注入）

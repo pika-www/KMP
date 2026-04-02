@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.example.androidios.screens.HomeScreen
 import com.example.androidios.screens.LoginScreen
+import com.example.androidios.screens.WsTestScreen
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -20,6 +21,9 @@ object LoginDestination
 @Serializable
 object HomeDestination
 
+@Serializable
+object WsTestDestination
+
 @Composable
 fun App() {
     MaterialTheme(
@@ -27,16 +31,41 @@ fun App() {
     ) {
         Surface {
             var isLoggedIn by remember { mutableStateOf(false) }
+            var currentDestination by remember { mutableStateOf<Any>(LoginDestination) }
 
             if (!isLoggedIn) {
                 LoginScreen(onLoginSuccess = {
-                    // 登录成功后清空回退栈，防止返回到登录页
                     isLoggedIn = true
+                    currentDestination = HomeDestination
                 })
             } else {
-                HomeScreen(onLogout = {
-                    isLoggedIn = false
-                })
+                when (currentDestination) {
+                    HomeDestination -> HomeScreen(
+                        onLogout = {
+                            isLoggedIn = false
+                            currentDestination = LoginDestination
+                        },
+                        onOpenWsTest = {
+                            currentDestination = WsTestDestination
+                        }
+                    )
+
+                    WsTestDestination -> WsTestScreen(
+                        onBack = {
+                            currentDestination = HomeDestination
+                        }
+                    )
+
+                    else -> HomeScreen(
+                        onLogout = {
+                            isLoggedIn = false
+                            currentDestination = LoginDestination
+                        },
+                        onOpenWsTest = {
+                            currentDestination = WsTestDestination
+                        }
+                    )
+                }
             }
         }
     }
