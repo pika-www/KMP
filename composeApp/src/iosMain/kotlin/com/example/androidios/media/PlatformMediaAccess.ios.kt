@@ -1,10 +1,22 @@
 package com.example.androidios.media
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import com.example.androidios.IOSViewControllerHolder
 import kotlinx.cinterop.ExperimentalForeignApi
+import platform.AVFAudio.AVAudioPlayer
+import platform.AVFAudio.AVAudioRecorder
+import platform.AVFAudio.AVAudioSession
+import platform.AVFAudio.AVAudioSessionCategoryPlayAndRecord
+import platform.AVFAudio.AVAudioSessionCategoryOptionDefaultToSpeaker
+import platform.AVFAudio.AVAudioSessionCategoryOptionMixWithOthers
+import platform.AVFAudio.AVAudioSessionModeDefault
+import platform.AVFAudio.setActive
 import platform.AVFoundation.AVAuthorizationStatusAuthorized
 import platform.AVFoundation.AVAuthorizationStatusDenied
 import platform.AVFoundation.AVAuthorizationStatusNotDetermined
@@ -12,7 +24,13 @@ import platform.AVFoundation.AVCaptureDevice
 import platform.AVFoundation.AVMediaTypeVideo
 import platform.AVFoundation.authorizationStatusForMediaType
 import platform.AVFoundation.requestAccessForMediaType
+import platform.Foundation.NSDate
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSNumber
 import platform.Foundation.NSURL
+import platform.Foundation.NSUserDomainMask
+import platform.Foundation.timeIntervalSince1970
 import platform.Photos.PHAuthorizationStatusAuthorized
 import platform.Photos.PHAuthorizationStatusLimited
 import platform.Photos.PHAuthorizationStatusNotDetermined
@@ -44,25 +62,41 @@ private object IOSPickerDelegateStore {
 }
 
 private class IOSPlatformMediaAccessController(
+    override val isRecording: Boolean,
+    override val recordings: List<AudioRecording>,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
-    private val onOpenFilePicker: () -> Unit
+    private val onOpenFilePicker: () -> Unit,
+    private val onToggleRecording: () -> Unit,
+    private val onPlayRecording: (AudioRecording) -> Unit
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
 
     override fun openGallery() = onOpenGallery()
 
     override fun openFilePicker() = onOpenFilePicker()
+
+    override fun toggleRecording() = onToggleRecording()
+
+    override fun playRecording(recording: AudioRecording) = onPlayRecording(recording)
 }
 
+@OptIn(ExperimentalForeignApi::class)
 @Composable
 actual fun rememberPlatformMediaAccessController(
     onEvent: (String) -> Unit
 ): PlatformMediaAccessController {
     val currentOnEvent = rememberUpdatedState(onEvent)
+    val recordings = remember { mutableStateListOf<AudioRecording>() }
+    var isRecording by remember { mutableStateOf(false) }
+    var audioRecorder by remember { mutableStateOf<AVAudioRecorder?>(null) }
+    var audioPlayer by remember { mutableStateOf<AVAudioPlayer?>(null) }
+    var currentRecordingUrl by remember { mutableStateOf<NSURL?>(null) }
 
-    return remember {
+    return remember(isRecording, recordings.size) {
         IOSPlatformMediaAccessController(
+            isRecording = isRecording,
+            recordings = recordings,
             onOpenCamera = {
                 val presenter = currentPresenter()
                 if (presenter == null) {
@@ -138,9 +172,124 @@ actual fun rememberPlatformMediaAccessController(
                     currentOnEvent.value("正在打开系统文件选择器。")
                     presenter.presentDocumentPicker(currentOnEvent.value)
                 }
+            },
+            onToggleRecording = {
+                if (!isRecording) {
+                    val session = AVAudioSession.sharedInstance()
+                    session.requestRecordPermission { granted ->
+                        dispatch_async(dispatch_get_main_queue()) {
+                            if (!granted) {
+                                currentOnEvent.value("麦克风权限被拒绝，无法开始录音。")
+                                return@dispatch_async
+                            }
+
+                            val result = startIosRecording(session)
+                            audioRecorder = result.recorder
+                            currentRecordingUrl = result.url
+                            isRecording = result.recorder != null
+                            currentOnEvent.value(result.message)
+                        }
+                    }
+                } else {
+                    val recorder = audioRecorder
+                    val url = currentRecordingUrl
+                    recorder?.stop()
+                    audioRecorder = null
+                    currentRecordingUrl = null
+                    isRecording = false
+
+                    if (url != null) {
+                        recordings.add(
+                            0,
+                            AudioRecording(
+                                id = NSDate().timeIntervalSince1970.toString(),
+                                name = url.lastPathComponent ?: "recording.m4a",
+                                path = url.path ?: url.absoluteString ?: ""
+                            )
+                        )
+                        currentOnEvent.value("录音已保存: ${url.path ?: url.absoluteString ?: ""}")
+                    } else {
+                        currentOnEvent.value("录音已停止，但未找到输出文件。")
+                    }
+                }
+            },
+            onPlayRecording = { recording ->
+                try {
+                    val url = NSURL.fileURLWithPath(recording.path)
+                    audioPlayer?.stop()
+                    audioPlayer = AVAudioPlayer(
+                        contentsOfURL = url,
+                        error = null
+                    )
+                    audioPlayer?.prepareToPlay()
+                    audioPlayer?.play()
+                    currentOnEvent.value("正在播放录音: ${recording.name}")
+                } catch (error: Throwable) {
+                    currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
+                }
             }
         )
     }
+}
+
+private data class IOSRecordingResult(
+    val recorder: AVAudioRecorder?,
+    val url: NSURL?,
+    val message: String
+)
+
+@OptIn(ExperimentalForeignApi::class)
+private fun startIosRecording(session: AVAudioSession): IOSRecordingResult {
+    return try {
+        session.setCategory(
+            category = AVAudioSessionCategoryPlayAndRecord,
+            mode = AVAudioSessionModeDefault,
+            options = AVAudioSessionCategoryOptionDefaultToSpeaker or AVAudioSessionCategoryOptionMixWithOthers,
+            error = null
+        )
+        session.setActive(true, error = null)
+
+        val url = createRecordingUrl()
+        val settings = mapOf<Any?, Any>(
+            "AVFormatIDKey" to NSNumber(1633772320),
+            "AVSampleRateKey" to NSNumber(44100.0),
+            "AVNumberOfChannelsKey" to NSNumber(1),
+            "AVEncoderAudioQualityKey" to NSNumber(2)
+        )
+        val recorder = AVAudioRecorder(
+            uRL = url,
+            settings = settings,
+            error = null
+        ) ?: return IOSRecordingResult(
+            recorder = null,
+            url = null,
+            message = "创建录音器失败。"
+        )
+        recorder.prepareToRecord()
+        recorder.record()
+
+        IOSRecordingResult(
+            recorder = recorder,
+            url = url,
+            message = "录音已开始。"
+        )
+    } catch (error: Throwable) {
+        IOSRecordingResult(
+            recorder = null,
+            url = null,
+            message = "开始录音失败: ${error.message.orEmpty()}"
+        )
+    }
+}
+
+private fun createRecordingUrl(): NSURL {
+    val directory = NSFileManager.defaultManager.URLsForDirectory(
+        directory = NSDocumentDirectory,
+        inDomains = NSUserDomainMask
+    ).firstOrNull() as? NSURL
+        ?: error("无法获取文稿目录。")
+    val fileName = "audio_${NSDate().timeIntervalSince1970.toLong()}.m4a"
+    return directory.URLByAppendingPathComponent(fileName)!!
 }
 
 private fun currentPresenter(): UIViewController? {
@@ -211,7 +360,6 @@ private class ImagePickerDelegate(
         onEvent("已取消选择图片。")
     }
 
-    @OptIn(ExperimentalForeignApi::class)
     override fun imagePickerController(
         picker: UIImagePickerController,
         didFinishPickingMediaWithInfo: Map<Any?, *>
@@ -224,7 +372,7 @@ private class ImagePickerDelegate(
 
         when {
             imageUrl != null -> onEvent("已选择图片: ${imageUrl.absoluteString ?: "未知路径"}")
-            image != null -> onEvent("已获取图片对象，尺寸 ")
+            image != null -> onEvent("已获取图片对象。")
             else -> onEvent("已完成图片选择，但未读取到结果。")
         }
     }
