@@ -4,5 +4,11 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>需要使用相机拍照进行本地部署测试</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>需要访问相册选择图片进行本地部署测试</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>需要保存图片到相册时使用</string>
 </dict>
 </plist>

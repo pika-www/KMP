@@ -16,6 +16,7 @@ import com.example.androidios.navigation.createDefaultComponentContext
 import com.example.androidios.screens.ForgotPasswordScreen
 import com.example.androidios.screens.BrainBoxGuideScreen
 import com.example.androidios.screens.HomeScreen
+import com.example.androidios.screens.LocalDeployTestScreen
 import com.example.androidios.screens.LoginScreen
 import com.example.androidios.screens.WsTestScreen
 import kotlinx.serialization.Serializable
@@ -61,7 +62,8 @@ fun App() {
                         HomeScreen(
                             onLogout = instance.component::onLogout,
                             onOpenWsTest = instance.component::onOpenWsTest,
-                            onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide
+                            onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
+                            onOpenLocalDeployTest = instance.component::onOpenLocalDeployTest
                         )
                     }
 
@@ -74,6 +76,12 @@ fun App() {
 
                     is RootComponent.Child.WsTest -> {
                         WsTestScreen(
+                            onBack = instance.component::onBack
+                        )
+                    }
+
+                    is RootComponent.Child.LocalDeployTest -> {
+                        LocalDeployTestScreen(
                             onBack = instance.component::onBack
                         )
                     }

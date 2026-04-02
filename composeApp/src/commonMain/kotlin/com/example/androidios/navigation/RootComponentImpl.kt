@@ -65,6 +65,10 @@ class RootComponentImpl(
                     override fun onOpenBrainBoxGuide() {
                         navigation.push(Config.BrainBoxGuide)
                     }
+
+                    override fun onOpenLocalDeployTest() {
+                        navigation.push(Config.LocalDeployTest)
+                    }
                 }
             )
 
@@ -82,6 +86,14 @@ class RootComponentImpl(
 
             Config.WsTest -> RootComponent.Child.WsTest(
                 component = object : WsTestComponent {
+                    override fun onBack() {
+                        navigation.pop()
+                    }
+                }
+            )
+
+            Config.LocalDeployTest -> RootComponent.Child.LocalDeployTest(
+                component = object : LocalDeployTestComponent {
                     override fun onBack() {
                         navigation.pop()
                     }
@@ -106,5 +118,8 @@ class RootComponentImpl(
 
         @Serializable
         data object WsTest : Config
+
+        @Serializable
+        data object LocalDeployTest : Config
     }
 }

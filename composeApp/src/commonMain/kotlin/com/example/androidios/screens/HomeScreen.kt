@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
 fun HomeScreen(
     onLogout: () -> Unit,
     onOpenWsTest: () -> Unit,
-    onOpenBrainBoxGuide: () -> Unit
+    onOpenBrainBoxGuide: () -> Unit,
+    onOpenLocalDeployTest: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val options = listOf(
@@ -79,6 +80,7 @@ fun HomeScreen(
                             when (option.title) {
                                 "脑花盒子用户" -> onOpenBrainBoxGuide()
                                 "端脑云用户" -> onOpenWsTest()
+                                "本地部署用户" -> onOpenLocalDeployTest()
                             }
                         }
                     )
