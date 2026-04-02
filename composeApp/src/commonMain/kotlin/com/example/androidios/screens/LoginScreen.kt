@@ -27,12 +27,19 @@ import com.example.androidios.api.AuthRepository
 import com.example.androidios.api.LoginRequest
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.example.androidios.components.CustomTextField
+
 
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
     onForgotPassword: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current // 获取焦点管理器
+
     // 1. 注入 AuthRepository (通过 Koin)
     val authRepository = koinInject<AuthRepository>()
     val scope = rememberCoroutineScope()
@@ -83,7 +90,14 @@ fun LoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            //点击背景时清除焦点
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null // 设为 null 以禁用点击背景时的水波纹效果
+            ) {
+                focusManager.clearFocus()
+            },
         contentAlignment = Alignment.Center
     ) {
         ElevatedCard(
@@ -118,32 +132,33 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(40.dp))
 
                 // 用户名输入框
-                OutlinedTextField(
+                // --- 用户名输入框 ---
+                CustomTextField(
                     value = username,
                     onValueChange = {
                         username = it
                         error = ""
                     },
-                    label = { Text("用户名") },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
+                    label = "用户名",
+                    leadingIcon = Icons.Default.Person,
                     enabled = !isLoading,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 密码输入框
-                OutlinedTextField(
+                // --- 密码输入框 ---
+                CustomTextField(
                     value = password,
                     onValueChange = {
                         password = it
                         error = ""
                     },
-                    label = { Text("密码") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                    label = "密码",
+                    leadingIcon = Icons.Default.Lock,
+                    enabled = !isLoading,
+                    // 传入密码特有的属性
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         IconButton(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
@@ -152,17 +167,13 @@ fun LoginScreen(
                             )
                         }
                     },
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
-                    enabled = !isLoading,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(onDone = { performLogin() })
                 )
+
 
                 if (error.isNotEmpty()) {
                     Text(

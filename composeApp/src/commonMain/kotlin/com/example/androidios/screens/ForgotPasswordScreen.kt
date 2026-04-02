@@ -1,38 +1,37 @@
 package com.example.androidios.screens
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.example.androidios.api.AuthInput
-import com.example.androidios.api.AuthRepository
-import com.example.androidios.api.CodeRequest
-import com.example.androidios.api.ForgetPasswordRequest
-import kotlinx.coroutines.launch
-import org.koin.compose.koinInject
+import com.example.androidios.components.CustomTextField
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.ui.text.input.VisualTransformation
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun ForgotPasswordScreen(
-    onBack: () -> Unit
+    onBackToLogin: () -> Unit
 ) {
-    val authRepository = koinInject<AuthRepository>()
-    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current // 获取焦点管理器
 
     var account by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
@@ -40,155 +39,172 @@ fun ForgotPasswordScreen(
     var confirmPwd by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var confirmPassword by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("忘记密码") }
-            )
+    val performReset: () -> Unit = {
+        if (account.isBlank() || code.isBlank() || pwd.isBlank() || confirmPwd.isBlank()) {
+            error = "请填写完整信息"
+        } else if (pwd != confirmPwd) {
+            error = "两次输入的密码不一致"
+        } else {
+            isLoading = true
+            error = ""
+            // 这里执行重置密码逻辑
         }
-    ) { padding ->
-        Column(
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            // 点击背景收起键盘
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                focusManager.clearFocus()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        ElevatedCard(
             modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
+                .fillMaxWidth()
+                .padding(24.dp),
+            shape = RoundedCornerShape(24.dp)
         ) {
-            OutlinedTextField(
-                value = account,
-                onValueChange = {
-                    account = it
-                    error = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("手机号或邮箱") }
-            )
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "重置密码",
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-            OutlinedTextField(
-                value = code,
-                onValueChange = {
-                    code = it
-                    error = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("验证码") }
-            )
+                // --- 手机号或邮箱 ---
+                CustomTextField(
+                    value = account,
+                    onValueChange = {
+                        account = it
+                        error = ""
+                    },
+                    label = "手机号或邮箱",
+                    leadingIcon = Icons.Default.Person,
+                    enabled = !isLoading,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = pwd,
-                onValueChange = {
-                    pwd = it
-                    error = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("新密码") }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = confirmPwd,
-                onValueChange = {
-                    confirmPwd = it
-                    error = ""
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("确认新密码") }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (error.isNotBlank()) {
-                Text(error)
                 Spacer(modifier = Modifier.height(12.dp))
-            }
 
-            Button(
-                onClick = {
-                    val normalized = AuthInput.normalizeAccount(account)
-                    if (normalized.isBlank()) {
-                        error = "请输入手机号或邮箱"
-                        return@Button
-                    }
-                    val isEmail = AuthInput.isEmail(normalized)
+                CustomTextField(
+                    value = code,
+                    onValueChange = { code = it },
+                    label = "验证码",
+                    leadingIcon = Icons.Default.LockOpen,
+                    // --- 新增参数 ---
+                    isVerificationCode = true,
+                    onSendCode = {
+                        // 在这里调用您的发送验证码接口
+                        println("正在向 $account 发送验证码...")
+                    },
+                    // ----------------
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next
+                    )
+                )
 
-                    isLoading = true
-                    error = ""
-                    scope.launch {
-                        val resp = authRepository.getCode(
-                            CodeRequest(
-                                actionType = "modify",
-                                appType = if (isEmail) null else "platform",
-                                email = if (isEmail) normalized else null,
-                                phone = if (isEmail) null else normalized
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // --- 新密码 ---
+                CustomTextField(
+                    value = pwd,
+                    onValueChange = {
+                        pwd = it
+                        error = ""
+                    },
+                    label = "新密码",
+                    leadingIcon = Icons.Default.Lock,
+                    enabled = !isLoading,
+                    // --- 修复点：根据状态切换可见性 ---
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = null
                             )
-                        )
-                        isLoading = false
-                        if (resp.code != 20000) {
-                            error = resp.msg
                         }
-                    }
-                },
-                enabled = !isLoading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("获取验证码")
-            }
+                    },
+                    // ----------------
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Next
+                    )
+                )
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-            Button(
-                onClick = {
-                    val normalized = AuthInput.normalizeAccount(account)
-                    if (normalized.isBlank() || code.isBlank() || pwd.isBlank() || confirmPwd.isBlank()) {
-                        error = "请填写完整信息"
-                        return@Button
-                    }
-                    if (pwd != confirmPwd) {
-                        error = "两次密码不一致"
-                        return@Button
-                    }
-
-                    val isEmail = AuthInput.isEmail(normalized)
-                    val type = if (isEmail) "email" else "phone"
-
-                    isLoading = true
-                    error = ""
-                    scope.launch {
-                        val resp = authRepository.forgetPassword(
-                            ForgetPasswordRequest(
-                                account = normalized,
-                                code = code,
-                                confirmPwd = confirmPwd,
-                                pwd = pwd,
-                                type = type
+// --- 确认新密码 ---
+                CustomTextField(
+                    value = confirmPwd,
+                    onValueChange = {
+                        confirmPwd = it
+                        error = ""
+                    },
+                    label = "确认新密码",
+                    leadingIcon = Icons.Default.Lock,
+                    enabled = !isLoading,
+                    // --- 修复点：同样应用可见性逻辑 ---
+                    visualTransformation = if (confirmPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { confirmPassword = !confirmPassword }) {
+                            Icon(
+                                imageVector = if (confirmPassword) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = null
                             )
-                        )
-                        isLoading = false
-                        if (resp.code == 20000) {
-                            onBack()
-                        } else {
-                            error = resp.msg
                         }
+                    },
+                    // ----------------
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { performReset() })
+                )
+
+                if (error.isNotEmpty()) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Button(
+                    onClick = performReset,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isLoading
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("重置并登录", style = MaterialTheme.typography.titleMedium)
                     }
-                },
-                enabled = !isLoading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("重置密码")
-            }
+                }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = onBack,
-                enabled = !isLoading,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("返回")
+                TextButton(onClick = onBackToLogin, enabled = !isLoading) {
+                    Text("返回登录")
+                }
             }
         }
     }

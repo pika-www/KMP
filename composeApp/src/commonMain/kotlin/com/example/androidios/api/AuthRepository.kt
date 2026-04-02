@@ -3,7 +3,7 @@ package com.example.androidios.api
 import com.example.androidios.auth.AuthTokenStore
 
 /**
- * 认证相关的仓库类，负责调用登录接口
+ * 登录相关接口
  */
 class AuthRepository(
     private val authApi: AuthApi,

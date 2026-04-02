@@ -54,7 +54,7 @@ fun App() {
 
                     is RootComponent.Child.ForgotPassword -> {
                         ForgotPasswordScreen(
-                            onBack = instance.component::onBack
+                            onBackToLogin = instance.component::onBack
                         )
                     }
 

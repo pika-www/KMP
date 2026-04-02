@@ -36,12 +36,6 @@ data class CodeRequest(
 
     val email: String? = null,
     val phone: String? = null,
-
-    @SerialName("point_dots")
-    val pointDots: String = "",
-
-    @SerialName("secret_key")
-    val secretKey: String = ""
 )
 
 @Serializable

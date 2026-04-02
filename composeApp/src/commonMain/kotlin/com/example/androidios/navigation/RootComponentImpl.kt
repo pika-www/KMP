@@ -10,6 +10,9 @@ import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.router.stack.replaceAll
 import com.arkivanov.decompose.value.Value
 import kotlinx.serialization.Serializable
+import com.arkivanov.decompose.DelicateDecomposeApi // 确保导入这个
+
+@OptIn(DelicateDecomposeApi::class) // 添加这一行
 
 class RootComponentImpl(
     componentContext: ComponentContext,
