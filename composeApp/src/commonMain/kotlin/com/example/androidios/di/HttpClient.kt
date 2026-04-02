@@ -12,19 +12,19 @@ import kotlinx.serialization.json.Json
 /**
  * 创建并配置 Ktor HttpClient，包含请求/响应拦截逻辑
  */
-fun createHttpClient(): HttpClient {
+fun createHttpClient(config: NetworkConfig): HttpClient {
     return HttpClient {
-        // 1. 设置基础 URL 和超时
+        // 1. 设置基础域名和超时
         defaultRequest {
-            url(AppConfig.BASE_URL)
+            url(config.baseUrl)
             header(HttpHeaders.ContentType, ContentType.Application.Json)
             header("Lang", "zh")
         }
 
         install(HttpTimeout) {
-            requestTimeoutMillis = AppConfig.TIMEOUT_MILLIS
-            connectTimeoutMillis = AppConfig.TIMEOUT_MILLIS
-            socketTimeoutMillis = AppConfig.TIMEOUT_MILLIS
+            requestTimeoutMillis = config.timeoutMillis
+            connectTimeoutMillis = config.timeoutMillis
+            socketTimeoutMillis = config.timeoutMillis
         }
 
         // 2. JSON 序列化配置

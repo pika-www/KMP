@@ -18,6 +18,7 @@
 - **共享层（`composeApp/src/commonMain`）**
   - 共享 UI：`App`、`LoginScreen`、`HomeScreen`
   - 共享业务：`AuthRepository`
+  - 共享接口：`AuthApi`
   - 共享网络：`createHttpClient()`（Ktor + 拦截/超时/日志）
   - 共享模型：`LoginRequest`、`BaseResponse`、`LoginData`
   - 共享 DI：`initKoin()`、`appModule`
@@ -40,10 +41,11 @@
 
 1. `LoginScreen` 收集用户名/密码并发起登录
 2. 通过 Koin 注入 `AuthRepository`
-3. `AuthRepository.login()` 调用 Ktor `client.post("login")`
-4. `HttpClient` 自动附加 Base URL、Header、超时、日志与响应校验
-5. 返回 `BaseResponse<LoginData>` 并在 UI 层处理成功/失败状态
-6. 登录成功后切换到 `HomeScreen`，可执行退出登录
+3. `AuthRepository.login()` 调用 `AuthApi.login()`
+4. `AuthApi` 负责拼接登录模块路径 `/cephalon/user-center/v1/login`
+5. `HttpClient` 自动附加基础域名、Header、超时、日志与响应校验
+6. 返回 `BaseResponse<LoginData>` 并在 UI 层处理成功/失败状态
+7. 登录成功后切换到 `HomeScreen`，可执行退出登录
 
 该结构的优点：
 
@@ -188,8 +190,13 @@ KMP/
 可调整项：
 
 - `IS_PROD`：切换测试/生产环境
-- `BASE_URL`：接口根路径
+- `baseDomain`：接口基础域名
 - `TIMEOUT_MILLIS`：请求超时时间
+
+说明：
+
+- `AppConfig` 只维护环境和基础域名
+- `/cephalon/user-center/v1/` 已收敛到 `AuthApi`，作为登录模块自己的路径前缀
 
 网络客户端配置在：
 
