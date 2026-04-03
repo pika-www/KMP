@@ -134,7 +134,7 @@ KMP/
 ./gradlew :composeApp:installDebug
 ```
 
-> 如果需要卸载重装，可先在设备上卸载包名 `com.example.androidios`。
+> 如果需要卸载重装，可先在设备上卸载包名 `com.cephalon.lucyApp`。
 
 ---
 

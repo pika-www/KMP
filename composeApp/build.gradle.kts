@@ -99,11 +99,11 @@ kotlin {
 }
 
 android {
-    namespace = "com.example.androidios"
+    namespace = "com.cephalon.lucyApp"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.example.androidios"
+        applicationId = "com.cephalon.lucyApp"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
