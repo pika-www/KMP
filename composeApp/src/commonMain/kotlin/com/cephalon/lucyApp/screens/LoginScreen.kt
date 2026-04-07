@@ -1,5 +1,7 @@
 package com.cephalon.lucyApp.screens
 
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.logo
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +37,7 @@ import com.cephalon.lucyApp.api.AuthInput
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LoginRequest
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.clickable
@@ -220,7 +223,19 @@ fun LoginScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.size(56.dp)
-            ) {}
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.logo),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 

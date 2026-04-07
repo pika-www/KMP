@@ -17,12 +17,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.PsychologyAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -42,8 +39,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.logo
 import kotlin.math.min
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
 
 private data class GuidePage(
     val title: String,
@@ -124,10 +124,10 @@ fun BrainBoxGuideScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.PsychologyAlt,
+                                painter = painterResource(Res.drawable.logo),
                                 contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(scaledDp(14.dp, scale))
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(scaledDp(18.dp, scale))
                             )
                         }
                         Spacer(modifier = Modifier.width(scaledDp(8.dp, scale)))
@@ -286,19 +286,10 @@ private fun HeroIcon(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.Rounded.PsychologyAlt,
+            painter = painterResource(Res.drawable.logo),
             contentDescription = null,
-            tint = Color.White,
+            tint = Color.Unspecified,
             modifier = Modifier.size(scaledDp(if (pageIndex == 4) 58.dp else 52.dp, scale))
-        )
-
-        Icon(
-            imageVector = Icons.Rounded.AutoAwesome,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(scaledDp(20.dp, scale))
         )
     }
 }
