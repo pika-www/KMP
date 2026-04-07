@@ -8,6 +8,7 @@ import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -29,11 +30,17 @@ import java.util.UUID
 private class AndroidPlatformMediaAccessController(
     override val isRecording: Boolean,
     override val recordings: List<AudioRecording>,
+    override val pickedImages: List<String>,
+    override val pickedFiles: List<String>,
+    override val recentImages: List<String>,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
     private val onOpenFilePicker: () -> Unit,
-    private val onToggleRecording: () -> Unit,
-    private val onPlayRecording: (AudioRecording) -> Unit
+    private val onStartRecording: () -> Unit,
+    private val onFinishRecording: () -> Unit,
+    private val onCancelRecording: () -> Unit,
+    private val onPlayRecording: (AudioRecording) -> Unit,
+    private val onRefreshRecentImages: () -> Unit
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
 
@@ -41,9 +48,15 @@ private class AndroidPlatformMediaAccessController(
 
     override fun openFilePicker() = onOpenFilePicker()
 
-    override fun toggleRecording() = onToggleRecording()
+    override fun startRecording() = onStartRecording()
+
+    override fun finishRecording() = onFinishRecording()
+
+    override fun cancelRecording() = onCancelRecording()
 
     override fun playRecording(recording: AudioRecording) = onPlayRecording(recording)
+
+    override fun refreshRecentImages() = onRefreshRecentImages()
 }
 
 @Composable
@@ -53,10 +66,57 @@ actual fun rememberPlatformMediaAccessController(
     val context = LocalContext.current
     val currentOnEvent = rememberUpdatedState(onEvent)
     val recordings = remember { mutableStateListOf<AudioRecording>() }
+    val pickedImages = remember { mutableStateListOf<String>() }
+    val pickedFiles = remember { mutableStateListOf<String>() }
+    val recentImages = remember { mutableStateListOf<String>() }
     var isRecording by remember { mutableStateOf(false) }
     var currentRecordingFile by remember { mutableStateOf<File?>(null) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+
+    fun loadRecentImages() {
+        try {
+            val resolver = context.contentResolver
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID
+            )
+            val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            val uris = buildList {
+                resolver.query(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    sortOrder
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    var count = 0
+                    while (cursor.moveToNext() && count < 24) {
+                        val id = cursor.getLong(idCol)
+                        val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString())
+                        add(uri.toString())
+                        count++
+                    }
+                }
+            }
+            recentImages.clear()
+            recentImages.addAll(uris)
+        } catch (t: Throwable) {
+            currentOnEvent.value("读取近期照片失败: ${t.message.orEmpty()}")
+        }
+    }
+
+    val requestReadImagesPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            currentOnEvent.value("相册权限已授权，正在加载近期照片。")
+            loadRecentImages()
+        } else {
+            currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
+            recentImages.clear()
+        }
+    }
 
     val takePicturePreviewLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
@@ -65,6 +125,7 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("相机已取消或未返回图片。")
         } else {
             currentOnEvent.value("拍照成功，已返回预览图 ${bitmap.width} x ${bitmap.height}。")
+            pickedImages.add(0, "android-bitmap-preview://${UUID.randomUUID()}")
         }
     }
 
@@ -105,6 +166,18 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("未选择图片。")
         } else {
             currentOnEvent.value("已选择图片: $uri")
+            pickedImages.add(0, uri.toString())
+        }
+    }
+
+    val pickMultipleVisualMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 20)
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) {
+            currentOnEvent.value("未选择图片。")
+        } else {
+            currentOnEvent.value("已选择 ${uris.size} 张图片。")
+            uris.asReversed().forEach { pickedImages.add(0, it.toString()) }
         }
     }
 
@@ -115,6 +188,18 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("未选择图片。")
         } else {
             currentOnEvent.value("已选择图片: $uri")
+            pickedImages.add(0, uri.toString())
+        }
+    }
+
+    val getMultipleContentsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) {
+            currentOnEvent.value("未选择图片。")
+        } else {
+            currentOnEvent.value("已选择 ${uris.size} 张图片。")
+            uris.asReversed().forEach { pickedImages.add(0, it.toString()) }
         }
     }
 
@@ -125,13 +210,17 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("未选择文件。")
         } else {
             currentOnEvent.value("已选择文件: $uri")
+            pickedFiles.add(0, uri.toString())
         }
     }
 
-    return remember(context, isRecording, recordings.size) {
+    return remember(context, isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size) {
         AndroidPlatformMediaAccessController(
             isRecording = isRecording,
             recordings = recordings,
+            pickedImages = pickedImages,
+            pickedFiles = pickedFiles,
+            recentImages = recentImages,
             onOpenCamera = {
                 val activity = context.findActivity()
                 if (activity == null) {
@@ -154,57 +243,81 @@ actual fun rememberPlatformMediaAccessController(
             onOpenGallery = {
                 currentOnEvent.value("正在打开系统图片选择器。")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    pickVisualMediaLauncher.launch(
+                    pickMultipleVisualMediaLauncher.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 } else {
-                    getContentLauncher.launch("image/*")
+                    getMultipleContentsLauncher.launch("image/*")
                 }
             },
             onOpenFilePicker = {
                 currentOnEvent.value("正在打开系统文件选择器。")
                 openDocumentLauncher.launch(arrayOf("*/*"))
             },
-            onToggleRecording = {
+            onStartRecording = {
                 val activity = context.findActivity()
                 if (activity == null) {
                     currentOnEvent.value("未找到 Activity，上下文异常，无法录音。")
-                } else if (!isRecording) {
-                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
-                        activity,
-                        Manifest.permission.RECORD_AUDIO
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    return@AndroidPlatformMediaAccessController
+                }
 
-                    if (granted) {
-                        val result = startAndroidRecording(context)
-                        mediaRecorder = result.recorder
-                        currentRecordingFile = result.file
-                        isRecording = result.recorder != null
-                        currentOnEvent.value(result.message)
-                    } else {
-                        currentOnEvent.value("正在申请麦克风权限。")
-                        requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
+                if (isRecording) return@AndroidPlatformMediaAccessController
+
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    activity,
+                    Manifest.permission.RECORD_AUDIO
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                if (granted) {
+                    val result = startAndroidRecording(context)
+                    mediaRecorder = result.recorder
+                    currentRecordingFile = result.file
+                    isRecording = result.recorder != null
+                    currentOnEvent.value(result.message)
                 } else {
-                    val file = currentRecordingFile
-                    val recorder = mediaRecorder
-                    stopAndroidRecording(recorder)
-                    mediaRecorder = null
-                    currentRecordingFile = null
-                    isRecording = false
+                    currentOnEvent.value("正在申请麦克风权限。")
+                    requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            onFinishRecording = {
+                if (!isRecording) return@AndroidPlatformMediaAccessController
 
-                    if (file != null && file.exists()) {
-                        val recording = AudioRecording(
-                            id = UUID.randomUUID().toString(),
-                            name = file.name,
-                            path = file.absolutePath
-                        )
-                        recordings.add(0, recording)
-                        currentOnEvent.value("录音已保存: ${file.absolutePath}")
-                    } else {
-                        currentOnEvent.value("录音已停止，但未找到输出文件。")
+                val file = currentRecordingFile
+                val recorder = mediaRecorder
+                stopAndroidRecording(recorder)
+                mediaRecorder = null
+                currentRecordingFile = null
+                isRecording = false
+
+                if (file != null && file.exists()) {
+                    val recording = AudioRecording(
+                        id = UUID.randomUUID().toString(),
+                        name = file.name,
+                        path = file.absolutePath
+                    )
+                    recordings.add(0, recording)
+                    currentOnEvent.value("录音已保存: ${file.absolutePath}")
+                } else {
+                    currentOnEvent.value("录音已停止，但未找到输出文件。")
+                }
+            },
+            onCancelRecording = {
+                if (!isRecording) return@AndroidPlatformMediaAccessController
+
+                val file = currentRecordingFile
+                val recorder = mediaRecorder
+                stopAndroidRecording(recorder)
+                mediaRecorder = null
+                currentRecordingFile = null
+                isRecording = false
+
+                if (file != null) {
+                    try {
+                        file.delete()
+                    } catch (_: Exception) {
                     }
                 }
+                currentOnEvent.value("已取消录音")
             },
             onPlayRecording = { recording ->
                 try {
@@ -222,6 +335,32 @@ actual fun rememberPlatformMediaAccessController(
                     currentOnEvent.value("正在播放录音: ${recording.name}")
                 } catch (error: Exception) {
                     currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
+                }
+            },
+            onRefreshRecentImages = refresh@{
+                val activity = context.findActivity()
+                if (activity == null) {
+                    currentOnEvent.value("未找到 Activity，上下文异常，无法读取近期照片。")
+                    return@refresh
+                }
+
+                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_IMAGES
+                } else {
+                    @Suppress("DEPRECATION")
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                }
+
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    activity,
+                    permission
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                if (granted) {
+                    loadRecentImages()
+                } else {
+                    currentOnEvent.value("正在申请相册权限，用于展示近期照片。")
+                    requestReadImagesPermissionLauncher.launch(permission)
                 }
             }
         )
