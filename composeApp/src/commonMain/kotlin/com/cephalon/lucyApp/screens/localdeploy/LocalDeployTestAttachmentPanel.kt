@@ -33,6 +33,7 @@ internal fun LocalDeployTestAttachmentPanel(
     onOpenCamera: () -> Unit,
     onOpenGallery: () -> Unit,
     onOpenFilePicker: () -> Unit,
+    onImageClick: (String) -> Unit,
     onClearLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -62,6 +63,7 @@ internal fun LocalDeployTestAttachmentPanel(
         ) {
             items(images) { uri ->
                 Card(
+                    modifier = Modifier.clickable { onImageClick(uri) },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
                 ) {

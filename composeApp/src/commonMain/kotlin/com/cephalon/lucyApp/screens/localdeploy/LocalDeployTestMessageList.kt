@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.screens.localdeploy
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
@@ -36,6 +39,7 @@ internal fun LocalDeployTestMessageList(
     messages: List<ChatItem>,
     recordings: List<AudioRecording>,
     onPlayRecording: (AudioRecording) -> Unit,
+    onImageClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -67,18 +71,14 @@ internal fun LocalDeployTestMessageList(
                 }
 
                 is ChatItem.UserAttachments -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
+                    BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
-                            modifier = Modifier.fillMaxWidth(0.82f)
+                            modifier = Modifier.widthIn(max = bubbleMaxWidth)
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
@@ -96,7 +96,7 @@ internal fun LocalDeployTestMessageList(
 
                                 if (images.isNotEmpty()) {
                                     Column(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier.widthIn(max = bubbleMaxWidth - 28.dp),
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         images.chunked(2).forEach { rowImages ->
@@ -106,10 +106,12 @@ internal fun LocalDeployTestMessageList(
                                             ) {
                                                 ImageAttachmentCell(
                                                     attachment = rowImages.getOrNull(0),
+                                                    onClick = onImageClick,
                                                     modifier = Modifier.weight(1f)
                                                 )
                                                 ImageAttachmentCell(
                                                     attachment = rowImages.getOrNull(1),
+                                                    onClick = onImageClick,
                                                     modifier = Modifier.weight(1f)
                                                 )
                                             }
@@ -151,16 +153,15 @@ internal fun LocalDeployTestMessageList(
                 }
 
                 is ChatItem.RecordingItem -> {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                    BubbleContainer(alignEnd = false) { bubbleMaxWidth ->
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
-                            modifier = Modifier.fillMaxWidth(0.82f)
+                            modifier = Modifier.widthIn(max = bubbleMaxWidth)
                         ) {
                             Row(
                                 modifier = Modifier
-                                    .fillMaxWidth()
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -170,7 +171,7 @@ internal fun LocalDeployTestMessageList(
                                     contentDescription = null,
                                     tint = Color(0xFF111111)
                                 )
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(modifier = Modifier.widthIn(max = bubbleMaxWidth - 140.dp)) {
                                     Text(
                                         text = item.name,
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -179,7 +180,9 @@ internal fun LocalDeployTestMessageList(
                                     Text(
                                         text = item.path,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF777777)
+                                        color = Color(0xFF777777),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 OutlinedButton(
@@ -208,15 +211,18 @@ internal fun LocalDeployTestMessageList(
 @Composable
 private fun ImageAttachmentCell(
     attachment: DraftAttachment?,
+    onClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (attachment == null) {
-        Spacer(modifier = modifier)
+        Spacer(modifier = modifier.aspectRatio(1f))
     } else {
         Card(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2B2B)),
-            modifier = modifier.aspectRatio(1f)
+            modifier = modifier
+                .aspectRatio(1f)
+                .clickable { onClick(attachment.uri) }
         ) {
             PlatformImageThumbnail(
                 uri = attachment.uri,

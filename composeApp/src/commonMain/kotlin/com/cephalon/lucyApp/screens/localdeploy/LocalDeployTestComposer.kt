@@ -51,6 +51,7 @@ internal fun LocalDeployTestComposer(
     onInputChange: (String) -> Unit,
     draftAttachments: List<DraftAttachment>,
     onRemoveDraftAttachment: (DraftAttachment) -> Unit,
+    onImageClick: (String) -> Unit,
     isRecording: Boolean,
     isCancelBySlide: Boolean,
     voiceCancelThreshold: Dp,
@@ -93,6 +94,7 @@ internal fun LocalDeployTestComposer(
             DraftAttachmentPreviewRow(
                 attachments = draftAttachments,
                 onRemoveAttachment = onRemoveDraftAttachment,
+                onImageClick = onImageClick,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
@@ -207,6 +209,7 @@ internal fun LocalDeployTestComposer(
 private fun DraftAttachmentPreviewRow(
     attachments: List<DraftAttachment>,
     onRemoveAttachment: (DraftAttachment) -> Unit,
+    onImageClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyRow(
@@ -221,7 +224,9 @@ private fun DraftAttachmentPreviewRow(
                 when (attachment.type) {
                     DraftAttachmentType.Image -> {
                         Card(
-                            modifier = Modifier.size(72.dp),
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clickable { onImageClick(attachment.uri) },
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
                         ) {

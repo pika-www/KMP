@@ -52,6 +52,7 @@ import com.cephalon.lucyApp.screens.localdeploy.DraftAttachment
 import com.cephalon.lucyApp.screens.localdeploy.DraftAttachmentType
 import com.cephalon.lucyApp.screens.localdeploy.LocalDeployTestAttachmentPanel
 import com.cephalon.lucyApp.screens.localdeploy.LocalDeployTestComposer
+import com.cephalon.lucyApp.screens.localdeploy.LocalDeployTestImagePreview
 import com.cephalon.lucyApp.screens.localdeploy.LocalDeployTestMessageList
 import com.cephalon.lucyApp.screens.localdeploy.LocalDeployTestTopBar
 import com.cephalon.lucyApp.screens.localdeploy.LocalDeployTestVoiceRecordingOverlay
@@ -86,6 +87,7 @@ fun LocalDeployTestScreen(onBack: () -> Unit) {
 
     var inputText by remember { mutableStateOf("") }
     var attachmentsExpanded by remember { mutableStateOf(false) }
+    var previewImageUri by remember { mutableStateOf<String?>(null) }
 
     val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
     var lastPickedImagesSize by remember { mutableStateOf(0) }
@@ -233,6 +235,7 @@ fun LocalDeployTestScreen(onBack: () -> Unit) {
                         messages = messages,
                         recordings = mediaAccessController.recordings,
                         onPlayRecording = { mediaAccessController.playRecording(it) },
+                        onImageClick = { previewImageUri = it },
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -247,6 +250,7 @@ fun LocalDeployTestScreen(onBack: () -> Unit) {
                         },
                         draftAttachments = draftAttachments,
                         onRemoveDraftAttachment = { draftAttachments.remove(it) },
+                        onImageClick = { previewImageUri = it },
                         isRecording = mediaAccessController.isRecording,
                         isCancelBySlide = voiceCancelBySlide,
                         voiceCancelThreshold = voiceCancelThreshold,
@@ -288,6 +292,7 @@ fun LocalDeployTestScreen(onBack: () -> Unit) {
                                 messages.add(ChatItem.System("选择系统文件"))
                                 mediaAccessController.openFilePicker()
                             },
+                            onImageClick = { previewImageUri = it },
                             onClearLogs = {
                                 logs.clear()
                                 messages.add(ChatItem.System("已清空记录"))
@@ -300,6 +305,13 @@ fun LocalDeployTestScreen(onBack: () -> Unit) {
                     LocalDeployTestVoiceRecordingOverlay(
                         isCancelBySlide = voiceCancelBySlide,
                         modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
+
+                previewImageUri?.let { uri ->
+                    LocalDeployTestImagePreview(
+                        uri = uri,
+                        onDismiss = { previewImageUri = null }
                     )
                 }
             }

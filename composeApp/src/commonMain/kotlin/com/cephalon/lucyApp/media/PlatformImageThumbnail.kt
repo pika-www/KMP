@@ -8,3 +8,9 @@ expect fun PlatformImageThumbnail(
     uri: String,
     modifier: Modifier = Modifier,
 )
+
+@Composable
+expect fun PlatformImagePreview(
+    uri: String,
+    modifier: Modifier = Modifier,
+)
