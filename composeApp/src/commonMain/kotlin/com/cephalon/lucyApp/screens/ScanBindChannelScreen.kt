@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.scan.playScanBeep
 import com.cephalon.lucyApp.scan.QrScannerView
 import com.cephalon.lucyApp.scan.rememberOpenAppSettings
@@ -287,37 +288,64 @@ fun ScanBindChannelScreen(
     }
 
     if (showPermissionDialog && !cameraPermission.hasPermission) {
-        AlertDialog(
+        HalfModalBottomSheet(
+            isVisible = true,
             onDismissRequest = {
                 showPermissionDialog = false
             },
-            title = { Text("需要相机权限") },
-            text = {
-                Text(
-                    text = "进入扫码绑定页需要使用相机进行二维码识别。请授权相机权限。",
-                    style = MaterialTheme.typography.bodySmall
-                )
+            onDismissed = {
+                showPermissionDialog = false
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showPermissionDialog = false
-                        openSettings()
-                    }
-                ) {
-                    Text("去授权")
-                }
-            },
-            dismissButton = {
+            onBack = null,
+            showBackButton = false,
+            showCloseButton = false,
+            showTopBar = false,
+            containerShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            containerColor = Color.White,
+            topPadding = 0.dp,
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)
+        ) {
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = "需要相机权限",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFF111111)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "进入扫码绑定页需要使用相机进行二维码识别。请授权相机权限。",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF333333)
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
                     onClick = {
                         showPermissionDialog = false
                         onBack()
-                    }
+                    },
+                    modifier = Modifier.weight(1f)
                 ) {
                     Text("稍后")
                 }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Button(
+                    onClick = {
+                        showPermissionDialog = false
+                        openSettings()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("去授权")
+                }
             }
-        )
+        }
     }
 }

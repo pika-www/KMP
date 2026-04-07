@@ -155,43 +155,39 @@ fun HalfModalBottomSheet(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (showTopBar) {
-                                    Modifier
-                                        .draggable(
-                                            orientation = Orientation.Vertical,
-                                            state = rememberDraggableState { delta ->
-                                                settleJob?.cancel()
-                                                settleJob = null
-                                                dragOffsetPx = (dragOffsetPx + delta).coerceAtLeast(0f)
-                                            },
-                                            onDragStopped = {
-                                                if (dragOffsetPx >= dragDismissThresholdPx) {
-                                                    latestOnDismissRequest.value()
-                                                } else {
-                                                    settleJob?.cancel()
-                                                    settleJob = scope.launch {
-                                                        settleAnim.stop()
-                                                        settleAnim.snapTo(dragOffsetPx)
-                                                        settleAnim.animateTo(
-                                                            0f,
-                                                            animationSpec = spring(
-                                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                                stiffness = Spring.StiffnessMediumLow
-                                                            )
-                                                        ) {
-                                                            dragOffsetPx = value
-                                                        }
-                                                        dragOffsetPx = 0f
-                                                    }
-                                                }
+                            .height(28.dp)
+                            .draggable(
+                                orientation = Orientation.Vertical,
+                                state = rememberDraggableState { delta ->
+                                    settleJob?.cancel()
+                                    settleJob = null
+                                    dragOffsetPx = (dragOffsetPx + delta).coerceAtLeast(0f)
+                                },
+                                onDragStopped = {
+                                    if (dragOffsetPx >= dragDismissThresholdPx) {
+                                        latestOnDismissRequest.value()
+                                    } else {
+                                        settleJob?.cancel()
+                                        settleJob = scope.launch {
+                                            settleAnim.stop()
+                                            settleAnim.snapTo(dragOffsetPx)
+                                            settleAnim.animateTo(
+                                                0f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            ) {
+                                                dragOffsetPx = value
                                             }
-                                        )
-                                } else {
-                                    Modifier
+                                            dragOffsetPx = 0f
+                                        }
+                                    }
                                 }
                             )
-                    ) {
+                    )
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         if (showTopBar) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Spacer(modifier = Modifier.height(20.dp))

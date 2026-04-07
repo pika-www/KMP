@@ -46,11 +46,20 @@ actual fun QrScannerView(
         },
         update = { view ->
             holder.updateFrame(view.bounds)
-        },
-        onResize = { _, rect ->
-            holder.updateFrame(rect)
         }
     )
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private class ScannerContainerView(
+    private val previewLayer: AVCaptureVideoPreviewLayer,
+    private val statusLabel: UILabel,
+) : UIView(frame = CGRectMake(0.0, 0.0, 1.0, 1.0)) {
+    override fun layoutSubviews() {
+        super.layoutSubviews()
+        previewLayer.frame = bounds
+        statusLabel.setFrame(bounds)
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)
@@ -72,8 +81,7 @@ private class IosQrScannerHolder(
         videoGravity = AVLayerVideoGravityResizeAspectFill
     }
 
-    val view: UIView = UIView(frame = CGRectMake(0.0, 0.0, 1.0, 1.0)).apply {
-        previewLayer.frame = bounds
+    val view: UIView = ScannerContainerView(previewLayer = previewLayer, statusLabel = statusLabel).apply {
         layer.addSublayer(previewLayer)
         addSubview(statusLabel)
     }
