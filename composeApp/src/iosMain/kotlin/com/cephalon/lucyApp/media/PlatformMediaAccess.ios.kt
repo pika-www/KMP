@@ -560,9 +560,9 @@ private class PhotoPickerDelegate(
                 finishOne(success = true)
             } else {
                 result.itemProvider.loadFileRepresentationForTypeIdentifier("public.image") { url, _ ->
+                    val copiedUrl = url?.let { copyPickedImageToTemporaryDirectory(it) }
+                    val value = copiedUrl?.absoluteString ?: ""
                     dispatch_async(dispatch_get_main_queue()) {
-                        val copiedUrl = url?.let { copyPickedImageToTemporaryDirectory(it) }
-                        val value = copiedUrl?.absoluteString ?: ""
                         if (value.isNotBlank()) {
                             onPickedImage(value)
                             finishOne(success = true)
@@ -583,8 +583,9 @@ private fun copyPickedImageToTemporaryDirectory(sourceUrl: NSURL): NSURL? {
     val targetDirectory = NSTemporaryDirectory()
     if (targetDirectory.isBlank()) return null
 
-    val targetUrl = NSURL.fileURLWithPath(targetDirectory)
-        ?.URLByAppendingPathComponent("picked_${NSDate().timeIntervalSince1970}_${sourcePath.hashCode()}.$fileExtension")
+    val baseUrl = NSURL.fileURLWithPath(targetDirectory)
+    val targetUrl = baseUrl
+        .URLByAppendingPathComponent("picked_${NSDate().timeIntervalSince1970}_${sourcePath.hashCode()}.$fileExtension")
         ?: return null
 
     return try {

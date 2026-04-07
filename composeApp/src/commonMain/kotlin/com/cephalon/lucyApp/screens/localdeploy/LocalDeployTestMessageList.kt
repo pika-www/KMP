@@ -3,18 +3,16 @@ package com.cephalon.lucyApp.screens.localdeploy
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -97,24 +95,22 @@ internal fun LocalDeployTestMessageList(
                                 val files = item.attachments.filter { it.type == DraftAttachmentType.File }
 
                                 if (images.isNotEmpty()) {
-                                    LazyVerticalGrid(
-                                        columns = GridCells.Fixed(2),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(if (images.size <= 2) 140.dp else 220.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        items(images) { attachment ->
-                                            Card(
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2B2B)),
+                                        images.chunked(2).forEach { rowImages ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                PlatformImageThumbnail(
-                                                    uri = attachment.uri,
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .fillMaxHeight()
+                                                ImageAttachmentCell(
+                                                    attachment = rowImages.getOrNull(0),
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                ImageAttachmentCell(
+                                                    attachment = rowImages.getOrNull(1),
+                                                    modifier = Modifier.weight(1f)
                                                 )
                                             }
                                         }
@@ -205,6 +201,27 @@ internal fun LocalDeployTestMessageList(
 
         item {
             Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun ImageAttachmentCell(
+    attachment: DraftAttachment?,
+    modifier: Modifier = Modifier,
+) {
+    if (attachment == null) {
+        Spacer(modifier = modifier)
+    } else {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2B2B)),
+            modifier = modifier.aspectRatio(1f)
+        ) {
+            PlatformImageThumbnail(
+                uri = attachment.uri,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

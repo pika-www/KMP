@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.interop.UIKitView
+import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.AVFoundation.*
@@ -122,8 +122,8 @@ private class IosQrScannerHolder(
                 mediaType = AVMediaTypeVideo,
                 position = AVCaptureDevicePositionBack
             )
-            val devices = discovery?.devices as? List<*>
-            (devices?.firstOrNull() as? AVCaptureDevice)
+            val devices = discovery.devices
+            (devices.firstOrNull() as? AVCaptureDevice)
                 ?: AVCaptureDevice.defaultDeviceWithMediaType(AVMediaTypeVideo)
         }
 
@@ -134,7 +134,7 @@ private class IosQrScannerHolder(
             return
         }
 
-        val input = (AVCaptureDeviceInput.deviceInputWithDevice(device, error = null) as? AVCaptureDeviceInput)
+        val input = (AVCaptureDeviceInput.deviceInputWithDevice(device, error = null))
         if (input == null) {
             configurationFailed = true
             statusLabel.text = "相机初始化失败"
@@ -154,7 +154,7 @@ private class IosQrScannerHolder(
             metadataOutput.setMetadataObjectsDelegate(delegate, queue = dispatch_get_main_queue())
 
             val supportedTypes = metadataOutput.availableMetadataObjectTypes
-            if (supportedTypes?.contains(AVMetadataObjectTypeQRCode) == true) {
+            if (supportedTypes.contains(AVMetadataObjectTypeQRCode)) {
                 metadataOutput.metadataObjectTypes = listOf(AVMetadataObjectTypeQRCode)
             }
         }

@@ -6,7 +6,6 @@ import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 
 @Composable
 actual fun rememberOpenAppSettings(): () -> Unit {
@@ -17,7 +16,7 @@ actual fun rememberOpenAppSettings(): () -> Unit {
                 data = Uri.fromParts("package", context.packageName, null)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            ContextCompat.startActivity(context, intent, null)
+            context.startActivity(intent)
         }
     }
 }
