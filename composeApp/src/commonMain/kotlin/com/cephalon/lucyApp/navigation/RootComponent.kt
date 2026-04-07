@@ -12,5 +12,6 @@ interface RootComponent {
         class BrainBoxGuide(val component: BrainBoxGuideComponent) : Child()
         class WsTest(val component: WsTestComponent) : Child()
         class LocalDeployTest(val component: LocalDeployTestComponent) : Child()
+        class ScanBindChannel(val component: ScanBindChannelComponent) : Child()
     }
 }

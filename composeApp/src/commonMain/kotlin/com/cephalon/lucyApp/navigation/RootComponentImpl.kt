@@ -86,6 +86,10 @@ class RootComponentImpl(
                     override fun onOpenLocalDeployTest() {
                         navigation.push(Config.LocalDeployTest)
                     }
+
+                    override fun onOpenScanBindChannel() {
+                        navigation.push(Config.ScanBindChannel)
+                    }
                 }
             )
 
@@ -128,6 +132,14 @@ class RootComponentImpl(
                     }
                 }
             )
+
+            Config.ScanBindChannel -> RootComponent.Child.ScanBindChannel(
+                component = object : ScanBindChannelComponent {
+                    override fun onBack() {
+                        navigation.pop()
+                    }
+                }
+            )
         }
     }
 
@@ -150,6 +162,9 @@ class RootComponentImpl(
 
         @Serializable
         data object LocalDeployTest : Config
+
+        @Serializable
+        data object ScanBindChannel : Config
     }
 
     @Serializable

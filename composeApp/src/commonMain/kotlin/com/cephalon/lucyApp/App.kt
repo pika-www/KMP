@@ -19,6 +19,7 @@ import com.cephalon.lucyApp.screens.BrainBoxGuideScreen
 import com.cephalon.lucyApp.screens.HomeScreen
 import com.cephalon.lucyApp.screens.LocalDeployTestScreen
 import com.cephalon.lucyApp.screens.LoginScreen
+import com.cephalon.lucyApp.screens.ScanBindChannelScreen
 import com.cephalon.lucyApp.screens.WsTestScreen
 import com.russhwolf.settings.Settings
 import kotlinx.serialization.Serializable
@@ -64,7 +65,8 @@ fun App() {
                             onLogout = instance.component::onLogout,
                             onOpenWsTest = instance.component::onOpenWsTest,
                             onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
-                            onOpenLocalDeployTest = instance.component::onOpenLocalDeployTest
+                            onOpenLocalDeployTest = instance.component::onOpenLocalDeployTest,
+                            onOpenScanBindChannel = instance.component::onOpenScanBindChannel
                         )
                     }
 
@@ -83,6 +85,12 @@ fun App() {
 
                     is RootComponent.Child.LocalDeployTest -> {
                         LocalDeployTestScreen(
+                            onBack = instance.component::onBack
+                        )
+                    }
+
+                    is RootComponent.Child.ScanBindChannel -> {
+                        ScanBindChannelScreen(
                             onBack = instance.component::onBack
                         )
                     }

@@ -5,4 +5,5 @@ interface HomeComponent {
     fun onOpenWsTest()
     fun onOpenBrainBoxGuide()
     fun onOpenLocalDeployTest()
+    fun onOpenScanBindChannel()
 }

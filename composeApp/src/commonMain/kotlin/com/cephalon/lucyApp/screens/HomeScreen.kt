@@ -26,7 +26,8 @@ fun HomeScreen(
     onLogout: () -> Unit,
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
-    onOpenLocalDeployTest: () -> Unit
+    onOpenLocalDeployTest: () -> Unit,
+    onOpenScanBindChannel: () -> Unit
 ) {
     val scrollState = rememberScrollState()
     val options = listOf(
@@ -78,9 +79,9 @@ fun HomeScreen(
                         option = option,
                         onClick = {
                             when (option.title) {
-                                "脑花盒子用户" -> onOpenBrainBoxGuide()
+                                "脑花盒子用户" -> onOpenLocalDeployTest()
                                 "端脑云用户" -> onOpenWsTest()
-                                "本地部署用户" -> onOpenLocalDeployTest()
+                                "本地部署用户" -> onOpenScanBindChannel()
                             }
                         }
                     )
