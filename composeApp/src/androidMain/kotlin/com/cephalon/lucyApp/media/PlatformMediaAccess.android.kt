@@ -101,6 +101,13 @@ actual fun rememberPlatformMediaAccessController(
             }
             recentImages.clear()
             recentImages.addAll(uris)
+            currentOnEvent.value(
+                if (uris.isEmpty()) {
+                    "已授权相册读取，但未读取到近期照片。"
+                } else {
+                    "已加载 ${uris.size} 张近期照片。"
+                }
+            )
         } catch (t: Throwable) {
             currentOnEvent.value("读取近期照片失败: ${t.message.orEmpty()}")
         }

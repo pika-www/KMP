@@ -34,6 +34,7 @@ import platform.Foundation.NSUserDomainMask
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.timeIntervalSince1970
 import platform.Photos.PHAsset
+import platform.Photos.PHAccessLevelReadWrite
 import platform.Photos.PHAssetMediaTypeImage
 import platform.Photos.PHAuthorizationStatusAuthorized
 import platform.Photos.PHAuthorizationStatusLimited
@@ -138,6 +139,13 @@ actual fun rememberPlatformMediaAccessController(
             }
             recentImages.clear()
             recentImages.addAll(uris)
+            currentOnEvent.value(
+                if (uris.isEmpty()) {
+                    "已授权相册读取，但未读取到近期照片。"
+                } else {
+                    "已加载 ${uris.size} 张近期照片。"
+                }
+            )
         } catch (t: Throwable) {
             currentOnEvent.value("读取近期照片失败: ${t.message.orEmpty()}")
         }
@@ -196,7 +204,7 @@ actual fun rememberPlatformMediaAccessController(
                 if (presenter == null) {
                     currentOnEvent.value("未找到当前页面，无法打开图片选择器。")
                 } else {
-                    when (PHPhotoLibrary.authorizationStatus()) {
+                    when (photoLibraryAuthorizationStatus()) {
                         PHAuthorizationStatusAuthorized,
                         PHAuthorizationStatusLimited -> {
                             currentOnEvent.value("相册权限已授权，正在打开图片选择器。")
@@ -208,7 +216,7 @@ actual fun rememberPlatformMediaAccessController(
 
                         PHAuthorizationStatusNotDetermined -> {
                             currentOnEvent.value("正在申请相册权限。")
-                            PHPhotoLibrary.requestAuthorization { status ->
+                            requestPhotoLibraryAuthorization { status ->
                                 dispatch_async(dispatch_get_main_queue()) {
                                     if (status == PHAuthorizationStatusAuthorized || status == PHAuthorizationStatusLimited) {
                                         currentOnEvent.value("相册权限已授权，正在打开图片选择器。")
@@ -319,7 +327,7 @@ actual fun rememberPlatformMediaAccessController(
                 }
             },
             onRefreshRecentImages = {
-                when (PHPhotoLibrary.authorizationStatus()) {
+                when (photoLibraryAuthorizationStatus()) {
                     PHAuthorizationStatusAuthorized,
                     PHAuthorizationStatusLimited -> {
                         loadRecentImages()
@@ -327,7 +335,7 @@ actual fun rememberPlatformMediaAccessController(
 
                     PHAuthorizationStatusNotDetermined -> {
                         currentOnEvent.value("正在申请相册权限，用于展示近期照片。")
-                        PHPhotoLibrary.requestAuthorization { status ->
+                        requestPhotoLibraryAuthorization { status ->
                             dispatch_async(dispatch_get_main_queue()) {
                                 if (status == PHAuthorizationStatusAuthorized || status == PHAuthorizationStatusLimited) {
                                     loadRecentImages()
@@ -347,6 +355,14 @@ actual fun rememberPlatformMediaAccessController(
             }
         )
     }
+}
+
+private fun photoLibraryAuthorizationStatus(): Long {
+    return PHPhotoLibrary.authorizationStatusForAccessLevel(PHAccessLevelReadWrite)
+}
+
+private fun requestPhotoLibraryAuthorization(onResult: (Long) -> Unit) {
+    PHPhotoLibrary.requestAuthorizationForAccessLevel(PHAccessLevelReadWrite, handler = onResult)
 }
 
 private data class IOSRecordingResult(
