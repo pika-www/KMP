@@ -83,8 +83,8 @@ class RootComponentImpl(
                         navigation.push(Config.BrainBoxGuide(source = BrainBoxGuideSource.FromHome))
                     }
 
-                    override fun onOpenLocalDeployTest() {
-                        navigation.push(Config.LocalDeployTest)
+                    override fun onOpenAgentModel() {
+                        navigation.push(Config.AgentModel)
                     }
 
                     override fun onOpenScanBindChannel() {
@@ -125,8 +125,8 @@ class RootComponentImpl(
                 }
             )
 
-            Config.LocalDeployTest -> RootComponent.Child.LocalDeployTest(
-                component = object : LocalDeployTestComponent {
+            Config.AgentModel -> RootComponent.Child.AgentModel(
+                component = object : AgentModelComponent {
                     override fun onBack() {
                         navigation.pop()
                     }
@@ -161,7 +161,7 @@ class RootComponentImpl(
         data object WsTest : Config
 
         @Serializable
-        data object LocalDeployTest : Config
+        data object AgentModel : Config
 
         @Serializable
         data object ScanBindChannel : Config

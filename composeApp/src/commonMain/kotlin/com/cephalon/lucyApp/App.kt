@@ -17,7 +17,7 @@ import com.cephalon.lucyApp.navigation.RootComponentImpl
 import com.cephalon.lucyApp.navigation.createDefaultComponentContext
 import com.cephalon.lucyApp.screens.BrainBoxGuideScreen
 import com.cephalon.lucyApp.screens.HomeScreen
-import com.cephalon.lucyApp.screens.LocalDeployTestScreen
+import com.cephalon.lucyApp.screens.AgentModelScreen
 import com.cephalon.lucyApp.screens.LoginScreen
 import com.cephalon.lucyApp.screens.ScanBindChannelScreen
 import com.cephalon.lucyApp.screens.WsTestScreen
@@ -65,7 +65,7 @@ fun App() {
                             onLogout = instance.component::onLogout,
                             onOpenWsTest = instance.component::onOpenWsTest,
                             onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
-                            onOpenLocalDeployTest = instance.component::onOpenLocalDeployTest,
+                            onOpenAgentModel = instance.component::onOpenAgentModel,
                             onOpenScanBindChannel = instance.component::onOpenScanBindChannel
                         )
                     }
@@ -83,8 +83,8 @@ fun App() {
                         )
                     }
 
-                    is RootComponent.Child.LocalDeployTest -> {
-                        LocalDeployTestScreen(
+                    is RootComponent.Child.AgentModel -> {
+                        AgentModelScreen(
                             onBack = instance.component::onBack
                         )
                     }

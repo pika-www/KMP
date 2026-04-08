@@ -11,7 +11,7 @@ interface RootComponent {
         class Home(val component: HomeComponent) : Child()
         class BrainBoxGuide(val component: BrainBoxGuideComponent) : Child()
         class WsTest(val component: WsTestComponent) : Child()
-        class LocalDeployTest(val component: LocalDeployTestComponent) : Child()
+        class AgentModel(val component: AgentModelComponent) : Child()
         class ScanBindChannel(val component: ScanBindChannelComponent) : Child()
     }
 }

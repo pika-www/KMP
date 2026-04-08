@@ -1,5 +1,5 @@
 package com.cephalon.lucyApp.navigation
 
-interface LocalDeployTestComponent {
+interface AgentModelComponent {
     fun onBack()
 }

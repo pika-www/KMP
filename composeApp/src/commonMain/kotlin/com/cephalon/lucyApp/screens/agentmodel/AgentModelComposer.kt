@@ -1,4 +1,4 @@
-package com.cephalon.lucyApp.screens.localdeploy
+package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -46,12 +46,12 @@ import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 
 @Composable
-internal fun LocalDeployTestComposer(
+internal fun AgentModelComposer(
     inputText: String,
     onInputChange: (String) -> Unit,
     draftAttachments: List<DraftAttachment>,
     onRemoveDraftAttachment: (DraftAttachment) -> Unit,
-    onImageClick: (String) -> Unit,
+    onImageClick: (ImagePreviewState) -> Unit,
     isRecording: Boolean,
     isCancelBySlide: Boolean,
     voiceCancelThreshold: Dp,
@@ -209,9 +209,12 @@ internal fun LocalDeployTestComposer(
 private fun DraftAttachmentPreviewRow(
     attachments: List<DraftAttachment>,
     onRemoveAttachment: (DraftAttachment) -> Unit,
-    onImageClick: (String) -> Unit,
+    onImageClick: (ImagePreviewState) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
+    val imageUris = imageAttachments.map { it.uri }
+
     LazyRow(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -223,10 +226,20 @@ private fun DraftAttachmentPreviewRow(
             Box {
                 when (attachment.type) {
                     DraftAttachmentType.Image -> {
+                        val imageIndex = imageAttachments.indexOfFirst { it.uri == attachment.uri }
                         Card(
                             modifier = Modifier
                                 .size(72.dp)
-                                .clickable { onImageClick(attachment.uri) },
+                                .clickable {
+                                    if (imageIndex >= 0) {
+                                        onImageClick(
+                                            ImagePreviewState(
+                                                images = imageUris,
+                                                selectedIndex = imageIndex
+                                            )
+                                        )
+                                    }
+                                },
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
                         ) {

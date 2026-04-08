@@ -25,6 +25,7 @@ import platform.AVFoundation.AVMediaTypeVideo
 import platform.AVFoundation.authorizationStatusForMediaType
 import platform.AVFoundation.requestAccessForMediaType
 import platform.Foundation.NSDate
+import platform.Foundation.NSData
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSNumber
@@ -61,6 +62,7 @@ import platform.UIKit.UIImagePickerControllerOriginalImage
 import platform.UIKit.UIImagePickerControllerSourceType
 import platform.UIKit.UINavigationControllerDelegateProtocol
 import platform.UIKit.UIViewController
+import platform.UIKit.UIImageJPEGRepresentation
 import platform.darwin.NSObject
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
@@ -514,7 +516,16 @@ private class ImagePickerDelegate(
                     onPickedImage(value)
                 }
             }
-            image != null -> onEvent("已获取图片对象，尺寸 ")
+            image != null -> {
+                val savedUrl = saveCapturedImageToTemporaryDirectory(image)
+                val value = savedUrl?.absoluteString ?: ""
+                if (value.isNotBlank()) {
+                    onEvent("拍照成功，已保存图片。")
+                    onPickedImage(value)
+                } else {
+                    onEvent("拍照成功，但保存图片失败，无法展示预览。")
+                }
+            }
             else -> onEvent("已完成图片选择，但未读取到结果。")
         }
     }
@@ -592,6 +603,26 @@ private fun copyPickedImageToTemporaryDirectory(sourceUrl: NSURL): NSURL? {
         NSFileManager.defaultManager.removeItemAtURL(targetUrl, null)
         NSFileManager.defaultManager.copyItemAtURL(sourceUrl, targetUrl, null)
         targetUrl
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun saveCapturedImageToTemporaryDirectory(image: UIImage): NSURL? {
+    val jpegData = UIImageJPEGRepresentation(image, 0.95) ?: return null
+    val targetDirectory = NSTemporaryDirectory()
+    if (targetDirectory.isBlank()) return null
+
+    val baseUrl = NSURL.fileURLWithPath(targetDirectory)
+    val targetUrl = baseUrl
+        .URLByAppendingPathComponent("captured_${NSDate().timeIntervalSince1970}_${image.hashCode()}.jpg")
+        ?: return null
+    val targetPath = targetUrl.path ?: return null
+
+    return try {
+        NSFileManager.defaultManager.removeItemAtURL(targetUrl, null)
+        if (NSFileManager.defaultManager.createFileAtPath(targetPath, jpegData, null)) targetUrl else null
     } catch (_: Throwable) {
         null
     }

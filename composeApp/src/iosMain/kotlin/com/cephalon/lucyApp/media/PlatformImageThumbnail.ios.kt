@@ -1,11 +1,22 @@
 package com.cephalon.lucyApp.media
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
 import platform.CoreGraphics.CGRectMake
 import platform.CoreGraphics.CGSizeMake
 import platform.Foundation.NSURL
@@ -15,11 +26,17 @@ import platform.Photos.PHImageContentModeAspectFit
 import platform.Photos.PHImageManager
 import platform.Photos.PHImageRequestOptions
 import platform.Photos.PHImageRequestOptionsDeliveryModeHighQualityFormat
-import platform.Photos.PHImageRequestOptionsResizeModeExact
+import platform.Photos.PHImageRequestOptionsResizeModeFast
 import platform.UIKit.UIColor
 import platform.UIKit.UIImage
+import platform.UIKit.UIImageJPEGRepresentation
 import platform.UIKit.UIImageView
 import platform.UIKit.UIScreen
+import platform.posix.memcpy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Image as SkiaImage
 
 @Composable
 @OptIn(ExperimentalForeignApi::class)
@@ -48,23 +65,31 @@ actual fun PlatformImagePreview(
     uri: String,
     modifier: Modifier,
 ) {
-    val image by produceState<UIImage?>(initialValue = null, key1 = uri) {
-        value = loadIosImage(
-            uri = uri,
-            targetPixels = UIScreen.mainScreen.scale * 1600.0,
-            requestContentMode = PHImageContentModeAspectFit
-        )
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = uri) {
+        value = withContext(Dispatchers.IO) {
+            val uiImage = loadIosImage(
+                uri = uri,
+                targetPixels = UIScreen.mainScreen.scale * 1200.0,
+                requestContentMode = PHImageContentModeAspectFit
+            ) ?: return@withContext null
+            uiImageToImageBitmap(uiImage)
+        }
     }
 
-    IOSPlatformImageView(
-        image = image,
-        modifier = modifier,
-        isPreview = true
-    )
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Fit
+        )
+    } else {
+        Box(modifier = modifier.background(Color.Black))
+    }
 }
 
 @Composable
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalForeignApi::class)
 private fun IOSPlatformImageView(
     image: UIImage?,
     modifier: Modifier,
@@ -80,7 +105,7 @@ private fun IOSPlatformImageView(
                     platform.UIKit.UIViewContentMode.UIViewContentModeScaleAspectFill
                 }
                 clipsToBounds = true
-                backgroundColor = if (isPreview) UIColor.clearColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
+                backgroundColor = if (isPreview) UIColor.blackColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
             }
         },
         update = { imageView ->
@@ -89,9 +114,13 @@ private fun IOSPlatformImageView(
             } else {
                 platform.UIKit.UIViewContentMode.UIViewContentModeScaleAspectFill
             }
-            imageView.backgroundColor = if (isPreview) UIColor.clearColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
+            imageView.backgroundColor = if (isPreview) UIColor.blackColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
             imageView.image = image
-        }
+        },
+        properties = UIKitInteropProperties(
+            isInteractive = false,
+            isNativeAccessibilityEnabled = false
+        )
     )
 }
 
@@ -107,7 +136,7 @@ private fun loadIosImage(
         val asset = result.firstObject as? PHAsset ?: return null
 
         val options = PHImageRequestOptions().apply {
-            resizeMode = PHImageRequestOptionsResizeModeExact
+            resizeMode = PHImageRequestOptionsResizeModeFast
             deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat
             networkAccessAllowed = true
             synchronous = true
@@ -132,4 +161,16 @@ private fun loadIosImage(
         }
         path.takeIf { it.isNotBlank() }?.let { UIImage.imageWithContentsOfFile(it) }
     }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun uiImageToImageBitmap(uiImage: UIImage): ImageBitmap? {
+    val jpegData = UIImageJPEGRepresentation(uiImage, 0.85) ?: return null
+    val length = jpegData.length.toInt()
+    if (length == 0) return null
+    val bytes = ByteArray(length)
+    bytes.usePinned { pinned ->
+        memcpy(pinned.addressOf(0), jpegData.bytes, jpegData.length)
+    }
+    return SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
 }

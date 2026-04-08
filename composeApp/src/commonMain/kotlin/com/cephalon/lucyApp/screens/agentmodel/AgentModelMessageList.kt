@@ -1,4 +1,4 @@
-package com.cephalon.lucyApp.screens.localdeploy
+package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,11 +37,11 @@ import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 
 @Composable
-internal fun LocalDeployTestMessageList(
+internal fun AgentModelMessageList(
     messages: List<ChatItem>,
     recordings: List<AudioRecording>,
     onPlayRecording: (AudioRecording) -> Unit,
-    onImageClick: (String) -> Unit,
+    onImageClick: (ImagePreviewState) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -72,10 +74,13 @@ internal fun LocalDeployTestMessageList(
 
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
+                        val imageCellSize = ((bubbleMaxWidth - 28.dp - 8.dp) / 2).coerceAtMost(132.dp)
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
-                            modifier = Modifier.widthIn(max = bubbleMaxWidth)
+                            modifier = Modifier
+                                .wrapContentWidth()
+                                .widthIn(max = bubbleMaxWidth)
                         ) {
                             Column(
                                 modifier = Modifier
@@ -95,25 +100,40 @@ internal fun LocalDeployTestMessageList(
                                 val files = item.attachments.filter { it.type == DraftAttachmentType.File }
 
                                 if (images.isNotEmpty()) {
+                                    val imageUris = images.map { it.uri }
                                     Column(
-                                        modifier = Modifier.widthIn(max = bubbleMaxWidth - 28.dp),
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        images.chunked(2).forEach { rowImages ->
+                                        images.chunked(2).forEachIndexed { rowIndex, rowImages ->
                                             Row(
-                                                modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 ImageAttachmentCell(
                                                     attachment = rowImages.getOrNull(0),
-                                                    onClick = onImageClick,
-                                                    modifier = Modifier.weight(1f)
+                                                    onClick = {
+                                                        onImageClick(
+                                                            ImagePreviewState(
+                                                                images = imageUris,
+                                                                selectedIndex = rowIndex * 2
+                                                            )
+                                                        )
+                                                    },
+                                                    modifier = Modifier.size(imageCellSize)
                                                 )
-                                                ImageAttachmentCell(
-                                                    attachment = rowImages.getOrNull(1),
-                                                    onClick = onImageClick,
-                                                    modifier = Modifier.weight(1f)
-                                                )
+                                                rowImages.getOrNull(1)?.let { secondAttachment ->
+                                                    ImageAttachmentCell(
+                                                        attachment = secondAttachment,
+                                                        onClick = {
+                                                            onImageClick(
+                                                                ImagePreviewState(
+                                                                    images = imageUris,
+                                                                    selectedIndex = rowIndex * 2 + 1
+                                                                )
+                                                            )
+                                                        },
+                                                        modifier = Modifier.size(imageCellSize)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -158,7 +178,9 @@ internal fun LocalDeployTestMessageList(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
-                            modifier = Modifier.widthIn(max = bubbleMaxWidth)
+                            modifier = Modifier
+                                .wrapContentWidth()
+                                .widthIn(max = bubbleMaxWidth)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -211,18 +233,17 @@ internal fun LocalDeployTestMessageList(
 @Composable
 private fun ImageAttachmentCell(
     attachment: DraftAttachment?,
-    onClick: (String) -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (attachment == null) {
-        Spacer(modifier = modifier.aspectRatio(1f))
+        Spacer(modifier = modifier)
     } else {
         Card(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2B2B)),
             modifier = modifier
-                .aspectRatio(1f)
-                .clickable { onClick(attachment.uri) }
+                .clickable { onClick() }
         ) {
             PlatformImageThumbnail(
                 uri = attachment.uri,

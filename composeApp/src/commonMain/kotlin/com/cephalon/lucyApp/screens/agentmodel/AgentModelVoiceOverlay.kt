@@ -1,4 +1,4 @@
-package com.cephalon.lucyApp.screens.localdeploy
+package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun LocalDeployTestVoiceRecordingOverlay(
+internal fun AgentModelVoiceRecordingOverlay(
     isCancelBySlide: Boolean,
     modifier: Modifier = Modifier,
 ) {

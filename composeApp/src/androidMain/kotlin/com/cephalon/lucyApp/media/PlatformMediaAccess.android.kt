@@ -131,8 +131,13 @@ actual fun rememberPlatformMediaAccessController(
         if (bitmap == null) {
             currentOnEvent.value("相机已取消或未返回图片。")
         } else {
-            currentOnEvent.value("拍照成功，已返回预览图 ${bitmap.width} x ${bitmap.height}。")
-            pickedImages.add(0, "android-bitmap-preview://${UUID.randomUUID()}")
+            val previewUri = saveBitmapPreviewToCache(context, bitmap)
+            if (previewUri.isNullOrBlank()) {
+                currentOnEvent.value("拍照成功，但保存图片失败，无法展示预览。")
+            } else {
+                currentOnEvent.value("拍照成功，已保存图片 ${bitmap.width} x ${bitmap.height}。")
+                pickedImages.add(0, previewUri)
+            }
         }
     }
 
@@ -434,8 +439,26 @@ private fun timestamp(): String {
     return SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 }
 
-private tailrec fun Context.findActivity(): ComponentActivity? = when (this) {
-    is ComponentActivity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
+private fun saveBitmapPreviewToCache(context: Context, bitmap: Bitmap): String? {
+    val file = File(
+        context.cacheDir,
+        "camera_preview_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg"
+    )
+
+    return try {
+        val success = file.outputStream().use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+        }
+        if (success) Uri.fromFile(file).toString() else null
+    } catch (_: Throwable) {
+        null
+    }
+}
+
+private fun Context.findActivity(): ComponentActivity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        current = current.baseContext
+    }
+    return current as? ComponentActivity
 }

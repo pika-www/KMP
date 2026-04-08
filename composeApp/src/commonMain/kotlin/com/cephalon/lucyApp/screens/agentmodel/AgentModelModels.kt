@@ -1,4 +1,4 @@
-package com.cephalon.lucyApp.screens.localdeploy
+package com.cephalon.lucyApp.screens.agentmodel
 
 internal enum class DraftAttachmentType {
     Image,
@@ -10,6 +10,11 @@ internal data class DraftAttachment(
     val uri: String,
 )
 
+internal data class ImagePreviewState(
+    val images: List<String>,
+    val selectedIndex: Int,
+)
+
 internal sealed class ChatItem {
     data class Assistant(val text: String) : ChatItem()
     data class User(val text: String) : ChatItem()
@@ -17,6 +22,11 @@ internal sealed class ChatItem {
     data class System(val text: String) : ChatItem()
     data class RecordingItem(val id: String, val name: String, val path: String) : ChatItem()
 }
+
+internal data class ConversationItem(
+    val id: String,
+    val title: String,
+)
 
 internal fun uriDisplayName(uri: String): String {
     val trimmed = uri.trim()

@@ -1,10 +1,11 @@
-package com.cephalon.lucyApp.screens.localdeploy
+package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -28,7 +29,9 @@ internal fun Bubble(
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = background),
-            modifier = Modifier.widthIn(max = bubbleMaxWidth)
+            modifier = Modifier
+                .wrapContentWidth()
+                .widthIn(max = bubbleMaxWidth)
         ) {
             Text(
                 text = text,
