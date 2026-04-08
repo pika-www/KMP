@@ -31,6 +31,7 @@ kotlin {
 
         val commonMain by getting {
             dependencies {
+                implementation(project(":lucy-im-sdk-kotlin"))
                 // --- 2. Koin (保持不变) ---
                 implementation("io.insert-koin:koin-core:3.5.6")
                 implementation("io.insert-koin:koin-compose:1.1.5")
@@ -42,11 +43,11 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
                 // --- 4. Ktor (建议同步升级到 2.3.12 以获得更好的 KMP 支持) ---
-                implementation("io.ktor:ktor-client-core:2.3.12")
-                implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
-                implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
-                implementation("io.ktor:ktor-client-logging:2.3.12")
-                implementation("io.ktor:ktor-client-websockets:2.3.12")
+                implementation(libs.ktor.client.core)
+                implementation(libs.ktor.client.content.negotiation)
+                implementation(libs.ktor.serialization.kotlinx.json)
+                implementation(libs.ktor.client.logging)
+                implementation(libs.ktor.client.websockets)
 
 
                 // icon 组件
@@ -72,7 +73,7 @@ kotlin {
 
         val androidMain by getting {
             dependencies {
-                implementation("io.ktor:ktor-client-okhttp:2.3.12")
+                implementation(libs.ktor.client.okhttp)
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.compose.uiToolingPreview)
 
@@ -90,7 +91,7 @@ kotlin {
         val iosMain by creating {
             dependsOn(commonMain)
             dependencies {
-                implementation("io.ktor:ktor-client-darwin:2.3.12")
+                implementation(libs.ktor.client.darwin)
             }
         }
 

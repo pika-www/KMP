@@ -32,3 +32,5 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp")
+include(":lucy-im-sdk-kotlin")
+project(":lucy-im-sdk-kotlin").projectDir = file("sdk/lucy-im-sdk-kotlin")

@@ -20,6 +20,7 @@ import com.cephalon.lucyApp.screens.HomeScreen
 import com.cephalon.lucyApp.screens.AgentModelScreen
 import com.cephalon.lucyApp.screens.LoginScreen
 import com.cephalon.lucyApp.screens.ScanBindChannelScreen
+import com.cephalon.lucyApp.screens.SdkTestScreen
 import com.cephalon.lucyApp.screens.WsTestScreen
 import com.russhwolf.settings.Settings
 import kotlinx.serialization.Serializable
@@ -63,10 +64,17 @@ fun App() {
                     is RootComponent.Child.Home -> {
                         HomeScreen(
                             onLogout = instance.component::onLogout,
+                            onOpenSdkTest = instance.component::onOpenSdkTest,
                             onOpenWsTest = instance.component::onOpenWsTest,
                             onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
                             onOpenAgentModel = instance.component::onOpenAgentModel,
                             onOpenScanBindChannel = instance.component::onOpenScanBindChannel
+                        )
+                    }
+
+                    is RootComponent.Child.SdkTest -> {
+                        SdkTestScreen(
+                            onBack = instance.component::onBack
                         )
                     }
 

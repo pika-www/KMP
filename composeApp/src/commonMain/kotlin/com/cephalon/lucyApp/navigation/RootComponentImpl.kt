@@ -75,6 +75,10 @@ class RootComponentImpl(
                         navigation.replaceAll(Config.Login)
                     }
 
+                    override fun onOpenSdkTest() {
+                        navigation.push(Config.SdkTest)
+                    }
+
                     override fun onOpenWsTest() {
                         navigation.push(Config.WsTest)
                     }
@@ -113,6 +117,14 @@ class RootComponentImpl(
                             }
                             BrainBoxGuideSource.FromHome -> navigation.pop()
                         }
+                    }
+                }
+            )
+
+            Config.SdkTest -> RootComponent.Child.SdkTest(
+                component = object : SdkTestComponent {
+                    override fun onBack() {
+                        navigation.pop()
                     }
                 }
             )
@@ -156,6 +168,9 @@ class RootComponentImpl(
 
         @Serializable
         data class BrainBoxGuide(val source: BrainBoxGuideSource) : Config
+
+        @Serializable
+        data object SdkTest : Config
 
         @Serializable
         data object WsTest : Config

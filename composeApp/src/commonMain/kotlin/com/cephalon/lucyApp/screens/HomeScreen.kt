@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun HomeScreen(
     onLogout: () -> Unit,
+    onOpenSdkTest: () -> Unit,
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
     onOpenAgentModel: () -> Unit,
@@ -88,6 +89,14 @@ fun HomeScreen(
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = onOpenSdkTest,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("进入 SDK 测试页面")
+                }
 
                 OutlinedButton(
                     onClick = onLogout,
