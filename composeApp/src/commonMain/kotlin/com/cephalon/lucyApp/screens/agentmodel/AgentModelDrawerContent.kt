@@ -32,8 +32,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -151,6 +154,7 @@ private fun SwipeToDeleteItem(
     val deleteWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { deleteWidth.toPx() }
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    var isConfirmingDelete by remember(item.id) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -167,15 +171,19 @@ private fun SwipeToDeleteItem(
                 .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
                 .background(Color(0xFFE53935))
                 .clickable {
-                    scope.launch {
-                        offsetX.animateTo(0f, tween(200))
+                    if (isConfirmingDelete) {
+                        scope.launch {
+                            offsetX.animateTo(0f, tween(200))
+                        }
+                        onDelete()
+                    } else {
+                        isConfirmingDelete = true
                     }
-                    onDelete()
                 },
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "删除",
+                text = if (isConfirmingDelete) "确认删除" else "删除",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
             )
@@ -193,6 +201,7 @@ private fun SwipeToDeleteItem(
                                 if (-offsetX.value > deleteWidthPx * 0.4f) {
                                     offsetX.animateTo(-deleteWidthPx, tween(200))
                                 } else {
+                                    isConfirmingDelete = false
                                     offsetX.animateTo(0f, tween(200))
                                 }
                             }
@@ -206,12 +215,15 @@ private fun SwipeToDeleteItem(
                         }
                     )
                 }
-                .clickable { onClick() },
+                .clickable {
+                    isConfirmingDelete = false
+                    onClick()
+                },
             shape = RoundedCornerShape(12.dp),
             color = if (isSelected) Color(0xFFF0F0F0) else Color(0xFFF8F8F8)
         ) {
             Text(
-                text = item.title,
+                text = item.displayTitle(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFF333333),
                 maxLines = 1,

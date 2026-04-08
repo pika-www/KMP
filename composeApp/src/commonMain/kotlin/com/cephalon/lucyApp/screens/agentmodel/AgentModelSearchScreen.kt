@@ -52,10 +52,9 @@ internal fun AgentModelSearchScreen(
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
 
-    val filtered by remember(conversations) {
+    val filtered by remember(conversations, query) {
         derivedStateOf {
-            if (query.isBlank()) conversations
-            else conversations.filter { it.title.contains(query, ignoreCase = true) }
+            conversations.filter { it.matchesQuery(query) }
         }
     }
 
@@ -146,7 +145,7 @@ internal fun AgentModelSearchScreen(
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Text(
-                        text = item.title,
+                        text = item.displayTitle(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color(0xFF333333),
                         maxLines = 1,

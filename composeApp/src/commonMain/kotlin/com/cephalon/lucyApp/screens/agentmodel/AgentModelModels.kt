@@ -26,7 +26,36 @@ internal sealed class ChatItem {
 internal data class ConversationItem(
     val id: String,
     val title: String,
+    val messages: List<ChatItem> = emptyList(),
+    val lastActiveAt: Long = 0L,
 )
+
+internal fun ConversationItem.displayTitle(): String = title.ifBlank { "新对话" }
+
+internal fun ConversationItem.matchesQuery(query: String): Boolean {
+    if (query.isBlank()) return true
+    return displayTitle().contains(query, ignoreCase = true) ||
+        messages.any { it.searchableText().contains(query, ignoreCase = true) }
+}
+
+private fun ChatItem.searchableText(): String {
+    return when (this) {
+        is ChatItem.Assistant -> text
+        is ChatItem.User -> text
+        is ChatItem.UserAttachments -> buildString {
+            if (!text.isNullOrBlank()) {
+                append(text)
+                append(' ')
+            }
+            attachments.forEach { attachment ->
+                append(uriDisplayName(attachment.uri))
+                append(' ')
+            }
+        }
+        is ChatItem.System -> text
+        is ChatItem.RecordingItem -> "$name $path"
+    }
+}
 
 internal fun uriDisplayName(uri: String): String {
     val trimmed = uri.trim()

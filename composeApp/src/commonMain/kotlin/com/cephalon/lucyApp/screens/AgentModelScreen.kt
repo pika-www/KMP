@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import com.cephalon.lucyApp.time.currentTimeMillis
 import androidx.compose.material3.rememberDrawerState
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.screens.agentmodel.ChatItem
@@ -72,17 +73,80 @@ fun AgentModelScreen(onBack: () -> Unit) {
         )
     }
 
-    val messages = remember {
-        mutableStateListOf<ChatItem>(
-            ChatItem.Assistant(
-                "去系统设置里改，非常方便。\n\n你可以在这里测试：相机、相册、文件选择、录音。"
-            )
+    val initialAssistantMessage = ChatItem.Assistant(
+        "去系统设置里改，非常方便。\n\n你可以在这里测试：相机、相册、文件选择、录音。"
+    )
+
+    val conversations = remember {
+        mutableStateListOf(
+            ConversationItem(
+                id = "1",
+                title = "云浏览器怎么让用户接管云端电脑",
+                messages = listOf(initialAssistantMessage),
+                lastActiveAt = currentTimeMillis()
+            ),
+            ConversationItem(
+                id = "2",
+                title = "分析特斯拉股票最近的表现",
+                messages = listOf(
+                    ChatItem.User("分析特斯拉股票最近的表现"),
+                    ChatItem.Assistant("可以从营收、交付量和估值三个维度先看。")
+                ),
+                lastActiveAt = currentTimeMillis() - 1_000L
+            ),
+            ConversationItem(
+                id = "3",
+                title = "Mac卡住了，鼠标一直转圈如何解决",
+                messages = listOf(
+                    ChatItem.User("Mac卡住了，鼠标一直转圈如何解决"),
+                    ChatItem.Assistant("可以先尝试强制退出当前应用，再检查活动监视器。")
+                ),
+                lastActiveAt = currentTimeMillis() - 2_000L
+            ),
         )
     }
+    var selectedConversationId by remember { mutableStateOf<String?>("1") }
+
+    fun updateConversation(conversationId: String?, transform: (ConversationItem) -> ConversationItem) {
+        val targetId = conversationId ?: return
+        val index = conversations.indexOfFirst { it.id == targetId }
+        if (index >= 0) {
+            conversations[index] = transform(conversations[index])
+        }
+    }
+
+    fun updateSelectedConversation(transform: (ConversationItem) -> ConversationItem) {
+        updateConversation(selectedConversationId, transform)
+    }
+
+    fun appendMessageToSelectedConversation(message: ChatItem) {
+        updateSelectedConversation { conversation ->
+            val updatedMessages = conversation.messages + message
+            val nextTitle = when {
+                conversation.title != "新对话" && conversation.title.isNotBlank() -> conversation.title
+                message is ChatItem.User && message.text.isNotBlank() -> message.text.trim()
+                message is ChatItem.UserAttachments && !message.text.isNullOrBlank() -> message.text.trim()
+                else -> conversation.title
+            }
+            conversation.copy(
+                title = nextTitle,
+                messages = updatedMessages,
+                lastActiveAt = currentTimeMillis()
+            )
+        }
+    }
+
+    val orderedConversations = conversations
+        .sortedWith(compareByDescending<ConversationItem> { it.id == selectedConversationId }
+            .thenByDescending { it.lastActiveAt })
+
+    val currentConversation = conversations.firstOrNull { it.id == selectedConversationId }
+        ?: orderedConversations.firstOrNull()
+    val currentMessages = currentConversation?.messages.orEmpty()
 
     val mediaAccessController = rememberPlatformMediaAccessController { message ->
         logs.add(0, message)
-        messages.add(ChatItem.System(message))
+        appendMessageToSelectedConversation(ChatItem.System(message))
     }
 
     var inputText by remember { mutableStateOf("") }
@@ -90,15 +154,6 @@ fun AgentModelScreen(onBack: () -> Unit) {
     var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
     var showProfilePage by remember { mutableStateOf(false) }
     var showSearchPage by remember { mutableStateOf(false) }
-
-    val conversations = remember {
-        mutableStateListOf(
-            ConversationItem(id = "1", title = "云浏览器怎么让用户接管云端电脑"),
-            ConversationItem(id = "2", title = "分析特斯拉股票最近的表现"),
-            ConversationItem(id = "3", title = "Mac卡住了，鼠标一直转圈如何解决"),
-        )
-    }
-    var selectedConversationId by remember { mutableStateOf<String?>("1") }
 
     val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
     var lastPickedImagesSize by remember { mutableStateOf(0) }
@@ -119,10 +174,12 @@ fun AgentModelScreen(onBack: () -> Unit) {
 
     LaunchedEffect(mediaAccessController.recordings.size) {
         val latest = mediaAccessController.recordings.lastOrNull() ?: return@LaunchedEffect
-        val exists = messages.any { it is ChatItem.RecordingItem && it.id == latest.id }
+        val exists = currentMessages.any { it is ChatItem.RecordingItem && it.id == latest.id }
         if (!exists) {
-            messages.add(ChatItem.System("录音完成，可以点击播放。"))
-            messages.add(ChatItem.RecordingItem(id = latest.id, name = latest.name, path = latest.path))
+            appendMessageToSelectedConversation(ChatItem.System("录音完成，可以点击播放。"))
+            appendMessageToSelectedConversation(
+                ChatItem.RecordingItem(id = latest.id, name = latest.name, path = latest.path)
+            )
         }
     }
 
@@ -172,7 +229,7 @@ fun AgentModelScreen(onBack: () -> Unit) {
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
             if (attachments.isNotEmpty()) {
-                messages.add(
+                appendMessageToSelectedConversation(
                     ChatItem.UserAttachments(
                         text = text.ifBlank { null },
                         attachments = attachments
@@ -180,7 +237,7 @@ fun AgentModelScreen(onBack: () -> Unit) {
                 )
                 draftAttachments.clear()
             } else {
-                messages.add(ChatItem.User(text))
+                appendMessageToSelectedConversation(ChatItem.User(text))
             }
 
             inputText = ""
@@ -197,23 +254,38 @@ fun AgentModelScreen(onBack: () -> Unit) {
                 drawerContainerColor = Color.White
             ) {
                 AgentModelDrawerContent(
-                    conversations = conversations,
+                    conversations = orderedConversations,
                     selectedId = selectedConversationId,
                     onSelect = { item ->
                         selectedConversationId = item.id
+                        inputText = ""
+                        draftAttachments.clear()
+                        attachmentsExpanded = false
                         coroutineScope.launch { drawerState.close() }
                     },
                     onDelete = { item ->
                         conversations.remove(item)
                         if (selectedConversationId == item.id) {
-                            selectedConversationId = conversations.firstOrNull()?.id
+                            selectedConversationId = conversations
+                                .sortedWith(compareByDescending<ConversationItem> { false }
+                                    .thenByDescending { it.lastActiveAt })
+                                .firstOrNull()
+                                ?.id
                         }
                     },
                     onNewChat = {
-                        val newId = (conversations.size + 1).toString()
-                        val newItem = ConversationItem(id = newId, title = "新对话")
-                        conversations.add(0, newItem)
+                        val newId = (conversations.maxOfOrNull { it.id.toIntOrNull() ?: 0 }?.plus(1) ?: 1).toString()
+                        val newItem = ConversationItem(
+                            id = newId,
+                            title = "新对话",
+                            messages = emptyList(),
+                            lastActiveAt = currentTimeMillis()
+                        )
+                        conversations.add(newItem)
                         selectedConversationId = newId
+                        inputText = ""
+                        draftAttachments.clear()
+                        attachmentsExpanded = false
                         coroutineScope.launch { drawerState.close() }
                     },
                     onOpenSearch = {
@@ -268,7 +340,7 @@ fun AgentModelScreen(onBack: () -> Unit) {
                             )
                         }
                         AgentModelMessageList(
-                            messages = messages,
+                            messages = currentMessages,
                             recordings = mediaAccessController.recordings,
                             onPlayRecording = { mediaAccessController.playRecording(it) },
                             onImageClick = { previewState = it },
@@ -310,30 +382,31 @@ fun AgentModelScreen(onBack: () -> Unit) {
                                 if (attachmentsExpanded) focusManager.clearFocus()
                             },
                             onSend = sendMessage,
-                            onSuggestionClick = { messages.add(ChatItem.User(it)) }
+                            onSuggestionClick = { appendMessageToSelectedConversation(ChatItem.User(it)) }
                         )
 
-                        if (attachmentsExpanded) {
-                            AgentModelAttachmentPanel(
-                                recentImages = mediaAccessController.recentImages,
-                                onOpenCamera = {
-                                    messages.add(ChatItem.System("打开相机"))
-                                    mediaAccessController.openCamera()
-                                },
-                                onOpenGallery = {
-                                    messages.add(ChatItem.System("选择图片"))
-                                    mediaAccessController.openGallery()
-                                },
-                                onOpenFilePicker = {
-                                    messages.add(ChatItem.System("选择系统文件"))
-                                    mediaAccessController.openFilePicker()
-                                },
-                                onImageClick = { previewState = it },
-                                onClearLogs = {
-                                    logs.clear()
-                                    messages.add(ChatItem.System("已清空记录"))
-                                }
-                            )
+                            if (attachmentsExpanded) {
+                                AgentModelAttachmentPanel(
+                                    recentImages = mediaAccessController.recentImages,
+                                    onOpenCamera = {
+                                        appendMessageToSelectedConversation(ChatItem.System("打开相机"))
+                                        mediaAccessController.openCamera()
+                                    },
+                                    onOpenGallery = {
+                                        appendMessageToSelectedConversation(ChatItem.System("选择图片"))
+                                        mediaAccessController.openGallery()
+                                    },
+                                    onOpenFilePicker = {
+                                        appendMessageToSelectedConversation(ChatItem.System("选择系统文件"))
+                                        mediaAccessController.openFilePicker()
+                                    },
+                                    onImageClick = { previewState = it },
+                                    onClearLogs = {
+                                        logs.clear()
+                                        appendMessageToSelectedConversation(ChatItem.System("已清空记录"))
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -354,9 +427,12 @@ fun AgentModelScreen(onBack: () -> Unit) {
     // 搜索页 - 全屏覆盖
     if (showSearchPage) {
         AgentModelSearchScreen(
-            conversations = conversations,
+            conversations = orderedConversations,
             onSelect = { item ->
                 selectedConversationId = item.id
+                inputText = ""
+                draftAttachments.clear()
+                attachmentsExpanded = false
                 showSearchPage = false
             },
             onCancel = { showSearchPage = false }
@@ -370,5 +446,4 @@ fun AgentModelScreen(onBack: () -> Unit) {
             onDismiss = { previewState = null }
         )
     }
-    } // end outer Box
 }
