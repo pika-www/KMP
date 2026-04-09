@@ -18,7 +18,7 @@ import com.cephalon.lucyApp.navigation.createDefaultComponentContext
 import com.cephalon.lucyApp.screens.BrainBoxGuideScreen
 import com.cephalon.lucyApp.screens.HomeScreen
 import com.cephalon.lucyApp.screens.AgentModelScreen
-import com.cephalon.lucyApp.screens.NasScreen
+import com.cephalon.lucyApp.screens.nas.NasScreen
 import com.cephalon.lucyApp.screens.LoginScreen
 import com.cephalon.lucyApp.screens.ScanBindChannelScreen
 import com.cephalon.lucyApp.screens.SdkTestScreen
@@ -70,7 +70,7 @@ fun App() {
                             onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
                             onOpenAgentModel = instance.component::onOpenAgentModel,
                             onOpenScanBindChannel = instance.component::onOpenScanBindChannel,
-                            onOpenNas = instance.component::onOpenNas
+
                         )
                     }
 
@@ -95,7 +95,8 @@ fun App() {
 
                     is RootComponent.Child.AgentModel -> {
                         AgentModelScreen(
-                            onBack = instance.component::onBack
+                            onBack = instance.component::onBack,
+                            onNavigateToNas = instance.component::onNavigateToNas
                         )
                     }
 

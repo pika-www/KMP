@@ -45,6 +45,7 @@ private class AndroidPlatformMediaAccessController(
     override val playingRecordingId: String?,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
+    private val onOpenAudioPicker: () -> Unit,
     private val onOpenFilePicker: () -> Unit,
     private val onOpenFilePreview: (PickedFile) -> Unit,
     private val onStartVoiceInput: () -> Unit,
@@ -56,6 +57,8 @@ private class AndroidPlatformMediaAccessController(
     override fun openCamera() = onOpenCamera()
 
     override fun openGallery() = onOpenGallery()
+
+    override fun openAudioPicker() = onOpenAudioPicker()
 
     override fun openFilePicker() = onOpenFilePicker()
 
@@ -418,6 +421,23 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
+    val openAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) {
+            currentOnEvent.value("未选择音频文件。")
+        } else {
+            currentOnEvent.value("已选择音频文件: $uri")
+            pickedFiles.add(
+                0,
+                PickedFile(
+                    uri = uri.toString(),
+                    displayName = resolveDisplayName(context, uri)
+                )
+            )
+        }
+    }
+
     return remember(context, isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size, playingRecordingId) {
         AndroidPlatformMediaAccessController(
             isRecording = isRecording,
@@ -454,6 +474,10 @@ actual fun rememberPlatformMediaAccessController(
                 } else {
                     getMultipleContentsLauncher.launch("image/*")
                 }
+            },
+            onOpenAudioPicker = {
+                currentOnEvent.value("正在打开系统音频选择器。")
+                openAudioLauncher.launch(arrayOf("audio/*"))
             },
             onOpenFilePicker = {
                 currentOnEvent.value("正在打开系统文件选择器。")

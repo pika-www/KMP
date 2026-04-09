@@ -62,7 +62,10 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
 
 @Composable
-fun AgentModelScreen(onBack: () -> Unit) {
+fun AgentModelScreen(
+    onBack: () -> Unit,
+    onNavigateToNas: () -> Unit = {}
+) {
     val uriHandler = LocalUriHandler.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
@@ -418,6 +421,7 @@ fun AgentModelScreen(onBack: () -> Unit) {
                 AgentModelProfileScreen(
                     isVisible = showProfilePage,
                     onDismiss = { showProfilePage = false },
+                    onNavigateToNas = onNavigateToNas,
                     modifier = Modifier.fillMaxSize()
                 )
 

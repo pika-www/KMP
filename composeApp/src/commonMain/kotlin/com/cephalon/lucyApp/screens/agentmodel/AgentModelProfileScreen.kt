@@ -64,6 +64,7 @@ private val ProfilePageShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.
 internal fun AgentModelProfileScreen(
     isVisible: Boolean,
     onDismiss: () -> Unit,
+    onNavigateToNas: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var currentPage by remember { mutableStateOf(ProfilePage.Settings) }
@@ -177,6 +178,7 @@ internal fun AgentModelProfileScreen(
                                                     when (title) {
                                                         "账号" -> currentPage = ProfilePage.Account
                                                         "清除缓存" -> showClearCacheDialog = true
+                                                        "我的NAS" -> onNavigateToNas()
                                                     }
                                                 }
                                             )

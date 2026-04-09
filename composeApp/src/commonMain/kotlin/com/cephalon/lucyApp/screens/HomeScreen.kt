@@ -28,8 +28,8 @@ fun HomeScreen(
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
     onOpenAgentModel: () -> Unit,
-    onOpenScanBindChannel: () -> Unit,
-    onOpenNas: () -> Unit
+    onOpenScanBindChannel: () -> Unit
+
 ) {
     val scrollState = rememberScrollState()
     val options = listOf(
@@ -97,14 +97,6 @@ fun HomeScreen(
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("进入 SDK 测试页面")
-                }
-
-                Button(
-                    onClick = onOpenNas,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text("进入 NAS")
                 }
 
                 OutlinedButton(

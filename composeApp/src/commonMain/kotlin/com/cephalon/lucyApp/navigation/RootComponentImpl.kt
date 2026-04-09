@@ -146,6 +146,10 @@ class RootComponentImpl(
                     override fun onBack() {
                         navigation.pop()
                     }
+
+                    override fun onNavigateToNas() {
+                        navigation.push(Config.Nas)
+                    }
                 }
             )
 

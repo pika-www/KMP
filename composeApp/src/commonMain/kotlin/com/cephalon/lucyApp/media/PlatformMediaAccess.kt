@@ -28,6 +28,7 @@ interface PlatformMediaAccessController {
 
     fun openCamera()
     fun openGallery()
+    fun openAudioPicker()
     fun openFilePicker()
     fun openFilePreview(file: PickedFile)
 

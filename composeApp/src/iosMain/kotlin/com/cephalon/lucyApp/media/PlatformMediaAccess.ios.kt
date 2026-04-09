@@ -122,6 +122,7 @@ private class IOSPlatformMediaAccessController(
     override val playingRecordingId: String?,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
+    private val onOpenAudioPicker: () -> Unit,
     private val onOpenFilePicker: () -> Unit,
     private val onOpenFilePreview: (PickedFile) -> Unit,
     private val onStartVoiceInput: () -> Unit,
@@ -133,6 +134,8 @@ private class IOSPlatformMediaAccessController(
     override fun openCamera() = onOpenCamera()
 
     override fun openGallery() = onOpenGallery()
+
+    override fun openAudioPicker() = onOpenAudioPicker()
 
     override fun openFilePicker() = onOpenFilePicker()
 
@@ -312,6 +315,18 @@ actual fun rememberPlatformMediaAccessController(
                             currentOnEvent.value("相册权限被拒绝，请到系统设置中开启后重试。")
                         }
                     }
+                }
+            },
+            onOpenAudioPicker = {
+                val presenter = currentPresenter()
+                if (presenter == null) {
+                    currentOnEvent.value("未找到当前页面，无法打开音频选择器。")
+                } else {
+                    currentOnEvent.value("正在打开系统音频选择器。")
+                    presenter.presentAudioPicker(
+                        onEvent = currentOnEvent.value,
+                        onPickedFile = { pickedFile -> pickedFiles.add(0, pickedFile) }
+                    )
                 }
             },
             onOpenFilePicker = {
@@ -592,6 +607,21 @@ private fun UIViewController.presentDocumentPicker(
 ) {
     val picker = UIDocumentPickerViewController(
         documentTypes = listOf("public.item"),
+        inMode = UIDocumentPickerMode.UIDocumentPickerModeImport
+    )
+    val delegate = DocumentPickerDelegate(onEvent, onPickedFile)
+    picker.delegate = delegate
+    IOSPickerDelegateStore.retain(delegate)
+    presentViewController(picker, true, null)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun UIViewController.presentAudioPicker(
+    onEvent: (String) -> Unit,
+    onPickedFile: (PickedFile) -> Unit,
+) {
+    val picker = UIDocumentPickerViewController(
+        documentTypes = listOf("public.audio"),
         inMode = UIDocumentPickerMode.UIDocumentPickerModeImport
     )
     val delegate = DocumentPickerDelegate(onEvent, onPickedFile)
