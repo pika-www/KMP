@@ -29,6 +29,9 @@ import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 @Composable
 fun NasScreen(onBack: () -> Unit) {
     var selectedCategory by remember { mutableStateOf(NasCategory.Photos) }
+    var selectedImage by remember { mutableStateOf<NasImageItem?>(null) }
+    var selectedAudio by remember { mutableStateOf<NasAudioItem?>(null) }
+    var selectedDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
@@ -214,6 +217,15 @@ fun NasScreen(onBack: () -> Unit) {
         listOf(
             NasDocumentItem(
                 id = "doc_001",
+                name = "NAS.pdf",
+                type = "文档",
+                format = "pdf",
+                sizeKB = 256,
+                path = "drawable/NAS.pdf",
+                time = "2026-04-09 18:50"
+            ),
+            NasDocumentItem(
+                id = "doc_002",
                 name = "demo-doc.pages",
                 type = "文档",
                 format = "pages",
@@ -222,7 +234,7 @@ fun NasScreen(onBack: () -> Unit) {
                 time = "2026-04-01 12:00"
             ),
             NasDocumentItem(
-                id = "doc_002",
+                id = "doc_003",
                 name = "project_plan.pages",
                 type = "文档",
                 format = "pages",
@@ -231,6 +243,60 @@ fun NasScreen(onBack: () -> Unit) {
                 time = "2026-03-28 09:00"
             )
         )
+    }
+
+    // 如果选中了图片，显示详情页
+    selectedImage?.let { image ->
+        NasImageDetailScreen(
+            image = image,
+            onBack = { selectedImage = null },
+            onShare = {
+                println("分享图片: ${image.name}")
+                // TODO: 实现分享功能
+            },
+            onDelete = {
+                println("删除图片: ${image.name}")
+                // TODO: 实现删除功能
+                selectedImage = null
+            }
+        )
+        return
+    }
+
+    // 如果选中了音频，显示详情页
+    selectedAudio?.let { audio ->
+        NasAudioDetailScreen(
+            audio = audio,
+            onBack = { selectedAudio = null },
+            onShare = {
+                println("分享音频: ${audio.name}")
+                // TODO: 实现分享功能
+            },
+            onDelete = {
+                println("删除音频: ${audio.name}")
+                // TODO: 实现删除功能
+                selectedAudio = null
+            }
+        )
+        return
+    }
+
+    // 如果选中了文档，显示详情页
+    selectedDocument?.let { document ->
+        NasDocumentDetailScreen(
+            document = document,
+            onBack = { selectedDocument = null },
+            onShare = {
+                println("分享文档: ${document.name}")
+                // TODO: 实现分享功能
+            },
+            onDelete = {
+                println("删除文档: ${document.name}")
+                // TODO: 实现删除功能
+                selectedDocument = null
+            }
+        )
+        return
     }
 
     Scaffold(containerColor = Color(0xF0FFFFFF)) { padding ->
@@ -283,9 +349,18 @@ fun NasScreen(onBack: () -> Unit) {
                         modifier = Modifier.weight(1f)
                     ) {
                         when (selectedCategory) {
-                            NasCategory.Photos -> NasPhotosContent(imageMonths = imageMonths)
-                            NasCategory.Recordings -> NasRecordingsContent(audios = audios)
-                            NasCategory.Documents -> NasDocumentsContent(documents = documents)
+                            NasCategory.Photos -> NasPhotosContent(
+                                imageMonths = imageMonths,
+                                onImageClick = { image -> selectedImage = image }
+                            )
+                            NasCategory.Recordings -> NasRecordingsContent(
+                                audios = audios,
+                                onAudioClick = { audio -> selectedAudio = audio }
+                            )
+                            NasCategory.Documents -> NasDocumentsContent(
+                                documents = documents,
+                                onDocumentClick = { document -> selectedDocument = document }
+                            )
                         }
                     }
 

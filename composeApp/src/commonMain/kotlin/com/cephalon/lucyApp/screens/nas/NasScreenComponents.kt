@@ -155,7 +155,8 @@ internal fun NasSearchBar(
 
 @Composable
 internal fun NasPhotosContent(
-    imageMonths: List<NasImageMonthGroup>
+    imageMonths: List<NasImageMonthGroup>,
+    onImageClick: (NasImageItem) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -181,7 +182,8 @@ internal fun NasPhotosContent(
                         rowImages.forEach { image ->
                             NasImageThumbnail(
                                 image = image,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                onClick = { onImageClick(image) }
                             )
                         }
                         repeat(3 - rowImages.size) {
@@ -201,7 +203,8 @@ internal fun NasPhotosContent(
 
 @Composable
 internal fun NasRecordingsContent(
-    audios: List<NasAudioItem>
+    audios: List<NasAudioItem>,
+    onAudioClick: (NasAudioItem) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -210,7 +213,10 @@ internal fun NasRecordingsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         audios.forEach { audio ->
-            NasAudioCard(audio = audio)
+            NasAudioCard(
+                audio = audio,
+                onClick = { onAudioClick(audio) }
+            )
         }
         Spacer(modifier = Modifier.height(6.dp))
     }
@@ -218,7 +224,8 @@ internal fun NasRecordingsContent(
 
 @Composable
 internal fun NasDocumentsContent(
-    documents: List<NasDocumentItem>
+    documents: List<NasDocumentItem>,
+    onDocumentClick: (NasDocumentItem) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -227,7 +234,10 @@ internal fun NasDocumentsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         documents.forEach { document ->
-            NasDocumentCard(document = document)
+            NasDocumentCard(
+                document = document,
+                onClick = { onDocumentClick(document) }
+            )
         }
         Spacer(modifier = Modifier.height(6.dp))
     }
@@ -254,15 +264,23 @@ private fun NasCategoryChip(
 }
 
 @Composable
-private fun NasImageThumbnail(
+internal fun NasImageThumbnail(
     image: NasImageItem,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
 ) {
     Box(
         modifier = modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFFF4F4F5))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
     ) {
         Image(
             painter = painterResource(Res.drawable.img_demo),
@@ -274,9 +292,20 @@ private fun NasImageThumbnail(
 }
 
 @Composable
-private fun NasAudioCard(audio: NasAudioItem) {
+internal fun NasAudioCard(
+    audio: NasAudioItem,
+    onClick: (() -> Unit)? = null
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(12.dp),
         color = Color.White
     ) {
@@ -293,9 +322,20 @@ private fun NasAudioCard(audio: NasAudioItem) {
 }
 
 @Composable
-private fun NasDocumentCard(document: NasDocumentItem) {
+internal fun NasDocumentCard(
+    document: NasDocumentItem,
+    onClick: (() -> Unit)? = null
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(12.dp),
         color = Color.White
     ) {
