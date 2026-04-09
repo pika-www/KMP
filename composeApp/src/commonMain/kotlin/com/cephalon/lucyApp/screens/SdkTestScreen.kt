@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,16 +30,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.di.AppConfig
+import com.cephalon.lucyApp.logging.appLogD
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import lucy.im.sdk.ConnectedSession
 import lucy.im.sdk.LucyImAppClient
 import lucy.im.sdk.LucyImAppConfig
+import lucy.im.sdk.OnlineDevice
+import lucy.im.sdk.OnlineNpcDeviceHandle
+import lucy.im.sdk.collectDevices
 import org.koin.compose.koinInject
 
-private fun maskToken(token: String, keepStart: Int = 6, keepEnd: Int = 6): String {
-    val t = token.trim()
-    if (t.length <= keepStart + keepEnd + 3) return "***"
-    return t.take(keepStart) + "***" + t.takeLast(keepEnd)
+private fun logd(message: String) {
+    appLogD("SdkTestScreen", message)
 }
 
 @Composable
@@ -55,9 +65,40 @@ fun SdkTestScreen(onBack: () -> Unit) {
 
     var session by remember { mutableStateOf<ConnectedSession?>(null) }
     var cdi by remember { mutableStateOf("test-device") }
-    var payload by remember { mutableStateOf("""{"text":"hello from compose"}""") }
+    var payload by remember { mutableStateOf("""{"text":"hi"}""") }
     var logText by remember { mutableStateOf("未连接") }
-    var envLogText by remember { mutableStateOf("") }
+    var consumerJob by remember { mutableStateOf<Job?>(null) }
+    var consumerLogText by remember { mutableStateOf("未启动") }
+    var deviceObserver by remember { mutableStateOf<OnlineNpcDeviceHandle?>(null) }
+    var deviceObserverJob by remember { mutableStateOf<Job?>(null) }
+    var onlineDevices by remember { mutableStateOf<List<OnlineDevice>>(emptyList()) }
+    var deviceLogText by remember { mutableStateOf("未启动") }
+    var receivedMessages by remember { mutableStateOf(listOf<String>()) }
+    val consumerScope =
+        remember {
+            CoroutineScope(
+                SupervisorJob() +
+                    Dispatchers.Default +
+                    CoroutineExceptionHandler { _, throwable ->
+                        scope.launch {
+                            val message = throwable.message ?: "unknown"
+                            logd("consumer exception: $message")
+                            consumerLogText = "监听异常：$message"
+                            logText = "接收失败：$message"
+                        }
+                    }
+            )
+        }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            consumerJob?.cancel()
+            deviceObserverJob?.cancel()
+            deviceObserver?.stop()
+            consumerScope.cancel()
+            session?.close()
+        }
+    }
 
     Scaffold(containerColor = Color(0xFFF1F1F1)) { padding ->
         Column(
@@ -79,26 +120,6 @@ fun SdkTestScreen(onBack: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "最小示例：读取登录 token -> connect -> publishToNpc",
-                style = MaterialTheme.typography.bodyMedium
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = "lucyServerBaseUrl: ${client.config.lucyServerBaseUrl}",
-                style = MaterialTheme.typography.bodyMedium
-            )
-
-            if (envLogText.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = envLogText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF444444)
-                )
-            }
-
             Spacer(modifier = Modifier.height(12.dp))
             TextField(
                 value = cdi,
@@ -123,27 +144,62 @@ fun SdkTestScreen(onBack: () -> Unit) {
                             val token = tokenStore.getValidTokenOrNull()
                             if (token.isNullOrBlank()) {
                                 logText = "连接失败：未找到有效登录 token"
-                                envLogText =
-                                    "token: <empty>\n" +
-                                        "lucyServerBaseUrl: ${client.config.lucyServerBaseUrl}"
-                                println("[SdkTest] lucyServerBaseUrl=${client.config.lucyServerBaseUrl}")
-                                println("[SdkTest] token=<empty>")
+                                logd("token=<empty>")
                                 return@launch
                             }
 
-                            envLogText =
-                                "token: ${maskToken(token)}\n" +
-                                    "lucyServerBaseUrl: ${client.config.lucyServerBaseUrl}"
-                            println("[SdkTest] lucyServerBaseUrl=${client.config.lucyServerBaseUrl}")
-                            println("[SdkTest] token=${maskToken(token)}")
+                            logd("token=$token")
 
                             runCatching {
                                 val newSession = client.connect(token)
+                                consumerJob?.cancel()
+                                deviceObserverJob?.cancel()
+                                deviceObserver?.stop()
                                 session?.close()
                                 session = newSession
+                                val newObserver = newSession.startOnlineNpcDeviceObserver(scope = scope)
+                                deviceObserver = newObserver
+                                deviceObserverJob =
+                                    newObserver.collectDevices(scope) { devices ->
+                                        onlineDevices = devices
+                                        deviceLogText = "已获取 ${devices.size} 台在线设备"
+                                    }
+                                consumerJob =
+                                    newSession.startUserChannelConsumer(consumerScope) { subject, messagePayload ->
+                                        val messageText =
+                                            runCatching { messagePayload.decodeToString() }.getOrDefault(
+                                                "<binary payload ${messagePayload.size} bytes>"
+                                            )
+                                        scope.launch {
+                                            receivedMessages =
+                                                listOf("subject=$subject\n$messageText") + receivedMessages
+                                            consumerLogText =
+                                                "监听中，累计接收 ${receivedMessages.size} 条"
+                                        }
+                                    }
+                                consumerJob?.invokeOnCompletion { throwable ->
+                                    if (throwable == null || throwable is CancellationException) return@invokeOnCompletion
+                                    scope.launch {
+                                        val message = throwable.message ?: "unknown"
+                                        consumerLogText = "监听异常：$message"
+                                        logText = "接收失败：$message"
+                                    }
+                                }
+                                deviceObserverJob?.invokeOnCompletion { throwable ->
+                                    if (throwable == null || throwable is CancellationException) return@invokeOnCompletion
+                                    scope.launch {
+                                        val message = throwable.message ?: "unknown"
+                                        deviceLogText = "设备监听异常：$message"
+                                    }
+                                }
+                                consumerLogText = "监听已启动"
+                                deviceLogText = "设备监听已启动"
                                 logText = "连接成功，userId=${newSession.userId}"
                             }.onFailure { e ->
                                 logText = "连接失败：${e.message ?: "unknown"}"
+                                consumerLogText = "监听启动失败"
+                                deviceLogText = "设备监听启动失败"
+                                logd("connect failed: ${e.message ?: "unknown"}")
                             }
                         }
                     }
@@ -162,6 +218,7 @@ fun SdkTestScreen(onBack: () -> Unit) {
                                 logText = "发送成功 -> cdi=$cdi"
                             }.onFailure { e ->
                                 logText = "发送失败：${e.message ?: "unknown"}"
+                                logd("publish failed: ${e.message ?: "unknown"}")
                             }
                         }
                     }
@@ -169,9 +226,18 @@ fun SdkTestScreen(onBack: () -> Unit) {
 
                 OutlinedButton(
                     onClick = {
+                        consumerJob?.cancel()
+                        deviceObserverJob?.cancel()
+                        deviceObserver?.stop()
+                        consumerJob = null
+                        deviceObserverJob = null
+                        deviceObserver = null
+                        onlineDevices = emptyList()
                         session?.close()
                         session = null
                         logText = "连接已关闭"
+                        consumerLogText = "监听已停止"
+                        deviceLogText = "设备监听已停止"
                     }
                 ) { Text("关闭连接") }
             }
@@ -181,6 +247,42 @@ fun SdkTestScreen(onBack: () -> Unit) {
                 text = "状态：$logText",
                 style = MaterialTheme.typography.bodyMedium
             )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "接收监听：$consumerLogText",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "设备监听：$deviceLogText",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            if (onlineDevices.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "在线 NPC 设备：",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = onlineDevices.joinToString("\n") { it.cdi },
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (receivedMessages.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "最近回复：",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = receivedMessages.take(20).joinToString("\n\n"),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
