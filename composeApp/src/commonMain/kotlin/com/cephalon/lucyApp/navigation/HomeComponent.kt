@@ -7,4 +7,5 @@ interface HomeComponent {
     fun onOpenBrainBoxGuide()
     fun onOpenAgentModel()
     fun onOpenScanBindChannel()
+    fun onOpenNas()
 }
