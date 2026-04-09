@@ -26,12 +26,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,20 +67,23 @@ internal fun AgentModelProfileScreen(
     modifier: Modifier = Modifier,
 ) {
     var currentPage by remember { mutableStateOf(ProfilePage.Settings) }
+    var showClearCacheDialog by remember { mutableStateOf(false) }
+    var cacheSizeBytes by remember { mutableStateOf(getAppCacheSize()) }
 
-    HalfModalBottomSheet(
-        isVisible = isVisible,
-        onDismissRequest = onDismiss,
-        onDismissed = { currentPage = ProfilePage.Settings },
-        showBackButton = false,
-        showCloseButton = false,
-        showTopBar = false,
-        topPadding = 72.dp,
-        containerShape = RoundedCornerShape(0.dp),
-        containerColor = Color.Transparent,
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        AnimatedContent(
+    Box(modifier = modifier) {
+        HalfModalBottomSheet(
+            isVisible = isVisible,
+            onDismissRequest = onDismiss,
+            onDismissed = { currentPage = ProfilePage.Settings },
+            showBackButton = false,
+            showCloseButton = false,
+            showTopBar = false,
+            topPadding = 72.dp,
+            containerShape = RoundedCornerShape(0.dp),
+            containerColor = Color.Transparent,
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            AnimatedContent(
             targetState = currentPage,
             transitionSpec = {
                 val goingForward = initialState == ProfilePage.Settings && targetState == ProfilePage.Account
@@ -166,9 +172,11 @@ internal fun AgentModelProfileScreen(
                                         menuItems.forEachIndexed { index, title ->
                                             ProfileMenuItem(
                                                 title = title,
+                                                subtitle = if (title == "清除缓存") formatCacheSize(cacheSizeBytes) else null,
                                                 onClick = {
-                                                    if (title == "账号") {
-                                                        currentPage = ProfilePage.Account
+                                                    when (title) {
+                                                        "账号" -> currentPage = ProfilePage.Account
+                                                        "清除缓存" -> showClearCacheDialog = true
                                                     }
                                                 }
                                             )
@@ -206,8 +214,50 @@ internal fun AgentModelProfileScreen(
                     }
                 }
             }
+        } // end AnimatedContent
+        } // end HalfModalBottomSheet
+
+        if (showClearCacheDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x66000000))
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {
+                        showClearCacheDialog = false
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                ClearCacheConfirmDialog(
+                    cacheSizeText = formatCacheSize(cacheSizeBytes),
+                    onDismiss = { showClearCacheDialog = false },
+                    onConfirm = {
+                        clearAppCache()
+                        cacheSizeBytes = getAppCacheSize()
+                        showClearCacheDialog = false
+                    }
+                )
+            }
         }
+    } // Box
+}
+
+private fun formatCacheSize(bytes: Long): String {
+    return when {
+        bytes < 1024L -> "${bytes}B"
+        bytes < 1024L * 1024L -> "${roundTo1(bytes / 1024.0)}KB"
+        bytes < 1024L * 1024L * 1024L -> "${roundTo1(bytes / (1024.0 * 1024.0))}MB"
+        else -> "${roundTo2(bytes / (1024.0 * 1024.0 * 1024.0))}GB"
     }
+}
+
+private fun roundTo1(value: Double): String {
+    val rounded = (value * 10).toLong() / 10.0
+    return if (rounded == rounded.toLong().toDouble()) "${rounded.toLong()}.0" else rounded.toString()
+}
+
+private fun roundTo2(value: Double): String {
+    val rounded = (value * 100).toLong() / 100.0
+    return rounded.toString()
 }
 
 /* ───────── Page Container (same shape as LoginScreen) ───────── */
@@ -361,6 +411,7 @@ private fun ProfileHeaderCard(
 @Composable
 private fun ProfileMenuItem(
     title: String,
+    subtitle: String? = null,
     onClick: () -> Unit = {},
 ) {
     Row(
@@ -389,6 +440,14 @@ private fun ProfileMenuItem(
             color = Color(0xFF111111),
             modifier = Modifier.weight(1f)
         )
+
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF999999)
+            )
+        }
 
         Text(
             text = ">",
@@ -465,6 +524,73 @@ private fun AccountDetailContent() {
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
+
+/* ───────── Clear Cache Dialog (inline, matches flow chart) ───────── */
+
+@Composable
+private fun ClearCacheConfirmDialog(
+    cacheSizeText: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { /* consume click */ }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "清除缓存",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = Color(0xFF111111)
+            )
+
+            Text(
+                text = "缓存数据有助于加快加载速度，清除可能会导致内容重新加载\n当前缓存：$cacheSizeText",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF666666)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
+                ) {
+                    Text("取消", color = Color(0xFF666666))
+                }
+
+                TextButton(
+                    onClick = onConfirm,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.textButtonColors(
+                        containerColor = Color(0xFF111111)
+                    )
+                ) {
+                    Text("清除", color = Color.White)
+                }
+            }
+        }
+    }
+}
+
+/* ───────── Platform cache clearing ───────── */
+
+expect fun clearAppCache()
+expect fun getAppCacheSize(): Long
+
+/* ───────── Account detail helpers ───────── */
 
 @Composable
 private fun AccountInfoRow(label: String, value: String) {
