@@ -94,6 +94,10 @@ class RootComponentImpl(
                     override fun onOpenScanBindChannel() {
                         navigation.push(Config.ScanBindChannel)
                     }
+
+                    override fun onOpenNas() {
+                        navigation.push(Config.Nas)
+                    }
                 }
             )
 
@@ -152,6 +156,14 @@ class RootComponentImpl(
                     }
                 }
             )
+
+            Config.Nas -> RootComponent.Child.Nas(
+                component = object : NasComponent {
+                    override fun onBack() {
+                        navigation.pop()
+                    }
+                }
+            )
         }
     }
 
@@ -180,6 +192,9 @@ class RootComponentImpl(
 
         @Serializable
         data object ScanBindChannel : Config
+
+        @Serializable
+        data object Nas : Config
     }
 
     @Serializable
