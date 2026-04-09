@@ -31,7 +31,7 @@ kotlin {
 
         val commonMain by getting {
             dependencies {
-                //implementation(project(":lucy-im-sdk-kotlin"))
+                implementation(project(":lucy-im-sdk-kotlin"))
                 // --- 2. Koin (保持不变) ---
                 implementation("io.insert-koin:koin-core:3.5.6")
                 implementation("io.insert-koin:koin-compose:1.1.5")
