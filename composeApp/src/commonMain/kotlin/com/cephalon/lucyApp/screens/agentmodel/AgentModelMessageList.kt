@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,14 +37,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.AudioRecording
+import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 
 @Composable
 internal fun AgentModelMessageList(
     messages: List<ChatItem>,
-    recordings: List<AudioRecording>,
-    onPlayRecording: (AudioRecording) -> Unit,
+    playingRecordingId: String?,
+    onToggleRecordingPlayback: (AudioRecording) -> Unit,
     onImageClick: (ImagePreviewState) -> Unit,
+    onFileClick: (PickedFile) -> Unit,
+    onTapMessageArea: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -59,7 +65,8 @@ internal fun AgentModelMessageList(
                         text = item.text,
                         background = Color.White,
                         textColor = Color(0xFF111111),
-                        alignEnd = false
+                        alignEnd = false,
+                        onClick = onTapMessageArea
                     )
                 }
 
@@ -68,7 +75,8 @@ internal fun AgentModelMessageList(
                         text = item.text,
                         background = Color(0xFF111111),
                         textColor = Color.White,
-                        alignEnd = true
+                        alignEnd = true,
+                        onClick = onTapMessageArea
                     )
                 }
 
@@ -79,6 +87,7 @@ internal fun AgentModelMessageList(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
                             modifier = Modifier
+                                .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
@@ -98,6 +107,7 @@ internal fun AgentModelMessageList(
 
                                 val images = item.attachments.filter { it.type == DraftAttachmentType.Image }
                                 val files = item.attachments.filter { it.type == DraftAttachmentType.File }
+                                val audios = item.attachments.filter { it.type == DraftAttachmentType.Audio }
 
                                 if (images.isNotEmpty()) {
                                     val imageUris = images.map { it.uri }
@@ -143,14 +153,85 @@ internal fun AgentModelMessageList(
                                     files.forEach { attachment ->
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFF2B2B2B)
+                                            color = Color(0xFF2B2B2B),
+                                            border = BorderStroke(1.dp, Color(0xFF3A3A3A)),
+                                            modifier = Modifier.clickable { onFileClick(attachment.asPickedFile()) }
                                         ) {
-                                            Text(
-                                                text = uriDisplayName(attachment.uri),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp)
-                                            )
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = Color.White.copy(alpha = 0.12f)
+                                                ) {
+                                                    Text(
+                                                        text = attachment.fileExtensionLabel(),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = attachment.displayName(),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color.White,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    audios.forEach { attachment ->
+                                        val recording = attachment.asAudioRecording()
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFF2B2B2B),
+                                            border = BorderStroke(1.dp, Color(0xFF3A3A3A))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(999.dp),
+                                                    color = Color.White.copy(alpha = 0.12f),
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .clickable { onToggleRecordingPlayback(recording) },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        androidx.compose.material3.Icon(
+                                                            imageVector = if (playingRecordingId == recording.id) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "语音",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color(0xFFBBBBBB)
+                                                    )
+                                                    Text(
+                                                        text = recording.name,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = Color.White,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                OutlinedButton(onClick = { onToggleRecordingPlayback(recording) }) {
+                                                    Text(if (playingRecordingId == recording.id) "暂停" else "播放")
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -160,7 +241,12 @@ internal fun AgentModelMessageList(
                 }
 
                 is ChatItem.System -> {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTapMessageArea() },
+                        horizontalArrangement = Arrangement.Center
+                    ) {
                         Text(
                             text = item.text,
                             style = MaterialTheme.typography.bodySmall,
@@ -179,6 +265,7 @@ internal fun AgentModelMessageList(
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
                             modifier = Modifier
+                                .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
@@ -209,13 +296,16 @@ internal fun AgentModelMessageList(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        val recording = recordings.firstOrNull { it.id == item.id }
-                                        if (recording != null) {
-                                            onPlayRecording(recording)
-                                        }
+                                        onToggleRecordingPlayback(
+                                            AudioRecording(
+                                                id = item.id,
+                                                name = item.name,
+                                                path = item.path
+                                            )
+                                        )
                                     }
                                 ) {
-                                    Text("播放")
+                                    Text(if (playingRecordingId == item.id) "暂停" else "播放")
                                 }
                             }
                         }

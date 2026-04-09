@@ -1,5 +1,6 @@
 package com.cephalon.lucyApp.screens.agentmodel
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -24,12 +25,14 @@ internal fun Bubble(
     background: Color,
     textColor: Color,
     alignEnd: Boolean,
+    onClick: (() -> Unit)? = null,
 ) {
     BubbleContainer(alignEnd = alignEnd) { bubbleMaxWidth ->
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = background),
             modifier = Modifier
+                .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
                 .wrapContentWidth()
                 .widthIn(max = bubbleMaxWidth)
         ) {

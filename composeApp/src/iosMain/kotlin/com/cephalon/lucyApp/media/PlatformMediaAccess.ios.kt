@@ -13,6 +13,7 @@ import platform.AVFAudio.AVAudioPlayer
 import platform.AVFAudio.AVAudioRecorder
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayAndRecord
+import platform.AVFAudio.AVAudioSessionCategoryOptionAllowBluetooth
 import platform.AVFAudio.AVAudioSessionCategoryOptionDefaultToSpeaker
 import platform.AVFAudio.AVAudioSessionCategoryOptionMixWithOthers
 import platform.AVFAudio.AVAudioSessionModeDefault
@@ -28,6 +29,7 @@ import platform.Foundation.NSDate
 import platform.Foundation.NSData
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSLocale
 import platform.Foundation.NSNumber
 import platform.Foundation.NSSortDescriptor
 import platform.Foundation.NSURL
@@ -66,6 +68,8 @@ import platform.UIKit.UIImageJPEGRepresentation
 import platform.darwin.NSObject
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import platform.Speech.SFSpeechRecognizer
+import platform.Speech.SFSpeechURLRecognitionRequest
 
 private object IOSPickerDelegateStore {
     private val delegates = mutableListOf<Any>()
@@ -75,19 +79,55 @@ private object IOSPickerDelegateStore {
     }
 }
 
+private fun openPickedFilePreview(
+    file: PickedFile,
+    onEvent: (String) -> Unit,
+) {
+    val rawUri = file.uri.trim()
+    if (rawUri.isBlank()) {
+        onEvent("文件路径无效，无法预览。")
+        return
+    }
+
+    val url = when {
+        rawUri.startsWith("file://") -> NSURL.URLWithString(rawUri)
+        rawUri.contains("://") -> NSURL.URLWithString(rawUri)
+        else -> NSURL.fileURLWithPath(rawUri)
+    }
+
+    if (url == null) {
+        onEvent("无法解析文件路径，无法预览。")
+        return
+    }
+
+    UIApplication.sharedApplication.openURL(
+        url,
+        options = emptyMap<Any?, Any?>(),
+        completionHandler = { success ->
+            dispatch_async(dispatch_get_main_queue()) {
+                if (!success) {
+                    onEvent("当前设备没有可用于预览该文件的应用。")
+                }
+            }
+        }
+    )
+}
+
 private class IOSPlatformMediaAccessController(
     override val isRecording: Boolean,
     override val recordings: List<AudioRecording>,
     override val pickedImages: List<String>,
-    override val pickedFiles: List<String>,
+    override val pickedFiles: List<PickedFile>,
     override val recentImages: List<String>,
+    override val playingRecordingId: String?,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
     private val onOpenFilePicker: () -> Unit,
-    private val onStartRecording: () -> Unit,
-    private val onFinishRecording: () -> Unit,
-    private val onCancelRecording: () -> Unit,
-    private val onPlayRecording: (AudioRecording) -> Unit,
+    private val onOpenFilePreview: (PickedFile) -> Unit,
+    private val onStartVoiceInput: () -> Unit,
+    private val onFinishVoiceInput: ((VoiceInputResult) -> Unit) -> Unit,
+    private val onCancelVoiceInput: () -> Unit,
+    private val onToggleRecordingPlayback: (AudioRecording) -> Unit,
     private val onRefreshRecentImages: () -> Unit
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
@@ -96,13 +136,15 @@ private class IOSPlatformMediaAccessController(
 
     override fun openFilePicker() = onOpenFilePicker()
 
-    override fun startRecording() = onStartRecording()
+    override fun openFilePreview(file: PickedFile) = onOpenFilePreview(file)
 
-    override fun finishRecording() = onFinishRecording()
+    override fun startVoiceInput() = onStartVoiceInput()
 
-    override fun cancelRecording() = onCancelRecording()
+    override fun finishVoiceInput(onResult: (VoiceInputResult) -> Unit) = onFinishVoiceInput(onResult)
 
-    override fun playRecording(recording: AudioRecording) = onPlayRecording(recording)
+    override fun cancelVoiceInput() = onCancelVoiceInput()
+
+    override fun toggleRecordingPlayback(recording: AudioRecording) = onToggleRecordingPlayback(recording)
 
     override fun refreshRecentImages() = onRefreshRecentImages()
 }
@@ -115,12 +157,44 @@ actual fun rememberPlatformMediaAccessController(
     val currentOnEvent = rememberUpdatedState(onEvent)
     val recordings = remember { mutableStateListOf<AudioRecording>() }
     val pickedImages = remember { mutableStateListOf<String>() }
-    val pickedFiles = remember { mutableStateListOf<String>() }
+    val pickedFiles = remember { mutableStateListOf<PickedFile>() }
     val recentImages = remember { mutableStateListOf<String>() }
     var isRecording by remember { mutableStateOf(false) }
     var audioRecorder by remember { mutableStateOf<AVAudioRecorder?>(null) }
     var audioPlayer by remember { mutableStateOf<AVAudioPlayer?>(null) }
     var currentRecordingUrl by remember { mutableStateOf<NSURL?>(null) }
+    var playingRecordingId by remember { mutableStateOf<String?>(null) }
+
+    fun requestSpeechAuthorization(onResult: (Boolean) -> Unit) {
+        SFSpeechRecognizer.requestAuthorization { status ->
+            dispatch_async(dispatch_get_main_queue()) {
+                onResult(status.toString().contains("Authorized", ignoreCase = true))
+            }
+        }
+    }
+
+    fun transcribeRecording(url: NSURL, onResult: (String) -> Unit) {
+        val recognizer = SFSpeechRecognizer(locale = NSLocale(localeIdentifier = "zh_CN"))
+        if (!recognizer.isAvailable()) {
+            currentOnEvent.value("当前设备暂不支持语音转文字。")
+            onResult("")
+            return
+        }
+        val request = SFSpeechURLRecognitionRequest(url)
+        recognizer.recognitionTaskWithRequest(request) { result, error ->
+            dispatch_async(dispatch_get_main_queue()) {
+                if (result != null) {
+                    val text = result.bestTranscription.formattedString.trim()
+                    if (result.isFinal()) {
+                        onResult(text)
+                    }
+                } else if (error != null) {
+                    currentOnEvent.value("语音转文字失败: ${error.localizedDescription}")
+                    onResult("")
+                }
+            }
+        }
+    }
 
     fun loadRecentImages() {
         try {
@@ -153,13 +227,14 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
-    return remember(isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size) {
+    return remember(isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size, playingRecordingId) {
         IOSPlatformMediaAccessController(
             isRecording = isRecording,
             recordings = recordings,
             pickedImages = pickedImages,
             pickedFiles = pickedFiles,
             recentImages = recentImages,
+            playingRecordingId = playingRecordingId,
             onOpenCamera = {
                 val presenter = currentPresenter()
                 if (presenter == null) {
@@ -247,30 +322,40 @@ actual fun rememberPlatformMediaAccessController(
                     currentOnEvent.value("正在打开系统文件选择器。")
                     presenter.presentDocumentPicker(
                         onEvent = currentOnEvent.value,
-                        onPickedFile = { url -> pickedFiles.add(0, url) }
+                        onPickedFile = { pickedFile -> pickedFiles.add(0, pickedFile) }
                     )
                 }
             },
-            onStartRecording = {
+            onOpenFilePreview = { pickedFile ->
+                openPickedFilePreview(pickedFile) { message -> currentOnEvent.value(message) }
+            },
+            onStartVoiceInput = {
                 if (isRecording) return@IOSPlatformMediaAccessController
 
                 val session = AVAudioSession.sharedInstance()
                 session.requestRecordPermission { granted ->
                     dispatch_async(dispatch_get_main_queue()) {
                         if (!granted) {
-                            currentOnEvent.value("麦克风权限被拒绝，无法开始录音。")
+                            currentOnEvent.value("麦克风权限被拒绝，无法开始语音输入。")
                             return@dispatch_async
                         }
 
-                        val result = startIosRecording(session)
-                        audioRecorder = result.recorder
-                        currentRecordingUrl = result.url
-                        isRecording = result.recorder != null
-                        currentOnEvent.value(result.message)
+                        requestSpeechAuthorization { speechGranted ->
+                            if (!speechGranted) {
+                                currentOnEvent.value("语音识别权限被拒绝，无法进行语音转文字。")
+                                return@requestSpeechAuthorization
+                            }
+
+                            val result = startIosRecording(session)
+                            audioRecorder = result.recorder
+                            currentRecordingUrl = result.url
+                            isRecording = result.recorder != null
+                            currentOnEvent.value(result.message)
+                        }
                     }
                 }
             },
-            onFinishRecording = {
+            onFinishVoiceInput = { onResult ->
                 if (!isRecording) return@IOSPlatformMediaAccessController
 
                 val recorder = audioRecorder
@@ -281,20 +366,30 @@ actual fun rememberPlatformMediaAccessController(
                 isRecording = false
 
                 if (url != null) {
-                    recordings.add(
-                        0,
-                        AudioRecording(
-                            id = NSDate().timeIntervalSince1970.toString(),
-                            name = url.lastPathComponent ?: "recording.m4a",
-                            path = url.path ?: url.absoluteString ?: ""
+                    currentOnEvent.value("正在进行语音转文字。")
+                    transcribeRecording(url) { text ->
+                        try {
+                            NSFileManager.defaultManager.removeItemAtURL(url, null)
+                        } catch (_: Throwable) {
+                        }
+                        if (text.isNotBlank()) {
+                            currentOnEvent.value("语音转文字完成。")
+                        }
+                        onResult(
+                            VoiceInputResult(
+                                transcribedText = text,
+                                recording = null
+                            )
                         )
-                    )
-                    currentOnEvent.value("录音已保存: ${url.path ?: url.absoluteString ?: ""}")
+                        AVAudioSession.sharedInstance().setActive(false, error = null)
+                    }
                 } else {
                     currentOnEvent.value("录音已停止，但未找到输出文件。")
+                    AVAudioSession.sharedInstance().setActive(false, error = null)
+                    onResult(VoiceInputResult(transcribedText = "", recording = null))
                 }
             },
-            onCancelRecording = {
+            onCancelVoiceInput = {
                 if (!isRecording) return@IOSPlatformMediaAccessController
 
                 val recorder = audioRecorder
@@ -311,20 +406,35 @@ actual fun rememberPlatformMediaAccessController(
                     }
                 }
 
-                currentOnEvent.value("已取消录音")
+                AVAudioSession.sharedInstance().setActive(false, error = null)
+                currentOnEvent.value("已取消语音输入")
             },
-            onPlayRecording = { recording ->
+            onToggleRecordingPlayback = { recording ->
                 try {
                     val url = NSURL.fileURLWithPath(recording.path)
-                    audioPlayer?.stop()
+                    val currentPlayer = audioPlayer
+                    if (playingRecordingId == recording.id && currentPlayer != null) {
+                        if (currentPlayer.playing) {
+                            currentPlayer.pause()
+                            currentOnEvent.value("已暂停录音: ${recording.name}")
+                        } else {
+                            currentPlayer.play()
+                            currentOnEvent.value("继续播放录音: ${recording.name}")
+                        }
+                        return@IOSPlatformMediaAccessController
+                    }
+
+                    currentPlayer?.stop()
                     audioPlayer = AVAudioPlayer(
                         contentsOfURL = url,
                         error = null
                     )
                     audioPlayer?.prepareToPlay()
                     audioPlayer?.play()
+                    playingRecordingId = recording.id
                     currentOnEvent.value("正在播放录音: ${recording.name}")
                 } catch (error: Throwable) {
+                    playingRecordingId = null
                     currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
                 }
             },
@@ -379,7 +489,9 @@ private fun startIosRecording(session: AVAudioSession): IOSRecordingResult {
         session.setCategory(
             category = AVAudioSessionCategoryPlayAndRecord,
             mode = AVAudioSessionModeDefault,
-            options = AVAudioSessionCategoryOptionDefaultToSpeaker or AVAudioSessionCategoryOptionMixWithOthers,
+            options = AVAudioSessionCategoryOptionDefaultToSpeaker or
+                AVAudioSessionCategoryOptionMixWithOthers or
+                AVAudioSessionCategoryOptionAllowBluetooth,
             error = null
         )
         session.setActive(true, error = null)
@@ -476,7 +588,7 @@ private fun UIViewController.presentPhotoLibrary(
 @OptIn(ExperimentalForeignApi::class)
 private fun UIViewController.presentDocumentPicker(
     onEvent: (String) -> Unit,
-    onPickedFile: (String) -> Unit,
+    onPickedFile: (PickedFile) -> Unit,
 ) {
     val picker = UIDocumentPickerViewController(
         documentTypes = listOf("public.item"),
@@ -630,7 +742,7 @@ private fun saveCapturedImageToTemporaryDirectory(image: UIImage): NSURL? {
 
 private class DocumentPickerDelegate(
     private val onEvent: (String) -> Unit,
-    private val onPickedFile: (String) -> Unit,
+    private val onPickedFile: (PickedFile) -> Unit,
 ) : NSObject(), UIDocumentPickerDelegateProtocol {
     override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) {
         controller.dismissViewControllerAnimated(true, null)
@@ -645,7 +757,12 @@ private class DocumentPickerDelegate(
         val value = didPickDocumentAtURL.absoluteString ?: ""
         onEvent("已选择文件: ${value.ifBlank { "未知路径" }}")
         if (value.isNotBlank()) {
-            onPickedFile(value)
+            onPickedFile(
+                PickedFile(
+                    uri = value,
+                    displayName = didPickDocumentAtURL.lastPathComponent ?: value.substringAfterLast('/')
+                )
+            )
         }
     }
 
@@ -659,7 +776,12 @@ private class DocumentPickerDelegate(
             val value = first.absoluteString ?: ""
             onEvent("已选择文件: ${value.ifBlank { "未知路径" }}")
             if (value.isNotBlank()) {
-                onPickedFile(value)
+                onPickedFile(
+                    PickedFile(
+                        uri = value,
+                        displayName = first.lastPathComponent ?: value.substringAfterLast('/')
+                    )
+                )
             }
         } else {
             onEvent("已完成文件选择，但未读取到结果。")

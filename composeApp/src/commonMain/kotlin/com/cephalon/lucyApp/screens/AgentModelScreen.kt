@@ -1,7 +1,9 @@
 package com.cephalon.lucyApp.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,9 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import com.cephalon.lucyApp.time.currentTimeMillis
@@ -57,6 +59,7 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelMessageList
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelProfileScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
+import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
 
 @Composable
 fun AgentModelScreen(onBack: () -> Unit) {
@@ -158,9 +161,8 @@ fun AgentModelScreen(onBack: () -> Unit) {
     val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
     var lastPickedImagesSize by remember { mutableStateOf(0) }
     var lastPickedFilesSize by remember { mutableStateOf(0) }
-
-    var voiceCancelBySlide by remember { mutableStateOf(false) }
-    val voiceCancelThreshold: Dp = 72.dp
+    var isVoiceBusy by remember { mutableStateOf(false) }
+    var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(Unit) {
         mediaAccessController.refreshRecentImages()
@@ -172,14 +174,11 @@ fun AgentModelScreen(onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(mediaAccessController.recordings.size) {
-        val latest = mediaAccessController.recordings.lastOrNull() ?: return@LaunchedEffect
-        val exists = currentMessages.any { it is ChatItem.RecordingItem && it.id == latest.id }
-        if (!exists) {
-            appendMessageToSelectedConversation(ChatItem.System("录音完成，可以点击播放。"))
-            appendMessageToSelectedConversation(
-                ChatItem.RecordingItem(id = latest.id, name = latest.name, path = latest.path)
-            )
+    LaunchedEffect(mediaAccessController.isRecording) {
+        voiceRecordingStartedAtMillis = if (mediaAccessController.isRecording) {
+            currentTimeMillis()
+        } else {
+            null
         }
     }
 
@@ -208,12 +207,18 @@ fun AgentModelScreen(onBack: () -> Unit) {
         if (size > lastPickedFilesSize) {
             mediaAccessController.pickedFiles
                 .take(size - lastPickedFilesSize)
-                .forEach { uri ->
+                .forEach { pickedFile ->
                     if (
-                        uri.isNotBlank() &&
-                        draftAttachments.none { it.type == DraftAttachmentType.File && it.uri == uri }
+                        pickedFile.uri.isNotBlank() &&
+                        draftAttachments.none { it.type == DraftAttachmentType.File && it.uri == pickedFile.uri }
                     ) {
-                        draftAttachments.add(DraftAttachment(DraftAttachmentType.File, uri))
+                        draftAttachments.add(
+                            DraftAttachment(
+                                type = DraftAttachmentType.File,
+                                uri = pickedFile.uri,
+                                displayName = pickedFile.displayName
+                            )
+                        )
                     }
                 }
             if (size > lastPickedFilesSize) {
@@ -305,115 +310,137 @@ fun AgentModelScreen(onBack: () -> Unit) {
                     .fillMaxSize()
                     .background(Color.White)
                     .padding(padding)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { focusManager.clearFocus() })
-                        }
-                )
-
-                if (showProfilePage) {
-                    AgentModelProfileScreen(
-                        onBack = { showProfilePage = false },
-                        onCall = { uriHandler.openUri("tel:") },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Surface(color = Color.White) {
-                            AgentModelTopBar(
-                                title = "脑花",
-                                subtitle = "内容由 AI 生成",
-                                onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
-                                onOpenProfile = {
-                                    focusManager.clearFocus()
-                                    attachmentsExpanded = false
-                                    previewState = null
-                                    showProfilePage = true
-                                },
-                                onCall = {
-                                    attachmentsExpanded = false
-                                    uriHandler.openUri("tel:")
-                                }
-                            )
-                        }
-                        AgentModelMessageList(
-                            messages = currentMessages,
-                            recordings = mediaAccessController.recordings,
-                            onPlayRecording = { mediaAccessController.playRecording(it) },
-                            onImageClick = { previewState = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .padding(horizontal = 12.dp)
-                        )
-
-                        AgentModelComposer(
-                            inputText = inputText,
-                            onInputChange = {
-                                inputText = it
-                                if (attachmentsExpanded) attachmentsExpanded = false
-                            },
-                            draftAttachments = draftAttachments,
-                            onRemoveDraftAttachment = { draftAttachments.remove(it) },
-                            onImageClick = { previewState = it },
-                            isRecording = mediaAccessController.isRecording,
-                            isCancelBySlide = voiceCancelBySlide,
-                            voiceCancelThreshold = voiceCancelThreshold,
-                            onVoiceStart = {
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(pass = PointerEventPass.Initial)
+                            val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                            if (up != null) {
                                 focusManager.clearFocus()
-                                voiceCancelBySlide = false
-                                mediaAccessController.startRecording()
-                            },
-                            onVoiceFinish = {
-                                voiceCancelBySlide = false
-                                mediaAccessController.finishRecording()
-                            },
-                            onVoiceCancel = {
-                                voiceCancelBySlide = false
-                                mediaAccessController.cancelRecording()
-                            },
-                            onVoiceCancelStateChange = { voiceCancelBySlide = it },
-                            attachmentsExpanded = attachmentsExpanded,
-                            onToggleAttachments = {
-                                attachmentsExpanded = !attachmentsExpanded
-                                if (attachmentsExpanded) focusManager.clearFocus()
-                            },
-                            onSend = sendMessage,
-                            onSuggestionClick = { appendMessageToSelectedConversation(ChatItem.User(it)) }
-                        )
-
-                            if (attachmentsExpanded) {
-                                AgentModelAttachmentPanel(
-                                    recentImages = mediaAccessController.recentImages,
-                                    onOpenCamera = {
-                                        appendMessageToSelectedConversation(ChatItem.System("打开相机"))
-                                        mediaAccessController.openCamera()
-                                    },
-                                    onOpenGallery = {
-                                        appendMessageToSelectedConversation(ChatItem.System("选择图片"))
-                                        mediaAccessController.openGallery()
-                                    },
-                                    onOpenFilePicker = {
-                                        appendMessageToSelectedConversation(ChatItem.System("选择系统文件"))
-                                        mediaAccessController.openFilePicker()
-                                    },
-                                    onImageClick = { previewState = it },
-                                    onClearLogs = {
-                                        logs.clear()
-                                        appendMessageToSelectedConversation(ChatItem.System("已清空记录"))
-                                    }
-                                )
                             }
                         }
                     }
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Surface(color = Color.White) {
+                        AgentModelTopBar(
+                            title = "脑花",
+                            subtitle = "内容由 AI 生成",
+                            onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
+                            onOpenProfile = {
+                                focusManager.clearFocus()
+                                attachmentsExpanded = false
+                                previewState = null
+                                showProfilePage = true
+                            },
+                            onCall = {
+                                attachmentsExpanded = false
+                                uriHandler.openUri("tel:")
+                            }
+                        )
+                    }
+                    AgentModelMessageList(
+                        messages = currentMessages,
+                        playingRecordingId = mediaAccessController.playingRecordingId,
+                        onToggleRecordingPlayback = { mediaAccessController.toggleRecordingPlayback(it) },
+                        onImageClick = { previewState = it },
+                        onFileClick = { mediaAccessController.openFilePreview(it) },
+                        onTapMessageArea = {
+                            focusManager.clearFocus()
+                            attachmentsExpanded = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 12.dp)
+                    )
+
+                    AgentModelComposer(
+                        inputText = inputText,
+                        onInputChange = {
+                            inputText = it
+                            if (attachmentsExpanded) attachmentsExpanded = false
+                        },
+                        draftAttachments = draftAttachments,
+                        onRemoveDraftAttachment = { draftAttachments.remove(it) },
+                        onImageClick = { previewState = it },
+                        onFileClick = { mediaAccessController.openFilePreview(it.asPickedFile()) },
+                        playingRecordingId = mediaAccessController.playingRecordingId,
+                        onToggleRecordingPlayback = { recordingPath ->
+                            mediaAccessController.toggleRecordingPlayback(
+                                com.cephalon.lucyApp.media.AudioRecording(
+                                    id = recordingPath,
+                                    name = recordingPath.substringAfterLast('/'),
+                                    path = recordingPath
+                                )
+                            )
+                        },
+                        isRecording = mediaAccessController.isRecording,
+                        isVoiceBusy = isVoiceBusy,
+                        onVoiceStart = {
+                            if (isVoiceBusy || mediaAccessController.isRecording) return@AgentModelComposer
+                            focusManager.clearFocus()
+                            attachmentsExpanded = false
+                            mediaAccessController.startVoiceInput()
+                        },
+                        attachmentsExpanded = attachmentsExpanded,
+                        onToggleAttachments = {
+                            attachmentsExpanded = !attachmentsExpanded
+                            if (attachmentsExpanded) focusManager.clearFocus()
+                        },
+                        onSend = sendMessage,
+                        onSuggestionClick = { appendMessageToSelectedConversation(ChatItem.User(it)) }
+                    )
+
+                    if (attachmentsExpanded) {
+                        AgentModelAttachmentPanel(
+                            recentImages = mediaAccessController.recentImages,
+                            onOpenCamera = {
+                                appendMessageToSelectedConversation(ChatItem.System("打开相机"))
+                                mediaAccessController.openCamera()
+                            },
+                            onOpenGallery = {
+                                appendMessageToSelectedConversation(ChatItem.System("选择图片"))
+                                mediaAccessController.openGallery()
+                            },
+                            onOpenFilePicker = {
+                                appendMessageToSelectedConversation(ChatItem.System("选择系统文件"))
+                                mediaAccessController.openFilePicker()
+                            },
+                            onImageClick = { previewState = it },
+                            onClearLogs = {
+                                logs.clear()
+                                appendMessageToSelectedConversation(ChatItem.System("已清空记录"))
+                            }
+                        )
+                    }
                 }
+
+                AgentModelProfileScreen(
+                    isVisible = showProfilePage,
+                    onDismiss = { showProfilePage = false },
+                    modifier = Modifier.fillMaxSize()
+                )
 
                 if (mediaAccessController.isRecording && !showProfilePage) {
                     AgentModelVoiceRecordingOverlay(
-                        isCancelBySlide = voiceCancelBySlide,
+                        startedAtMillis = voiceRecordingStartedAtMillis ?: currentTimeMillis(),
+                        onCancel = {
+                            mediaAccessController.cancelVoiceInput()
+                        },
+                        onConfirm = {
+                            isVoiceBusy = true
+                            mediaAccessController.finishVoiceInput { result ->
+                                isVoiceBusy = false
+                                val trimmedText = result.transcribedText.trim()
+                                if (trimmedText.isNotBlank()) {
+                                    inputText = if (inputText.isBlank()) {
+                                        trimmedText
+                                    } else {
+                                        "${inputText.trim()} $trimmedText".trim()
+                                    }
+                                }
+                            }
+                        },
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
@@ -445,5 +472,6 @@ fun AgentModelScreen(onBack: () -> Unit) {
             previewState = currentPreviewState,
             onDismiss = { previewState = null }
         )
+    }
     }
 }

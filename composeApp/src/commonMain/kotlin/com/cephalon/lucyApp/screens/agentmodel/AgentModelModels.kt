@@ -1,13 +1,18 @@
 package com.cephalon.lucyApp.screens.agentmodel
 
+import com.cephalon.lucyApp.media.AudioRecording
+import com.cephalon.lucyApp.media.PickedFile
+
 internal enum class DraftAttachmentType {
     Image,
     File,
+    Audio,
 }
 
 internal data class DraftAttachment(
     val type: DraftAttachmentType,
     val uri: String,
+    val displayName: String? = null,
 )
 
 internal data class ImagePreviewState(
@@ -48,7 +53,7 @@ private fun ChatItem.searchableText(): String {
                 append(' ')
             }
             attachments.forEach { attachment ->
-                append(uriDisplayName(attachment.uri))
+                append(attachment.displayName())
                 append(' ')
             }
         }
@@ -62,4 +67,29 @@ internal fun uriDisplayName(uri: String): String {
     if (trimmed.isBlank()) return ""
     val noQuery = trimmed.substringBefore('?')
     return noQuery.substringAfterLast('/').ifBlank { noQuery }
+}
+
+internal fun DraftAttachment.displayName(): String {
+    return displayName?.trim().takeUnless { it.isNullOrBlank() } ?: uriDisplayName(uri)
+}
+
+internal fun DraftAttachment.fileExtensionLabel(): String {
+    val name = displayName()
+    val extension = name.substringAfterLast('.', "").trim()
+    return extension.takeIf { it.isNotBlank() }?.uppercase() ?: "FILE"
+}
+
+internal fun DraftAttachment.asPickedFile(): PickedFile {
+    return PickedFile(
+        uri = uri,
+        displayName = displayName()
+    )
+}
+
+internal fun DraftAttachment.asAudioRecording(): AudioRecording {
+    return AudioRecording(
+        id = uri,
+        name = displayName(),
+        path = uri
+    )
 }

@@ -2,18 +2,27 @@ package com.cephalon.lucyApp.media
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.MediaStore
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -31,15 +40,17 @@ private class AndroidPlatformMediaAccessController(
     override val isRecording: Boolean,
     override val recordings: List<AudioRecording>,
     override val pickedImages: List<String>,
-    override val pickedFiles: List<String>,
+    override val pickedFiles: List<PickedFile>,
     override val recentImages: List<String>,
+    override val playingRecordingId: String?,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
     private val onOpenFilePicker: () -> Unit,
-    private val onStartRecording: () -> Unit,
-    private val onFinishRecording: () -> Unit,
-    private val onCancelRecording: () -> Unit,
-    private val onPlayRecording: (AudioRecording) -> Unit,
+    private val onOpenFilePreview: (PickedFile) -> Unit,
+    private val onStartVoiceInput: () -> Unit,
+    private val onFinishVoiceInput: ((VoiceInputResult) -> Unit) -> Unit,
+    private val onCancelVoiceInput: () -> Unit,
+    private val onToggleRecordingPlayback: (AudioRecording) -> Unit,
     private val onRefreshRecentImages: () -> Unit
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
@@ -48,13 +59,15 @@ private class AndroidPlatformMediaAccessController(
 
     override fun openFilePicker() = onOpenFilePicker()
 
-    override fun startRecording() = onStartRecording()
+    override fun openFilePreview(file: PickedFile) = onOpenFilePreview(file)
 
-    override fun finishRecording() = onFinishRecording()
+    override fun startVoiceInput() = onStartVoiceInput()
 
-    override fun cancelRecording() = onCancelRecording()
+    override fun finishVoiceInput(onResult: (VoiceInputResult) -> Unit) = onFinishVoiceInput(onResult)
 
-    override fun playRecording(recording: AudioRecording) = onPlayRecording(recording)
+    override fun cancelVoiceInput() = onCancelVoiceInput()
+
+    override fun toggleRecordingPlayback(recording: AudioRecording) = onToggleRecordingPlayback(recording)
 
     override fun refreshRecentImages() = onRefreshRecentImages()
 }
@@ -67,12 +80,170 @@ actual fun rememberPlatformMediaAccessController(
     val currentOnEvent = rememberUpdatedState(onEvent)
     val recordings = remember { mutableStateListOf<AudioRecording>() }
     val pickedImages = remember { mutableStateListOf<String>() }
-    val pickedFiles = remember { mutableStateListOf<String>() }
+    val pickedFiles = remember { mutableStateListOf<PickedFile>() }
     val recentImages = remember { mutableStateListOf<String>() }
     var isRecording by remember { mutableStateOf(false) }
-    var currentRecordingFile by remember { mutableStateOf<File?>(null) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var currentRecordingFile by remember { mutableStateOf<File?>(null) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var playingRecordingId by remember { mutableStateOf<String?>(null) }
+    var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    var latestVoiceText by remember { mutableStateOf("") }
+    var latestVoiceRecording by remember { mutableStateOf<AudioRecording?>(null) }
+    var voiceResultCallback by remember { mutableStateOf<((VoiceInputResult) -> Unit)?>(null) }
+    var voiceSessionAction by remember { mutableStateOf(AndroidVoiceSessionAction.Idle) }
+    var previousAudioMode by remember { mutableStateOf(AudioManager.MODE_NORMAL) }
+    var previousSpeakerphoneOn by remember { mutableStateOf(false) }
+    var bluetoothScoStarted by remember { mutableStateOf(false) }
+
+    fun configureVoiceInputRoute() {
+        audioManager ?: return
+        previousAudioMode = audioManager.mode
+        previousSpeakerphoneOn = audioManager.isSpeakerphoneOn
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        audioManager.isSpeakerphoneOn = false
+        runCatching {
+            audioManager.startBluetoothSco()
+            audioManager.isBluetoothScoOn = true
+            bluetoothScoStarted = true
+        }
+    }
+
+    fun restoreVoiceInputRoute() {
+        audioManager ?: return
+        if (bluetoothScoStarted) {
+            runCatching {
+                audioManager.stopBluetoothSco()
+                audioManager.isBluetoothScoOn = false
+            }
+            bluetoothScoStarted = false
+        }
+        audioManager.isSpeakerphoneOn = previousSpeakerphoneOn
+        audioManager.mode = previousAudioMode
+    }
+
+    fun stopCurrentRecordingFile(): File? {
+        val file = currentRecordingFile
+        stopAndroidRecording(mediaRecorder)
+        mediaRecorder = null
+        currentRecordingFile = null
+        restoreVoiceInputRoute()
+        return file?.takeIf { it.exists() }
+    }
+
+    fun stopAndBuildCurrentRecording(): AudioRecording? {
+        val file = stopCurrentRecordingFile()
+        return if (file != null && file.exists()) {
+            AudioRecording(
+                id = file.absolutePath,
+                name = file.name,
+                path = file.absolutePath
+            )
+        } else {
+            null
+        }
+    }
+
+    fun discardCurrentRecording() {
+        val file = stopCurrentRecordingFile()
+        if (file != null) {
+            try {
+                file.delete()
+            } catch (_: Throwable) {
+            }
+        }
+        latestVoiceRecording = null
+    }
+
+    fun resetVoiceSession() {
+        isRecording = false
+        latestVoiceText = ""
+        voiceResultCallback = null
+        latestVoiceRecording = null
+        voiceSessionAction = AndroidVoiceSessionAction.Idle
+    }
+
+    fun dispatchVoiceResult(text: String) {
+        val callback = voiceResultCallback
+        val resultText = text.trim()
+        discardCurrentRecording()
+        resetVoiceSession()
+        if (resultText.isNotBlank()) {
+            currentOnEvent.value("语音转文字完成。")
+        } else {
+            currentOnEvent.value("未识别到语音内容。")
+        }
+        callback?.invoke(
+            VoiceInputResult(
+                transcribedText = resultText,
+                recording = null
+            )
+        )
+    }
+
+    fun ensureSpeechRecognizer(): SpeechRecognizer? {
+        speechRecognizer?.let { return it }
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            currentOnEvent.value("当前设备不支持语音转文字。")
+            return null
+        }
+        return SpeechRecognizer.createSpeechRecognizer(context).also { recognizer ->
+            recognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+
+                override fun onBeginningOfSpeech() = Unit
+
+                override fun onRmsChanged(rmsdB: Float) = Unit
+
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+                override fun onEndOfSpeech() = Unit
+
+                override fun onError(error: Int) {
+                    when (voiceSessionAction) {
+                        AndroidVoiceSessionAction.Cancelling -> resetVoiceSession()
+                        AndroidVoiceSessionAction.Finishing -> {
+                            val fallbackText = latestVoiceText.trim()
+                            dispatchVoiceResult(fallbackText)
+                        }
+                        AndroidVoiceSessionAction.Active -> {
+                            discardCurrentRecording()
+                            resetVoiceSession()
+                            currentOnEvent.value("语音输入中断，请重试。")
+                        }
+                        AndroidVoiceSessionAction.Idle -> Unit
+                    }
+                }
+
+                override fun onResults(results: Bundle?) {
+                    val resultText = extractSpeechText(results).ifBlank { latestVoiceText }.trim()
+                    if (voiceSessionAction == AndroidVoiceSessionAction.Finishing) {
+                        dispatchVoiceResult(resultText)
+                    } else {
+                        resetVoiceSession()
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    latestVoiceText = extractSpeechText(partialResults)
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+            speechRecognizer = recognizer
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            restoreVoiceInputRoute()
+            stopAndroidRecording(mediaRecorder)
+            mediaRecorder = null
+            mediaPlayer?.release()
+            mediaPlayer = null
+        }
+    }
 
     fun loadRecentImages() {
         try {
@@ -156,18 +327,33 @@ actual fun rememberPlatformMediaAccessController(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            currentOnEvent.value("麦克风权限已授权，开始录音。")
-            val result = startAndroidRecording(context)
-            mediaRecorder = result.recorder
-            currentRecordingFile = result.file
-            isRecording = result.recorder != null
-            if (result.recorder == null) {
-                currentOnEvent.value(result.message)
-            } else {
-                currentOnEvent.value("录音中: ${result.file?.absolutePath.orEmpty()}")
+            val recognizer = ensureSpeechRecognizer()
+            if (recognizer != null) {
+                try {
+                    configureVoiceInputRoute()
+                    val recordingResult = startAndroidRecording(context)
+                    mediaRecorder = recordingResult.recorder
+                    currentRecordingFile = recordingResult.file
+                    if (recordingResult.recorder == null) {
+                        restoreVoiceInputRoute()
+                        currentOnEvent.value(recordingResult.message)
+                    } else {
+                        latestVoiceText = ""
+                        latestVoiceRecording = null
+                        voiceResultCallback = null
+                        voiceSessionAction = AndroidVoiceSessionAction.Active
+                        isRecording = true
+                        recognizer.startListening(buildSpeechRecognizerIntent())
+                        currentOnEvent.value("语音输入已开始。")
+                    }
+                } catch (error: Throwable) {
+                    discardCurrentRecording()
+                    resetVoiceSession()
+                    currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
+                }
             }
         } else {
-            currentOnEvent.value("麦克风权限被拒绝，无法开始录音。")
+            currentOnEvent.value("麦克风权限被拒绝，无法开始语音输入。")
         }
     }
 
@@ -222,17 +408,24 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("未选择文件。")
         } else {
             currentOnEvent.value("已选择文件: $uri")
-            pickedFiles.add(0, uri.toString())
+            pickedFiles.add(
+                0,
+                PickedFile(
+                    uri = uri.toString(),
+                    displayName = resolveDisplayName(context, uri)
+                )
+            )
         }
     }
 
-    return remember(context, isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size) {
+    return remember(context, isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size, playingRecordingId) {
         AndroidPlatformMediaAccessController(
             isRecording = isRecording,
             recordings = recordings,
             pickedImages = pickedImages,
             pickedFiles = pickedFiles,
             recentImages = recentImages,
+            playingRecordingId = playingRecordingId,
             onOpenCamera = {
                 val activity = context.findActivity()
                 if (activity == null) {
@@ -266,14 +459,17 @@ actual fun rememberPlatformMediaAccessController(
                 currentOnEvent.value("正在打开系统文件选择器。")
                 openDocumentLauncher.launch(arrayOf("*/*"))
             },
-            onStartRecording = {
+            onOpenFilePreview = { pickedFile ->
+                openPickedFilePreview(context, pickedFile) { message -> currentOnEvent.value(message) }
+            },
+            onStartVoiceInput = startVoiceInput@{
                 val activity = context.findActivity()
                 if (activity == null) {
-                    currentOnEvent.value("未找到 Activity，上下文异常，无法录音。")
-                    return@AndroidPlatformMediaAccessController
+                    currentOnEvent.value("未找到 Activity，上下文异常，无法语音输入。")
+                    return@startVoiceInput
                 }
 
-                if (isRecording) return@AndroidPlatformMediaAccessController
+                if (isRecording) return@startVoiceInput
 
                 val granted = androidx.core.content.ContextCompat.checkSelfPermission(
                     activity,
@@ -281,71 +477,95 @@ actual fun rememberPlatformMediaAccessController(
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
                 if (granted) {
-                    val result = startAndroidRecording(context)
-                    mediaRecorder = result.recorder
-                    currentRecordingFile = result.file
-                    isRecording = result.recorder != null
-                    currentOnEvent.value(result.message)
+                    val recognizer = ensureSpeechRecognizer()
+                    if (recognizer != null) {
+                        try {
+                            configureVoiceInputRoute()
+                            val recordingResult = startAndroidRecording(context)
+                            mediaRecorder = recordingResult.recorder
+                            currentRecordingFile = recordingResult.file
+                            if (recordingResult.recorder == null) {
+                                restoreVoiceInputRoute()
+                                currentOnEvent.value(recordingResult.message)
+                            } else {
+                                latestVoiceText = ""
+                                latestVoiceRecording = null
+                                voiceResultCallback = null
+                                voiceSessionAction = AndroidVoiceSessionAction.Active
+                                isRecording = true
+                                recognizer.startListening(buildSpeechRecognizerIntent())
+                                currentOnEvent.value("语音输入已开始。")
+                            }
+                        } catch (error: Throwable) {
+                            discardCurrentRecording()
+                            resetVoiceSession()
+                            currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
+                        }
+                    }
                 } else {
                     currentOnEvent.value("正在申请麦克风权限。")
                     requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
             },
-            onFinishRecording = {
-                if (!isRecording) return@AndroidPlatformMediaAccessController
-
-                val file = currentRecordingFile
-                val recorder = mediaRecorder
-                stopAndroidRecording(recorder)
-                mediaRecorder = null
-                currentRecordingFile = null
+            onFinishVoiceInput = finishVoiceInput@{ onResult ->
+                if (!isRecording) return@finishVoiceInput
                 isRecording = false
-
-                if (file != null && file.exists()) {
-                    val recording = AudioRecording(
-                        id = UUID.randomUUID().toString(),
-                        name = file.name,
-                        path = file.absolutePath
-                    )
-                    recordings.add(0, recording)
-                    currentOnEvent.value("录音已保存: ${file.absolutePath}")
-                } else {
-                    currentOnEvent.value("录音已停止，但未找到输出文件。")
-                }
-            },
-            onCancelRecording = {
-                if (!isRecording) return@AndroidPlatformMediaAccessController
-
-                val file = currentRecordingFile
-                val recorder = mediaRecorder
-                stopAndroidRecording(recorder)
-                mediaRecorder = null
-                currentRecordingFile = null
-                isRecording = false
-
-                if (file != null) {
-                    try {
-                        file.delete()
-                    } catch (_: Exception) {
-                    }
-                }
-                currentOnEvent.value("已取消录音")
-            },
-            onPlayRecording = { recording ->
+                stopCurrentRecordingFile()
+                latestVoiceRecording = null
+                voiceResultCallback = onResult
+                voiceSessionAction = AndroidVoiceSessionAction.Finishing
                 try {
-                    mediaPlayer?.release()
+                    speechRecognizer?.stopListening()
+                    currentOnEvent.value("正在进行语音转文字。")
+                } catch (error: Throwable) {
+                    currentOnEvent.value("语音转文字失败: ${error.message.orEmpty()}")
+                    dispatchVoiceResult(latestVoiceText.trim())
+                }
+            },
+            onCancelVoiceInput = cancelVoiceInput@{
+                if (!isRecording) return@cancelVoiceInput
+                isRecording = false
+                voiceSessionAction = AndroidVoiceSessionAction.Cancelling
+                latestVoiceText = ""
+                voiceResultCallback = null
+                discardCurrentRecording()
+                try {
+                    speechRecognizer?.cancel()
+                } catch (_: Throwable) {
+                }
+                resetVoiceSession()
+                currentOnEvent.value("已取消语音输入")
+            },
+            onToggleRecordingPlayback = toggleRecordingPlayback@{ recording ->
+                try {
+                    val currentPlayer = mediaPlayer
+                    if (playingRecordingId == recording.id && currentPlayer != null) {
+                        if (currentPlayer.isPlaying) {
+                            currentPlayer.pause()
+                            currentOnEvent.value("已暂停录音: ${recording.name}")
+                        } else {
+                            currentPlayer.start()
+                            currentOnEvent.value("继续播放录音: ${recording.name}")
+                        }
+                        return@toggleRecordingPlayback
+                    }
+
+                    currentPlayer?.release()
                     mediaPlayer = MediaPlayer().apply {
                         setDataSource(recording.path)
                         prepare()
                         start()
                         setOnCompletionListener {
                             currentOnEvent.value("播放完成: ${recording.name}")
+                            playingRecordingId = null
                             it.release()
                             mediaPlayer = null
                         }
                     }
+                    playingRecordingId = recording.id
                     currentOnEvent.value("正在播放录音: ${recording.name}")
                 } catch (error: Exception) {
+                    playingRecordingId = null
                     currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
                 }
             },
@@ -379,6 +599,93 @@ actual fun rememberPlatformMediaAccessController(
     }
 }
 
+private enum class AndroidVoiceSessionAction {
+    Idle,
+    Active,
+    Finishing,
+    Cancelling,
+}
+
+private fun buildSpeechRecognizerIntent(): Intent {
+    return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.SIMPLIFIED_CHINESE.toLanguageTag())
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.SIMPLIFIED_CHINESE.toLanguageTag())
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+    }
+}
+
+private fun extractSpeechText(bundle: Bundle?): String {
+    if (bundle == null) return ""
+    return bundle.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+        ?.firstOrNull()
+        .orEmpty()
+}
+
+private fun resolveDisplayName(context: Context, uri: Uri): String {
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                } else {
+                    null
+                }
+            }
+    }.getOrNull().orEmpty().ifBlank { uri.lastPathSegment.orEmpty().ifBlank { uri.toString() } }
+}
+
+private fun openPickedFilePreview(
+    context: Context,
+    file: PickedFile,
+    onEvent: (String) -> Unit,
+) {
+    val rawUri = file.uri.trim()
+    if (rawUri.isBlank()) {
+        onEvent("文件路径无效，无法预览。")
+        return
+    }
+
+    val targetUri = runCatching {
+        val parsed = Uri.parse(rawUri)
+        if (parsed.scheme.isNullOrBlank()) {
+            val targetFile = File(rawUri)
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                targetFile
+            )
+        } else {
+            parsed
+        }
+    }.getOrElse {
+        onEvent("无法打开文件预览: ${it.message.orEmpty()}")
+        return
+    }
+
+    val mimeType = context.contentResolver.getType(targetUri)
+        ?: android.webkit.MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(file.displayName.substringAfterLast('.', "").lowercase())
+        ?: "*/*"
+
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(targetUri, mimeType)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    val chooser = Intent.createChooser(intent, file.displayName)
+    val canOpen = intent.resolveActivity(context.packageManager) != null
+    if (canOpen) {
+        runCatching { context.startActivity(chooser) }
+            .onFailure { onEvent("打开文件失败: ${it.message.orEmpty()}") }
+    } else {
+        onEvent("当前设备没有可用于预览该文件的应用。")
+    }
+}
+
 private data class AndroidRecordingResult(
     val recorder: MediaRecorder?,
     val file: File?,
@@ -399,7 +706,7 @@ private fun startAndroidRecording(context: Context): AndroidRecordingResult {
         }
 
         recorder.apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioEncodingBitRate(128000)
