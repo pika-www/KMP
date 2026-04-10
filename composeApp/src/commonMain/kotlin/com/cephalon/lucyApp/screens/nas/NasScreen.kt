@@ -241,6 +241,33 @@ fun NasScreen(onBack: () -> Unit) {
                 sizeKB = 88,
                 path = "drawable/demo-doc.pages",
                 time = "2026-03-28 09:00"
+            ),
+            NasDocumentItem(
+                id = "doc_004",
+                name = "doc.doc",
+                type = "文档",
+                format = "doc",
+                sizeKB = 28,
+                path = "drawable/doc.doc",
+                time = "2026-04-10 11:10"
+            ),
+            NasDocumentItem(
+                id = "doc_005",
+                name = "pptx.pptx",
+                type = "文档",
+                format = "pptx",
+                sizeKB = 31,
+                path = "drawable/pptx.pptx",
+                time = "2026-04-10 11:11"
+            ),
+            NasDocumentItem(
+                id = "doc_006",
+                name = "xls.xls",
+                type = "文档",
+                format = "xls",
+                sizeKB = 30,
+                path = "drawable/xls.xls",
+                time = "2026-04-10 11:12"
             )
         )
     }
