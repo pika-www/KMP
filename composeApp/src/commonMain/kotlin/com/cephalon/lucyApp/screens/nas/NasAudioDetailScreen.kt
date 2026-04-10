@@ -58,6 +58,7 @@ internal fun NasAudioDetailScreen(
     mediaController: PlatformMediaAccessController,
     onBack: () -> Unit,
     onShare: () -> Unit,
+    onDownload: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -224,42 +225,51 @@ internal fun NasAudioDetailScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // 发送朋友按钮
                 Button(
                     onClick = onShare,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp),
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
                         contentColor = Color(0xFF222222)
-                    )
+                    ),
+                    contentPadding = ButtonDefaults.ContentPadding
                 ) {
                     Text(
                         text = "发送朋友",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                     )
                 }
 
-                // 删除按钮
+                Button(
+                    onClick = onDownload,
+                    shape = RoundedCornerShape(999.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF222222)
+                    ),
+                    contentPadding = ButtonDefaults.ContentPadding
+                ) {
+                    Text(
+                        text = "下载",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                }
+
                 Button(
                     onClick = onDelete,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp),
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
                         contentColor = Color(0xFFFF3B30)
-                    )
+                    ),
+                    contentPadding = ButtonDefaults.ContentPadding
                 ) {
                     Text(
                         text = "删除",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                     )
                 }
             }

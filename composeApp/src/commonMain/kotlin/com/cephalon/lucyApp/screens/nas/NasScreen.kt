@@ -1,6 +1,5 @@
 package com.cephalon.lucyApp.screens.nas
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,14 +7,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -23,15 +24,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 
 @Composable
 fun NasScreen(onBack: () -> Unit) {
     var selectedCategory by remember { mutableStateOf(NasCategory.Photos) }
+    var isPhotoSelectionMode by remember { mutableStateOf(false) }
+    var isAudioSelectionMode by remember { mutableStateOf(false) }
+    var isDocumentSelectionMode by remember { mutableStateOf(false) }
     var selectedImage by remember { mutableStateOf<NasImageItem?>(null) }
     var selectedAudio by remember { mutableStateOf<NasAudioItem?>(null) }
     var selectedDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
+    val selectedPhotoIds = remember { mutableStateListOf<String>() }
+    val selectedAudioIds = remember { mutableStateListOf<String>() }
+    val selectedDocumentIds = remember { mutableStateListOf<String>() }
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
@@ -193,7 +201,7 @@ fun NasScreen(onBack: () -> Unit) {
             NasAudioItem(
                 id = "aud_001",
                 name = "demo.m4a",
-                type = "录音",
+                type = "音频",
                 format = "m4a",
                 sizeKB = 102,
                 path = "drawable/demo.m4a",
@@ -203,7 +211,7 @@ fun NasScreen(onBack: () -> Unit) {
             NasAudioItem(
                 id = "aud_002",
                 name = "voice_note.m4a",
-                type = "录音",
+                type = "音频",
                 format = "m4a",
                 sizeKB = 102,
                 path = "drawable/demo.m4a",
@@ -211,6 +219,59 @@ fun NasScreen(onBack: () -> Unit) {
                 durationSec = 185
             )
         )
+    }
+
+    val allPhotoIds = remember(imageMonths) {
+        imageMonths.flatMap { monthGroup -> monthGroup.images }.map { image -> image.id }
+    }
+
+    val allAudioIds = remember(audios) {
+        audios.map { audio -> audio.id }
+    }
+
+    fun exitPhotoSelectionMode() {
+        isPhotoSelectionMode = false
+        selectedPhotoIds.clear()
+    }
+
+    fun exitAudioSelectionMode() {
+        isAudioSelectionMode = false
+        selectedAudioIds.clear()
+    }
+
+    fun exitDocumentSelectionMode() {
+        isDocumentSelectionMode = false
+        selectedDocumentIds.clear()
+    }
+
+    fun exitAllSelectionModes() {
+        exitPhotoSelectionMode()
+        exitAudioSelectionMode()
+        exitDocumentSelectionMode()
+    }
+
+    fun togglePhotoSelection(image: NasImageItem) {
+        if (selectedPhotoIds.contains(image.id)) {
+            selectedPhotoIds.remove(image.id)
+        } else {
+            selectedPhotoIds.add(image.id)
+        }
+    }
+
+    fun toggleAudioSelection(audio: NasAudioItem) {
+        if (selectedAudioIds.contains(audio.id)) {
+            selectedAudioIds.remove(audio.id)
+        } else {
+            selectedAudioIds.add(audio.id)
+        }
+    }
+
+    fun toggleDocumentSelection(document: NasDocumentItem) {
+        if (selectedDocumentIds.contains(document.id)) {
+            selectedDocumentIds.remove(document.id)
+        } else {
+            selectedDocumentIds.add(document.id)
+        }
     }
 
     val documents = remember {
@@ -272,6 +333,10 @@ fun NasScreen(onBack: () -> Unit) {
         )
     }
 
+    val allDocumentIds = remember(documents) {
+        documents.map { document -> document.id }
+    }
+
     // 如果选中了图片，显示详情页
     selectedImage?.let { image ->
         NasImageDetailScreen(
@@ -280,6 +345,10 @@ fun NasScreen(onBack: () -> Unit) {
             onShare = {
                 println("分享图片: ${image.name}")
                 // TODO: 实现分享功能
+            },
+            onDownload = {
+                println("下载图片: ${image.name}")
+                // TODO: 实现下载功能
             },
             onDelete = {
                 println("删除图片: ${image.name}")
@@ -303,6 +372,10 @@ fun NasScreen(onBack: () -> Unit) {
                 println("分享音频: ${audio.name}")
                 // TODO: 实现分享功能
             },
+            onDownload = {
+                println("下载音频: ${audio.name}")
+                // TODO: 实现下载功能
+            },
             onDelete = {
                 println("删除音频: ${audio.name}")
                 // TODO: 实现删除功能
@@ -322,6 +395,10 @@ fun NasScreen(onBack: () -> Unit) {
                 println("分享文档: ${document.name}")
                 // TODO: 实现分享功能
             },
+            onDownload = {
+                println("下载文档: ${document.name}")
+                // TODO: 实现下载功能
+            },
             onDelete = {
                 println("删除文档: ${document.name}")
                 // TODO: 实现删除功能
@@ -340,40 +417,107 @@ fun NasScreen(onBack: () -> Unit) {
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                NasCircularIconButton(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    onClick = onBack,
+                    modifier = Modifier.size(40.dp)
+                )
+
                 Text(
                     text = "NAS",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF121212)
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF111111),
+                    textAlign = TextAlign.Center
                 )
-                TextButton(onClick = onBack) {
-                    Text("返回")
-                }
+
+                Spacer(modifier = Modifier.size(40.dp))
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             Surface(
                 modifier = Modifier.fillMaxSize(),
+                color = Color.Transparent
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 12.dp, vertical = 16.dp)
                 ) {
-                    NasCategoryAndAddRow(
-                        selected = selectedCategory,
-                        onSelect = { selectedCategory = it },
-                        onAddClick = {
-                            when (selectedCategory) {
-                                NasCategory.Photos -> mediaController.openGallery()
-                                NasCategory.Recordings -> mediaController.openAudioPicker()
-                                NasCategory.Documents -> mediaController.openFilePicker()
+                    val isCurrentSelectionMode = when (selectedCategory) {
+                        NasCategory.Photos -> isPhotoSelectionMode
+                        NasCategory.Recordings -> isAudioSelectionMode
+                        NasCategory.Documents -> isDocumentSelectionMode
+                    }
+
+                    if (isCurrentSelectionMode) {
+                        NasPhotoSelectionRow(
+                            selectedCount = when (selectedCategory) {
+                                NasCategory.Photos -> selectedPhotoIds.size
+                                NasCategory.Recordings -> selectedAudioIds.size
+                                NasCategory.Documents -> selectedDocumentIds.size
+                            },
+                            onSelectAllClick = {
+                                when (selectedCategory) {
+                                    NasCategory.Photos -> {
+                                        selectedPhotoIds.clear()
+                                        selectedPhotoIds.addAll(allPhotoIds)
+                                    }
+
+                                    NasCategory.Recordings -> {
+                                        selectedAudioIds.clear()
+                                        selectedAudioIds.addAll(allAudioIds)
+                                    }
+
+                                    NasCategory.Documents -> {
+                                        selectedDocumentIds.clear()
+                                        selectedDocumentIds.addAll(allDocumentIds)
+                                    }
+                                }
+                            },
+                            onCancelClick = { exitAllSelectionModes() }
+                        )
+                    } else {
+                        NasCategoryAndAddRow(
+                            selected = selectedCategory,
+                            onSelect = {
+                                selectedCategory = it
+                                exitAllSelectionModes()
+                            },
+                            onSelectionClick = {
+                                when (selectedCategory) {
+                                    NasCategory.Photos -> {
+                                        exitAllSelectionModes()
+                                        isPhotoSelectionMode = true
+                                        selectedPhotoIds.clear()
+                                    }
+
+                                    NasCategory.Recordings -> {
+                                        exitAllSelectionModes()
+                                        isAudioSelectionMode = true
+                                        selectedAudioIds.clear()
+                                    }
+
+                                    NasCategory.Documents -> {
+                                        exitAllSelectionModes()
+                                        isDocumentSelectionMode = true
+                                        selectedDocumentIds.clear()
+                                    }
+                                }
+                            },
+                            onAddClick = {
+                                when (selectedCategory) {
+                                    NasCategory.Photos -> mediaController.openGallery()
+                                    NasCategory.Recordings -> mediaController.openAudioPicker()
+                                    NasCategory.Documents -> mediaController.openFilePicker()
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(18.dp))
 
@@ -383,22 +527,61 @@ fun NasScreen(onBack: () -> Unit) {
                         when (selectedCategory) {
                             NasCategory.Photos -> NasPhotosContent(
                                 imageMonths = imageMonths,
-                                onImageClick = { image -> selectedImage = image }
+                                selectionMode = isPhotoSelectionMode,
+                                selectedImageIds = selectedPhotoIds,
+                                onImageClick = { image -> selectedImage = image },
+                                onImageSelectionToggle = { image -> togglePhotoSelection(image) }
                             )
                             NasCategory.Recordings -> NasRecordingsContent(
                                 audios = audios,
-                                onAudioClick = { audio -> selectedAudio = audio }
+                                selectionMode = isAudioSelectionMode,
+                                selectedAudioIds = selectedAudioIds,
+                                onAudioClick = { audio -> selectedAudio = audio },
+                                onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
                             )
                             NasCategory.Documents -> NasDocumentsContent(
                                 documents = documents,
-                                onDocumentClick = { document -> selectedDocument = document }
+                                selectionMode = isDocumentSelectionMode,
+                                selectedDocumentIds = selectedDocumentIds,
+                                onDocumentClick = { document -> selectedDocument = document },
+                                onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) }
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    NasSearchBar(onClick = {})
+                    if (isCurrentSelectionMode) {
+                        NasPhotoSelectionBottomBar(
+                            onShareClick = {
+                                val count = when (selectedCategory) {
+                                    NasCategory.Photos -> selectedPhotoIds.size
+                                    NasCategory.Recordings -> selectedAudioIds.size
+                                    NasCategory.Documents -> selectedDocumentIds.size
+                                }
+                                println("发送朋友: ${count}项")
+                            },
+                            onDownloadClick = {
+                                val count = when (selectedCategory) {
+                                    NasCategory.Photos -> selectedPhotoIds.size
+                                    NasCategory.Recordings -> selectedAudioIds.size
+                                    NasCategory.Documents -> selectedDocumentIds.size
+                                }
+                                println("下载资源: ${count}项")
+                            },
+                            onDeleteClick = {
+                                val count = when (selectedCategory) {
+                                    NasCategory.Photos -> selectedPhotoIds.size
+                                    NasCategory.Recordings -> selectedAudioIds.size
+                                    NasCategory.Documents -> selectedDocumentIds.size
+                                }
+                                println("删除资源: ${count}项")
+                            },
+                            onSearchClick = {}
+                        )
+                    } else {
+                        NasSearchBar(onClick = {})
+                    }
                 }
             }
         }
