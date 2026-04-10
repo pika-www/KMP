@@ -294,7 +294,11 @@ fun NasScreen(onBack: () -> Unit) {
     selectedAudio?.let { audio ->
         NasAudioDetailScreen(
             audio = audio,
-            onBack = { selectedAudio = null },
+            mediaController = mediaController,
+            onBack = {
+                mediaController.stopAudioPlayback()
+                selectedAudio = null
+            },
             onShare = {
                 println("分享音频: ${audio.name}")
                 // TODO: 实现分享功能
@@ -302,6 +306,7 @@ fun NasScreen(onBack: () -> Unit) {
             onDelete = {
                 println("删除音频: ${audio.name}")
                 // TODO: 实现删除功能
+                mediaController.stopAudioPlayback()
                 selectedAudio = null
             }
         )

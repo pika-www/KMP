@@ -13,6 +13,14 @@ data class AudioRecording(
     val path: String
 )
 
+data class AudioPlaybackState(
+    val sourceId: String? = null,
+    val sourceName: String = "",
+    val isPlaying: Boolean = false,
+    val currentPositionMillis: Long = 0L,
+    val durationMillis: Long = 0L
+)
+
 data class VoiceInputResult(
     val transcribedText: String,
     val recording: AudioRecording?
@@ -25,6 +33,7 @@ interface PlatformMediaAccessController {
     val pickedFiles: List<PickedFile>
     val recentImages: List<String>
     val playingRecordingId: String?
+    val audioPlaybackState: AudioPlaybackState
 
     fun openCamera()
     fun openGallery()
@@ -37,6 +46,10 @@ interface PlatformMediaAccessController {
     fun cancelVoiceInput()
 
     fun toggleRecordingPlayback(recording: AudioRecording)
+    fun toggleAudioPlayback(sourceId: String, name: String, source: String)
+    fun seekAudioPlaybackTo(positionMillis: Long)
+    fun skipAudioPlaybackBy(deltaMillis: Long)
+    fun stopAudioPlayback()
 
     fun refreshRecentImages()
 }

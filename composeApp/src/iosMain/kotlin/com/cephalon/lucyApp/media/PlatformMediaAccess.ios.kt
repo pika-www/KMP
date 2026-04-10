@@ -1,17 +1,21 @@
 package com.cephalon.lucyApp.media
 
+import androidios.composeapp.generated.resources.Res
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import com.cephalon.lucyApp.IOSViewControllerHolder
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.AVFAudio.AVAudioPlayer
 import platform.AVFAudio.AVAudioRecorder
 import platform.AVFAudio.AVAudioSession
+import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.AVAudioSessionCategoryPlayAndRecord
 import platform.AVFAudio.AVAudioSessionCategoryOptionAllowBluetooth
 import platform.AVFAudio.AVAudioSessionCategoryOptionDefaultToSpeaker
@@ -70,6 +74,7 @@ import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 import platform.Speech.SFSpeechRecognizer
 import platform.Speech.SFSpeechURLRecognitionRequest
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 
 private object IOSPickerDelegateStore {
     private val delegates = mutableListOf<Any>()
@@ -120,6 +125,7 @@ private class IOSPlatformMediaAccessController(
     override val pickedFiles: List<PickedFile>,
     override val recentImages: List<String>,
     override val playingRecordingId: String?,
+    override val audioPlaybackState: AudioPlaybackState,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
     private val onOpenAudioPicker: () -> Unit,
@@ -129,6 +135,10 @@ private class IOSPlatformMediaAccessController(
     private val onFinishVoiceInput: ((VoiceInputResult) -> Unit) -> Unit,
     private val onCancelVoiceInput: () -> Unit,
     private val onToggleRecordingPlayback: (AudioRecording) -> Unit,
+    private val onToggleAudioPlayback: (String, String, String) -> Unit,
+    private val onSeekAudioPlaybackTo: (Long) -> Unit,
+    private val onSkipAudioPlaybackBy: (Long) -> Unit,
+    private val onStopAudioPlayback: () -> Unit,
     private val onRefreshRecentImages: () -> Unit
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
@@ -149,10 +159,19 @@ private class IOSPlatformMediaAccessController(
 
     override fun toggleRecordingPlayback(recording: AudioRecording) = onToggleRecordingPlayback(recording)
 
+    override fun toggleAudioPlayback(sourceId: String, name: String, source: String) =
+        onToggleAudioPlayback(sourceId, name, source)
+
+    override fun seekAudioPlaybackTo(positionMillis: Long) = onSeekAudioPlaybackTo(positionMillis)
+
+    override fun skipAudioPlaybackBy(deltaMillis: Long) = onSkipAudioPlaybackBy(deltaMillis)
+
+    override fun stopAudioPlayback() = onStopAudioPlayback()
+
     override fun refreshRecentImages() = onRefreshRecentImages()
 }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
 @Composable
 actual fun rememberPlatformMediaAccessController(
     onEvent: (String) -> Unit
@@ -167,6 +186,7 @@ actual fun rememberPlatformMediaAccessController(
     var audioPlayer by remember { mutableStateOf<AVAudioPlayer?>(null) }
     var currentRecordingUrl by remember { mutableStateOf<NSURL?>(null) }
     var playingRecordingId by remember { mutableStateOf<String?>(null) }
+    var audioPlaybackState by remember { mutableStateOf(AudioPlaybackState()) }
 
     fun requestSpeechAuthorization(onResult: (Boolean) -> Unit) {
         SFSpeechRecognizer.requestAuthorization { status ->
@@ -230,7 +250,98 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
-    return remember(isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size, playingRecordingId) {
+    fun resetAudioPlaybackState() {
+        audioPlaybackState = AudioPlaybackState()
+        playingRecordingId = null
+    }
+
+    fun stopAudioPlayback(resetState: Boolean = true) {
+        audioPlayer?.stop()
+        audioPlayer = null
+        if (resetState) {
+            resetAudioPlaybackState()
+            AVAudioSession.sharedInstance().setActive(false, error = null)
+        }
+    }
+
+    fun updateAudioPlaybackSnapshot(player: AVAudioPlayer? = audioPlayer) {
+        if (player == null) return
+        val currentSourceId = audioPlaybackState.sourceId ?: return
+        audioPlaybackState = audioPlaybackState.copy(
+            sourceId = currentSourceId,
+            isPlaying = player.playing,
+            currentPositionMillis = (player.currentTime * 1000.0).toLong().coerceAtLeast(0L),
+            durationMillis = (player.duration * 1000.0).toLong().coerceAtLeast(0L)
+        )
+    }
+
+    fun startAudioPlayback(sourceId: String, name: String, source: String) {
+        val currentPlayer = audioPlayer
+        if (audioPlaybackState.sourceId == sourceId && currentPlayer != null) {
+            if (currentPlayer.playing) {
+                currentPlayer.pause()
+                updateAudioPlaybackSnapshot(currentPlayer)
+                currentOnEvent.value("已暂停录音: $name")
+            } else {
+                currentPlayer.play()
+                updateAudioPlaybackSnapshot(currentPlayer)
+                currentOnEvent.value("继续播放录音: $name")
+            }
+            return
+        }
+
+        stopAudioPlayback(resetState = false)
+        val session = AVAudioSession.sharedInstance()
+        session.setCategory(
+            category = AVAudioSessionCategoryPlayback,
+            mode = AVAudioSessionModeDefault,
+            options = AVAudioSessionCategoryOptionMixWithOthers,
+            error = null
+        )
+        session.setActive(true, error = null)
+        val player = AVAudioPlayer(
+            contentsOfURL = resolvePlayableAudioUrl(source),
+            error = null
+        )
+        player.prepareToPlay()
+        audioPlayer = player
+        playingRecordingId = sourceId
+        audioPlaybackState = AudioPlaybackState(
+            sourceId = sourceId,
+            sourceName = name,
+            isPlaying = false,
+            currentPositionMillis = 0L,
+            durationMillis = (player.duration * 1000.0).toLong().coerceAtLeast(0L)
+        )
+        player.play()
+        updateAudioPlaybackSnapshot(player)
+        currentOnEvent.value("正在播放录音: $name")
+    }
+
+    LaunchedEffect(audioPlayer, audioPlaybackState.sourceId) {
+        while (true) {
+            val player = audioPlayer ?: break
+            if (audioPlaybackState.sourceId == null) break
+            updateAudioPlaybackSnapshot(player)
+            val durationMillis = audioPlaybackState.durationMillis
+            if (!player.playing && durationMillis > 0L && audioPlaybackState.currentPositionMillis >= durationMillis - 500L) {
+                currentOnEvent.value("播放完成: ${audioPlaybackState.sourceName}")
+                stopAudioPlayback()
+                break
+            }
+            delay(250L)
+        }
+    }
+
+    return remember(
+        isRecording,
+        recordings.size,
+        pickedImages.size,
+        pickedFiles.size,
+        recentImages.size,
+        playingRecordingId,
+        audioPlaybackState
+    ) {
         IOSPlatformMediaAccessController(
             isRecording = isRecording,
             recordings = recordings,
@@ -238,6 +349,7 @@ actual fun rememberPlatformMediaAccessController(
             pickedFiles = pickedFiles,
             recentImages = recentImages,
             playingRecordingId = playingRecordingId,
+            audioPlaybackState = audioPlaybackState,
             onOpenCamera = {
                 val presenter = currentPresenter()
                 if (presenter == null) {
@@ -344,8 +456,8 @@ actual fun rememberPlatformMediaAccessController(
             onOpenFilePreview = { pickedFile ->
                 openPickedFilePreview(pickedFile) { message -> currentOnEvent.value(message) }
             },
-            onStartVoiceInput = {
-                if (isRecording) return@IOSPlatformMediaAccessController
+            onStartVoiceInput = startVoiceInput@{
+                if (isRecording) return@startVoiceInput
 
                 val session = AVAudioSession.sharedInstance()
                 session.requestRecordPermission { granted ->
@@ -370,8 +482,8 @@ actual fun rememberPlatformMediaAccessController(
                     }
                 }
             },
-            onFinishVoiceInput = { onResult ->
-                if (!isRecording) return@IOSPlatformMediaAccessController
+            onFinishVoiceInput = finishVoiceInput@{ onResult ->
+                if (!isRecording) return@finishVoiceInput
 
                 val recorder = audioRecorder
                 val url = currentRecordingUrl
@@ -404,8 +516,8 @@ actual fun rememberPlatformMediaAccessController(
                     onResult(VoiceInputResult(transcribedText = "", recording = null))
                 }
             },
-            onCancelVoiceInput = {
-                if (!isRecording) return@IOSPlatformMediaAccessController
+            onCancelVoiceInput = cancelVoiceInput@{
+                if (!isRecording) return@cancelVoiceInput
 
                 val recorder = audioRecorder
                 val url = currentRecordingUrl
@@ -426,32 +538,49 @@ actual fun rememberPlatformMediaAccessController(
             },
             onToggleRecordingPlayback = { recording ->
                 try {
-                    val url = NSURL.fileURLWithPath(recording.path)
-                    val currentPlayer = audioPlayer
-                    if (playingRecordingId == recording.id && currentPlayer != null) {
-                        if (currentPlayer.playing) {
-                            currentPlayer.pause()
-                            currentOnEvent.value("已暂停录音: ${recording.name}")
-                        } else {
-                            currentPlayer.play()
-                            currentOnEvent.value("继续播放录音: ${recording.name}")
-                        }
-                        return@IOSPlatformMediaAccessController
-                    }
-
-                    currentPlayer?.stop()
-                    audioPlayer = AVAudioPlayer(
-                        contentsOfURL = url,
-                        error = null
+                    startAudioPlayback(
+                        sourceId = recording.id,
+                        name = recording.name,
+                        source = recording.path
                     )
-                    audioPlayer?.prepareToPlay()
-                    audioPlayer?.play()
-                    playingRecordingId = recording.id
-                    currentOnEvent.value("正在播放录音: ${recording.name}")
                 } catch (error: Throwable) {
-                    playingRecordingId = null
+                    stopAudioPlayback()
                     currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
                 }
+            },
+            onToggleAudioPlayback = { sourceId, name, source ->
+                try {
+                    startAudioPlayback(
+                        sourceId = sourceId,
+                        name = name,
+                        source = source
+                    )
+                } catch (error: Throwable) {
+                    stopAudioPlayback()
+                    currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
+                }
+            },
+            onSeekAudioPlaybackTo = { positionMillis ->
+                val player = audioPlayer
+                if (player != null) {
+                    val durationMillis = (player.duration * 1000.0).toLong().coerceAtLeast(0L)
+                    val targetPositionMillis = positionMillis.coerceIn(0L, durationMillis)
+                    player.currentTime = targetPositionMillis.toDouble() / 1000.0
+                    updateAudioPlaybackSnapshot(player)
+                }
+            },
+            onSkipAudioPlaybackBy = { deltaMillis ->
+                val player = audioPlayer
+                if (player != null) {
+                    val durationMillis = (player.duration * 1000.0).toLong().coerceAtLeast(0L)
+                    val targetPositionMillis = ((player.currentTime * 1000.0).toLong() + deltaMillis)
+                        .coerceIn(0L, durationMillis)
+                    player.currentTime = targetPositionMillis.toDouble() / 1000.0
+                    updateAudioPlaybackSnapshot(player)
+                }
+            },
+            onStopAudioPlayback = {
+                stopAudioPlayback()
             },
             onRefreshRecentImages = {
                 when (photoLibraryAuthorizationStatus()) {
@@ -490,6 +619,29 @@ private fun photoLibraryAuthorizationStatus(): Long {
 
 private fun requestPhotoLibraryAuthorization(onResult: (Long) -> Unit) {
     PHPhotoLibrary.requestAuthorizationForAccessLevel(PHAccessLevelReadWrite, handler = onResult)
+}
+
+@OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
+private fun resolvePlayableAudioUrl(source: String): NSURL {
+    return when {
+        source.startsWith("/") -> NSURL.fileURLWithPath(source)
+        source.startsWith("file://") -> NSURL.URLWithString(source) ?: NSURL.fileURLWithPath(source.removePrefix("file://"))
+        source.contains("://") -> NSURL.URLWithString(source) ?: error("无法解析音频地址")
+        else -> {
+            val resourceUri = Res.getUri(source)
+            when {
+                resourceUri.startsWith("file://") -> {
+                    NSURL.URLWithString(resourceUri)
+                        ?: NSURL.fileURLWithPath(resourceUri.removePrefix("file://"))
+                }
+                resourceUri.contains("://") -> {
+                    NSURL.URLWithString(resourceUri)
+                        ?: error("无法解析资源音频地址")
+                }
+                else -> NSURL.fileURLWithPath(resourceUri)
+            }
+        }
+    }
 }
 
 private data class IOSRecordingResult(

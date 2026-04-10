@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,18 +49,39 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.media.PlatformMediaAccessController
+import kotlin.math.roundToLong
 
 @Composable
 internal fun NasAudioDetailScreen(
     audio: NasAudioItem,
+    mediaController: PlatformMediaAccessController,
     onBack: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    var isPlaying by remember { mutableStateOf(false) }
-    var currentProgress by remember { mutableFloatStateOf(0f) }
+    var isSeeking by remember(audio.id) { mutableStateOf(false) }
+    var sliderPositionMillis by remember(audio.id) { mutableFloatStateOf(0f) }
+    val playbackState = mediaController.audioPlaybackState
+    val isCurrentAudio = playbackState.sourceId == audio.id
+    val fallbackDurationMillis = audio.durationSec * 1000L
+    val durationMillis = when {
+        isCurrentAudio && playbackState.durationMillis > 0L -> playbackState.durationMillis
+        else -> fallbackDurationMillis
+    }.coerceAtLeast(1L)
+    val currentPositionMillis = when {
+        isCurrentAudio -> playbackState.currentPositionMillis.coerceIn(0L, durationMillis)
+        else -> 0L
+    }
+    val isPlaying = isCurrentAudio && playbackState.isPlaying
+
+    LaunchedEffect(audio.id, isCurrentAudio, currentPositionMillis, durationMillis, isSeeking) {
+        if (!isSeeking) {
+            sliderPositionMillis = currentPositionMillis.coerceIn(0L, durationMillis).toFloat()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -168,9 +190,29 @@ internal fun NasAudioDetailScreen(
                 0 -> AudioPlayerContent(
                     audio = audio,
                     isPlaying = isPlaying,
-                    currentProgress = currentProgress,
-                    onPlayPauseClick = { isPlaying = !isPlaying },
-                    onProgressChange = { currentProgress = it },
+                    currentPositionMillis = if (isSeeking) sliderPositionMillis.roundToLong() else currentPositionMillis,
+                    durationMillis = durationMillis,
+                    onPlayPauseClick = {
+                        mediaController.toggleAudioPlayback(
+                            sourceId = audio.id,
+                            name = audio.name,
+                            source = audio.path
+                        )
+                    },
+                    onProgressChange = { value ->
+                        isSeeking = true
+                        sliderPositionMillis = value.coerceIn(0f, durationMillis.toFloat())
+                    },
+                    onProgressChangeFinished = {
+                        mediaController.seekAudioPlaybackTo(sliderPositionMillis.roundToLong())
+                        isSeeking = false
+                    },
+                    onSkipPreviousClick = {
+                        mediaController.skipAudioPlaybackBy(-10_000L)
+                    },
+                    onSkipNextClick = {
+                        mediaController.skipAudioPlaybackBy(10_000L)
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 1 -> TranscriptContent(
@@ -229,9 +271,13 @@ internal fun NasAudioDetailScreen(
 private fun AudioPlayerContent(
     audio: NasAudioItem,
     isPlaying: Boolean,
-    currentProgress: Float,
+    currentPositionMillis: Long,
+    durationMillis: Long,
     onPlayPauseClick: () -> Unit,
     onProgressChange: (Float) -> Unit,
+    onProgressChangeFinished: () -> Unit,
+    onSkipPreviousClick: () -> Unit,
+    onSkipNextClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -276,10 +322,13 @@ private fun AudioPlayerContent(
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
+            val sliderMax = durationMillis.coerceAtLeast(1L).toFloat()
             Slider(
-                value = currentProgress,
+                value = currentPositionMillis.coerceIn(0L, durationMillis).toFloat(),
                 onValueChange = onProgressChange,
+                onValueChangeFinished = onProgressChangeFinished,
                 modifier = Modifier.fillMaxWidth(),
+                valueRange = 0f..sliderMax,
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
                     activeTrackColor = Color(0xFF3A3A3A),
@@ -292,12 +341,12 @@ private fun AudioPlayerContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = formatTime((currentProgress * audio.durationSec).toInt()),
+                    text = formatTimeFromMillis(currentPositionMillis),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF8E8E93)
                 )
                 Text(
-                    text = formatTime(audio.durationSec),
+                    text = formatTimeFromMillis(durationMillis),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF8E8E93)
                 )
@@ -314,7 +363,7 @@ private fun AudioPlayerContent(
         ) {
             // 快退按钮
             IconButton(
-                onClick = { /* TODO: 快退 */ },
+                onClick = onSkipPreviousClick,
                 modifier = Modifier.size(64.dp)
             ) {
                 Icon(
@@ -346,7 +395,7 @@ private fun AudioPlayerContent(
 
             // 快进按钮
             IconButton(
-                onClick = { /* TODO: 快进 */ },
+                onClick = onSkipNextClick,
                 modifier = Modifier.size(64.dp)
             ) {
                 Icon(
@@ -382,4 +431,8 @@ private fun formatTime(seconds: Int): String {
     val mins = seconds / 60
     val secs = seconds % 60
     return "${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
+}
+
+private fun formatTimeFromMillis(durationMillis: Long): String {
+    return formatTime((durationMillis / 1000L).toInt())
 }

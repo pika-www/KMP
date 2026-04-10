@@ -16,6 +16,7 @@ import android.provider.MediaStore
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import androidios.composeapp.generated.resources.Res
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -24,12 +25,16 @@ import androidx.core.content.FileProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -43,6 +48,7 @@ private class AndroidPlatformMediaAccessController(
     override val pickedFiles: List<PickedFile>,
     override val recentImages: List<String>,
     override val playingRecordingId: String?,
+    override val audioPlaybackState: AudioPlaybackState,
     private val onOpenCamera: () -> Unit,
     private val onOpenGallery: () -> Unit,
     private val onOpenAudioPicker: () -> Unit,
@@ -52,6 +58,10 @@ private class AndroidPlatformMediaAccessController(
     private val onFinishVoiceInput: ((VoiceInputResult) -> Unit) -> Unit,
     private val onCancelVoiceInput: () -> Unit,
     private val onToggleRecordingPlayback: (AudioRecording) -> Unit,
+    private val onToggleAudioPlayback: (String, String, String) -> Unit,
+    private val onSeekAudioPlaybackTo: (Long) -> Unit,
+    private val onSkipAudioPlaybackBy: (Long) -> Unit,
+    private val onStopAudioPlayback: () -> Unit,
     private val onRefreshRecentImages: () -> Unit
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
@@ -72,6 +82,15 @@ private class AndroidPlatformMediaAccessController(
 
     override fun toggleRecordingPlayback(recording: AudioRecording) = onToggleRecordingPlayback(recording)
 
+    override fun toggleAudioPlayback(sourceId: String, name: String, source: String) =
+        onToggleAudioPlayback(sourceId, name, source)
+
+    override fun seekAudioPlaybackTo(positionMillis: Long) = onSeekAudioPlaybackTo(positionMillis)
+
+    override fun skipAudioPlaybackBy(deltaMillis: Long) = onSkipAudioPlaybackBy(deltaMillis)
+
+    override fun stopAudioPlayback() = onStopAudioPlayback()
+
     override fun refreshRecentImages() = onRefreshRecentImages()
 }
 
@@ -90,6 +109,7 @@ actual fun rememberPlatformMediaAccessController(
     var currentRecordingFile by remember { mutableStateOf<File?>(null) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var playingRecordingId by remember { mutableStateOf<String?>(null) }
+    var audioPlaybackState by remember { mutableStateOf(AudioPlaybackState()) }
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
     var latestVoiceText by remember { mutableStateOf("") }
@@ -238,13 +258,121 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
+    fun resetAudioPlaybackState() {
+        audioPlaybackState = AudioPlaybackState()
+        playingRecordingId = null
+    }
+
+    fun releaseAudioPlayer() {
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
+
+    fun stopAudioPlayback(resetState: Boolean = true) {
+        val player = mediaPlayer
+        mediaPlayer = null
+        if (player != null) {
+            try {
+                if (player.isPlaying) {
+                    player.stop()
+                }
+            } catch (_: Throwable) {
+            } finally {
+                player.release()
+            }
+        }
+        if (resetState) {
+            resetAudioPlaybackState()
+        }
+    }
+
+    fun updateAudioPlaybackSnapshot(player: MediaPlayer? = mediaPlayer) {
+        if (player == null) return
+        val currentSourceId = audioPlaybackState.sourceId ?: return
+        audioPlaybackState = audioPlaybackState.copy(
+            sourceId = currentSourceId,
+            isPlaying = player.isPlaying,
+            currentPositionMillis = runCatching { player.currentPosition.toLong() }
+                .getOrDefault(audioPlaybackState.currentPositionMillis)
+                .coerceAtLeast(0L),
+            durationMillis = runCatching { player.duration.toLong() }
+                .getOrDefault(audioPlaybackState.durationMillis)
+                .coerceAtLeast(0L)
+        )
+    }
+
+    fun prepareMediaPlayer(source: String, fileName: String): MediaPlayer {
+        return MediaPlayer().apply {
+            when {
+                source.startsWith("content://") -> setDataSource(context, Uri.parse(source))
+                source.startsWith("file://") -> setDataSource(context, Uri.parse(source))
+                source.startsWith("/") -> setDataSource(source)
+                else -> setDataSource(materializeAudioFile(context, source, fileName).absolutePath)
+            }
+            prepare()
+        }
+    }
+
+    fun startAudioPlayback(sourceId: String, name: String, source: String) {
+        val currentPlayer = mediaPlayer
+        if (audioPlaybackState.sourceId == sourceId && currentPlayer != null) {
+            if (currentPlayer.isPlaying) {
+                currentPlayer.pause()
+                updateAudioPlaybackSnapshot(currentPlayer)
+                currentOnEvent.value("已暂停录音: $name")
+            } else {
+                currentPlayer.start()
+                updateAudioPlaybackSnapshot(currentPlayer)
+                currentOnEvent.value("继续播放录音: $name")
+            }
+            return
+        }
+
+        stopAudioPlayback(resetState = false)
+        val player = prepareMediaPlayer(source = source, fileName = name)
+        player.setOnCompletionListener { completedPlayer ->
+            val completedState = audioPlaybackState
+            audioPlaybackState = completedState.copy(
+                isPlaying = false,
+                currentPositionMillis = completedState.durationMillis
+            )
+            currentOnEvent.value("播放完成: $name")
+            if (mediaPlayer === completedPlayer) {
+                releaseAudioPlayer()
+            } else {
+                completedPlayer.release()
+            }
+            resetAudioPlaybackState()
+        }
+        mediaPlayer = player
+        playingRecordingId = sourceId
+        audioPlaybackState = AudioPlaybackState(
+            sourceId = sourceId,
+            sourceName = name,
+            isPlaying = false,
+            currentPositionMillis = 0L,
+            durationMillis = player.duration.toLong().coerceAtLeast(0L)
+        )
+        player.start()
+        updateAudioPlaybackSnapshot(player)
+        currentOnEvent.value("正在播放录音: $name")
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             restoreVoiceInputRoute()
             stopAndroidRecording(mediaRecorder)
             mediaRecorder = null
-            mediaPlayer?.release()
-            mediaPlayer = null
+            stopAudioPlayback()
+        }
+    }
+
+    LaunchedEffect(mediaPlayer, audioPlaybackState.sourceId) {
+        while (true) {
+            val player = mediaPlayer ?: break
+            if (audioPlaybackState.sourceId == null) break
+            updateAudioPlaybackSnapshot(player)
+            delay(250L)
         }
     }
 
@@ -438,7 +566,15 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
-    return remember(context, isRecording, recordings.size, pickedImages.size, pickedFiles.size, recentImages.size, playingRecordingId) {
+    return remember(
+        isRecording,
+        recordings.size,
+        pickedImages.size,
+        pickedFiles.size,
+        recentImages.size,
+        playingRecordingId,
+        audioPlaybackState
+    ) {
         AndroidPlatformMediaAccessController(
             isRecording = isRecording,
             recordings = recordings,
@@ -446,22 +582,15 @@ actual fun rememberPlatformMediaAccessController(
             pickedFiles = pickedFiles,
             recentImages = recentImages,
             playingRecordingId = playingRecordingId,
+            audioPlaybackState = audioPlaybackState,
             onOpenCamera = {
                 val activity = context.findActivity()
                 if (activity == null) {
                     currentOnEvent.value("未找到 Activity，上下文异常，无法打开相机。")
                 } else {
-                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
-                        activity,
-                        Manifest.permission.CAMERA
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                    if (granted) {
-                        currentOnEvent.value("相机权限已存在，正在打开相机。")
-                        takePicturePreviewLauncher.launch(null)
-                    } else {
-                        currentOnEvent.value("正在申请相机权限。")
-                        requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                    when (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        true -> takePicturePreviewLauncher.launch(null)
+                        false -> takePicturePreviewLauncher.launch(null)
                     }
                 }
             },
@@ -562,36 +691,47 @@ actual fun rememberPlatformMediaAccessController(
             },
             onToggleRecordingPlayback = toggleRecordingPlayback@{ recording ->
                 try {
-                    val currentPlayer = mediaPlayer
-                    if (playingRecordingId == recording.id && currentPlayer != null) {
-                        if (currentPlayer.isPlaying) {
-                            currentPlayer.pause()
-                            currentOnEvent.value("已暂停录音: ${recording.name}")
-                        } else {
-                            currentPlayer.start()
-                            currentOnEvent.value("继续播放录音: ${recording.name}")
-                        }
-                        return@toggleRecordingPlayback
-                    }
-
-                    currentPlayer?.release()
-                    mediaPlayer = MediaPlayer().apply {
-                        setDataSource(recording.path)
-                        prepare()
-                        start()
-                        setOnCompletionListener {
-                            currentOnEvent.value("播放完成: ${recording.name}")
-                            playingRecordingId = null
-                            it.release()
-                            mediaPlayer = null
-                        }
-                    }
-                    playingRecordingId = recording.id
-                    currentOnEvent.value("正在播放录音: ${recording.name}")
+                    startAudioPlayback(
+                        sourceId = recording.id,
+                        name = recording.name,
+                        source = recording.path
+                    )
                 } catch (error: Exception) {
-                    playingRecordingId = null
+                    stopAudioPlayback()
                     currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
                 }
+            },
+            onToggleAudioPlayback = { sourceId, name, source ->
+                try {
+                    startAudioPlayback(
+                        sourceId = sourceId,
+                        name = name,
+                        source = source
+                    )
+                } catch (error: Throwable) {
+                    stopAudioPlayback()
+                    currentOnEvent.value("播放录音失败: ${error.message.orEmpty()}")
+                }
+            },
+            onSeekAudioPlaybackTo = { positionMillis ->
+                val player = mediaPlayer
+                if (player != null) {
+                    val targetPosition = positionMillis.coerceIn(0L, player.duration.toLong().coerceAtLeast(0L))
+                    player.seekTo(targetPosition.toInt())
+                    updateAudioPlaybackSnapshot(player)
+                }
+            },
+            onSkipAudioPlaybackBy = { deltaMillis ->
+                val player = mediaPlayer
+                if (player != null) {
+                    val targetPosition = (player.currentPosition.toLong() + deltaMillis)
+                        .coerceIn(0L, player.duration.toLong().coerceAtLeast(0L))
+                    player.seekTo(targetPosition.toInt())
+                    updateAudioPlaybackSnapshot(player)
+                }
+            },
+            onStopAudioPlayback = {
+                stopAudioPlayback()
             },
             onRefreshRecentImages = refresh@{
                 val activity = context.findActivity()
@@ -659,6 +799,23 @@ private fun resolveDisplayName(context: Context, uri: Uri): String {
                 }
             }
     }.getOrNull().orEmpty().ifBlank { uri.lastPathSegment.orEmpty().ifBlank { uri.toString() } }
+}
+
+@OptIn(ExperimentalResourceApi::class)
+private fun materializeAudioFile(
+    context: Context,
+    source: String,
+    fileName: String,
+): File {
+    val targetFile = File(context.cacheDir, "nas_audio_${source.hashCode()}_${sanitizeFileName(fileName)}")
+    if (targetFile.exists()) {
+        return targetFile
+    }
+    val bytes = runBlocking { Res.readBytes(source) }
+    targetFile.outputStream().use { output ->
+        output.write(bytes)
+    }
+    return targetFile
 }
 
 private fun openPickedFilePreview(
@@ -768,6 +925,15 @@ private fun stopAndroidRecording(recorder: MediaRecorder?) {
 
 private fun timestamp(): String {
     return SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+}
+
+private fun sanitizeFileName(fileName: String): String {
+    return fileName.map { char ->
+        when {
+            char.isLetterOrDigit() || char == '.' || char == '_' || char == '-' -> char
+            else -> '_'
+        }
+    }.joinToString(separator = "")
 }
 
 private fun saveBitmapPreviewToCache(context: Context, bitmap: Bitmap): String? {
