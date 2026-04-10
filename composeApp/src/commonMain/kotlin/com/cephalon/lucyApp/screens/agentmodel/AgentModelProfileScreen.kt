@@ -58,11 +58,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.CloseAccountRequest
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.components.CodeInput
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
+import com.cephalon.lucyApp.getPlatform
 import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
@@ -76,6 +81,7 @@ private enum class ProfilePage {
     DeleteAccount,
     Feedback,
     Recharge,
+    RechargePackage,
 }
 
 private val ProfilePageShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
@@ -270,7 +276,32 @@ internal fun AgentModelProfileScreen(
                                 .padding(horizontal = 18.dp)
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            RechargeContent()
+                            RechargeContent(
+                                onNavigateToPackage = { currentPage = ProfilePage.RechargePackage }
+                            )
+                        }
+                    }
+                }
+
+                ProfilePage.RechargePackage -> {
+                    ProfilePageContainer {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        ProfileTopBar(
+                            title = "选择套餐",
+                            showBack = true,
+                            onBack = { currentPage = ProfilePage.Recharge },
+                            onClose = onDismiss
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = 18.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            RechargePackageContent()
                         }
                     }
                 }
@@ -705,9 +736,13 @@ private fun AccountDetailContent(
 /* ───────── Recharge page content ───────── */
 
 @Composable
-private fun RechargeContent() {
+private fun RechargeContent(
+    onNavigateToPackage: () -> Unit = {},
+) {
     val balanceWsManager: BalanceWsManager = koinInject()
     val balanceData by balanceWsManager.balance.collectAsState()
+    val uriHandler = LocalUriHandler.current
+    val isIos = remember { getPlatform().name.startsWith("iOS", ignoreCase = true) }
 
     val paidBalance = balanceData.balances["1"] ?: 0L
     val freeBalance = balanceData.balances["4"] ?: 0L
@@ -748,7 +783,13 @@ private fun RechargeContent() {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color(0xFF111111),
-                        modifier = Modifier.clickable { }
+                        modifier = Modifier.clickable {
+                            if (isIos) {
+                                onNavigateToPackage()
+                            } else {
+                                uriHandler.openUri("https://cephalin.cloud")
+                            }
+                        }
                     ) {
                         Text(
                             text = "充值",
@@ -833,6 +874,174 @@ private fun RechargeContent() {
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun RechargePackageContent() {
+    data class PackageItem(
+        val total: String,
+        val detail: String,
+        val price: String,
+        val tag: String? = null,
+    )
+
+    val packages = listOf(
+        PackageItem("7000", "基础7000+0奖励", "¥9.9", tag = "体验"),
+        PackageItem("72100", "基础70000+2100奖励", "¥99", tag = "推荐"),
+        PackageItem("756000", "基础700000+56000奖励", "¥999", tag = "最佳价值"),
+        PackageItem("28840", "基础28000+840", "¥39.9"),
+        PackageItem("50470", "基础49000+1470", "¥69.9"),
+        PackageItem("220500", "基础210000+10500", "¥299"),
+        PackageItem("367500", "基础350000+17500", "¥499"),
+        PackageItem("529200", "基础490000+39200", "¥699"),
+        PackageItem("680400", "基础630000+50400", "¥899"),
+    )
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 前三个：单列全宽带标签
+        packages.take(3).forEach { pkg ->
+            PackageCard(
+                total = pkg.total,
+                detail = pkg.detail,
+                price = pkg.price,
+                tag = pkg.tag,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // 后六个：两列网格
+        val gridItems = packages.drop(3)
+        for (i in gridItems.indices step 2) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                PackageCard(
+                    total = gridItems[i].total,
+                    detail = gridItems[i].detail,
+                    price = gridItems[i].price,
+                    tag = gridItems[i].tag,
+                    modifier = Modifier.weight(1f)
+                )
+                if (i + 1 < gridItems.size) {
+                    PackageCard(
+                        total = gridItems[i + 1].total,
+                        detail = gridItems[i + 1].detail,
+                        price = gridItems[i + 1].price,
+                        tag = gridItems[i + 1].tag,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 规则说明
+        Text(
+            text = "规则和信息",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = Color(0xFF111111)
+        )
+        Text(
+            text = "赠送脑力值计入活动脑力值",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF888888)
+        )
+        Text(
+            text = "优先消耗顺序为 每日赠送，活动脑力值，充值脑力值",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF888888)
+        )
+        Text(
+            text = "消费明细按小时展示",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF888888)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun PackageCard(
+    total: String,
+    detail: String,
+    price: String,
+    tag: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFF5F5F5),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = total,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp
+                        ),
+                        color = Color(0xFF111111)
+                    )
+                    Text(
+                        text = "脑力值",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF666666)
+                    )
+                }
+                if (tag != null) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFE0E0E0),
+                    ) {
+                        Text(
+                            text = tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF555555),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF999999)
+            )
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color.White,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD)),
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(
+                    text = price,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF333333),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
+        }
     }
 }
 
