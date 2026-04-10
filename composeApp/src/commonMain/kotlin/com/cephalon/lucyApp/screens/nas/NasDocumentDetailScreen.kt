@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,9 +29,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.PlatformDocumentPreview
+import kotlin.math.abs
 
 @Composable
 internal fun NasDocumentDetailScreen(
@@ -40,10 +46,39 @@ internal fun NasDocumentDetailScreen(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val density = LocalDensity.current
+    val swipeStartEdgePx = with(density) { 28.dp.toPx() }
+    val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFFF4F4F5))
+            .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                    if (down.position.x > swipeStartEdgePx) return@awaitEachGesture
+
+                    val pointerId = down.id
+                    var totalDx = 0f
+                    var totalAbsDy = 0f
+
+                    while (true) {
+                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                        if (!change.pressed) break
+
+                        val delta = change.position - change.previousPosition
+                        totalDx += delta.x
+                        totalAbsDy += abs(delta.y)
+
+                        if (totalDx > swipeBackThresholdPx && totalDx > totalAbsDy * 1.2f) {
+                            onBack()
+                            break
+                        }
+                    }
+                }
+            }
     ) {
         Column(
             modifier = Modifier

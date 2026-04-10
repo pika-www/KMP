@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
@@ -23,13 +25,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import kotlin.math.abs
 
 @Composable
 fun NasScreen(onBack: () -> Unit) {
+    val density = LocalDensity.current
+    val swipeStartEdgePx = with(density) { 28.dp.toPx() }
+    val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+
     var selectedCategory by remember { mutableStateOf(NasCategory.Photos) }
     var isPhotoSelectionMode by remember { mutableStateOf(false) }
     var isAudioSelectionMode by remember { mutableStateOf(false) }
@@ -279,6 +289,22 @@ fun NasScreen(onBack: () -> Unit) {
         }
     }
 
+    fun handleNasBack() {
+        when {
+            previewImage != null -> previewImage = null
+            selectedImage != null -> selectedImage = null
+            selectedAudio != null -> {
+                mediaController.stopAudioPlayback()
+                selectedAudio = null
+            }
+            selectedDocument != null -> selectedDocument = null
+            isPhotoSelectionMode || isAudioSelectionMode || isDocumentSelectionMode -> exitAllSelectionModes()
+            else -> onBack()
+        }
+    }
+
+    PlatformBackHandler(onBack = ::handleNasBack)
+
     val documents = remember {
         listOf(
             NasDocumentItem(
@@ -347,7 +373,7 @@ fun NasScreen(onBack: () -> Unit) {
         NasImageDetailScreen(
             images = allImages,
             initialImageId = image.id,
-            onBack = { selectedImage = null },
+            onBack = ::handleNasBack,
             onShare = { currentImage ->
                 println("分享图片: ${currentImage.name}")
                 // TODO: 实现分享功能
@@ -370,10 +396,7 @@ fun NasScreen(onBack: () -> Unit) {
         NasAudioDetailScreen(
             audio = audio,
             mediaController = mediaController,
-            onBack = {
-                mediaController.stopAudioPlayback()
-                selectedAudio = null
-            },
+            onBack = ::handleNasBack,
             onShare = {
                 println("分享音频: ${audio.name}")
                 // TODO: 实现分享功能
@@ -396,7 +419,7 @@ fun NasScreen(onBack: () -> Unit) {
     selectedDocument?.let { document ->
         NasDocumentDetailScreen(
             document = document,
-            onBack = { selectedDocument = null },
+            onBack = ::handleNasBack,
             onShare = {
                 println("分享文档: ${document.name}")
                 // TODO: 实现分享功能
@@ -420,6 +443,34 @@ fun NasScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
+                .pointerInput(::handleNasBack, swipeStartEdgePx, swipeBackThresholdPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                        if (down.position.x > swipeStartEdgePx) return@awaitEachGesture
+
+                        val pointerId = down.id
+                        var totalDx = 0f
+                        var totalAbsDy = 0f
+
+                        while (true) {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) break
+
+                            val delta = change.position - change.previousPosition
+                            totalDx += delta.x
+                            totalAbsDy += abs(delta.y)
+
+                            if (
+                                totalDx > swipeBackThresholdPx &&
+                                totalDx > totalAbsDy * 1.2f
+                            ) {
+                                handleNasBack()
+                                break
+                            }
+                        }
+                    }
+                }
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -428,7 +479,7 @@ fun NasScreen(onBack: () -> Unit) {
                 NasCircularIconButton(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "返回",
-                    onClick = onBack,
+                    onClick = ::handleNasBack,
                     modifier = Modifier.size(40.dp)
                 )
 
