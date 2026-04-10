@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -40,13 +42,20 @@ import org.jetbrains.compose.resources.painterResource
 
 @Composable
 internal fun NasImageDetailScreen(
-    image: NasImageItem,
+    images: List<NasImageItem>,
+    initialImageId: String,
     onBack: () -> Unit,
-    onShare: () -> Unit,
-    onDownload: () -> Unit,
-    onDelete: () -> Unit,
+    onShare: (NasImageItem) -> Unit,
+    onDownload: (NasImageItem) -> Unit,
+    onDelete: (NasImageItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (images.isEmpty()) return
+
+    val initialPage = images.indexOfFirst { it.id == initialImageId }.takeIf { it >= 0 } ?: 0
+    val pagerState = rememberPagerState(initialPage = initialPage) { images.size }
+    val currentImage = images[pagerState.currentPage]
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -90,11 +99,11 @@ internal fun NasImageDetailScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = image.time,
+                            text = currentImage.time,
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                             color = Color(0xFF222222)
                         )
-                        image.location?.let { location ->
+                        currentImage.location?.let { location ->
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = location,
@@ -119,14 +128,21 @@ internal fun NasImageDetailScreen(
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(Res.drawable.img_demo),
-                    contentDescription = image.name,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp)),
-                    contentScale = ContentScale.Fit
-                )
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxWidth(),
+                    pageSpacing = 12.dp,
+                    beyondViewportPageCount = 1
+                ) { page ->
+                    Image(
+                        painter = painterResource(Res.drawable.img_demo),
+                        contentDescription = images[page].name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Fit
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -139,7 +155,7 @@ internal fun NasImageDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Button(
-                    onClick = onShare,
+                    onClick = { onShare(currentImage) },
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
@@ -154,7 +170,7 @@ internal fun NasImageDetailScreen(
                 }
 
                 Button(
-                    onClick = onDownload,
+                    onClick = { onDownload(currentImage) },
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
@@ -169,7 +185,7 @@ internal fun NasImageDetailScreen(
                 }
 
                 Button(
-                    onClick = onDelete,
+                    onClick = { onDelete(currentImage) },
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,

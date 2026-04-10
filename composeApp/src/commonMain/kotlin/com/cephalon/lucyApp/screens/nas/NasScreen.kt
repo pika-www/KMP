@@ -35,6 +35,7 @@ fun NasScreen(onBack: () -> Unit) {
     var isAudioSelectionMode by remember { mutableStateOf(false) }
     var isDocumentSelectionMode by remember { mutableStateOf(false) }
     var selectedImage by remember { mutableStateOf<NasImageItem?>(null) }
+    var previewImage by remember { mutableStateOf<NasImageItem?>(null) }
     var selectedAudio by remember { mutableStateOf<NasAudioItem?>(null) }
     var selectedDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
     val selectedPhotoIds = remember { mutableStateListOf<String>() }
@@ -225,6 +226,10 @@ fun NasScreen(onBack: () -> Unit) {
         imageMonths.flatMap { monthGroup -> monthGroup.images }.map { image -> image.id }
     }
 
+    val allImages = remember(imageMonths) {
+        imageMonths.flatMap { monthGroup -> monthGroup.images }
+    }
+
     val allAudioIds = remember(audios) {
         audios.map { audio -> audio.id }
     }
@@ -340,18 +345,19 @@ fun NasScreen(onBack: () -> Unit) {
     // 如果选中了图片，显示详情页
     selectedImage?.let { image ->
         NasImageDetailScreen(
-            image = image,
+            images = allImages,
+            initialImageId = image.id,
             onBack = { selectedImage = null },
-            onShare = {
-                println("分享图片: ${image.name}")
+            onShare = { currentImage ->
+                println("分享图片: ${currentImage.name}")
                 // TODO: 实现分享功能
             },
-            onDownload = {
-                println("下载图片: ${image.name}")
+            onDownload = { currentImage ->
+                println("下载图片: ${currentImage.name}")
                 // TODO: 实现下载功能
             },
-            onDelete = {
-                println("删除图片: ${image.name}")
+            onDelete = { currentImage ->
+                println("删除图片: ${currentImage.name}")
                 // TODO: 实现删除功能
                 selectedImage = null
             }
@@ -530,6 +536,7 @@ fun NasScreen(onBack: () -> Unit) {
                                 selectionMode = isPhotoSelectionMode,
                                 selectedImageIds = selectedPhotoIds,
                                 onImageClick = { image -> selectedImage = image },
+                                onImageLongClick = { image -> previewImage = image },
                                 onImageSelectionToggle = { image -> togglePhotoSelection(image) }
                             )
                             NasCategory.Recordings -> NasRecordingsContent(
@@ -585,5 +592,27 @@ fun NasScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    previewImage?.let { image ->
+        NasImageActionPopup(
+            image = image,
+            onDismiss = { previewImage = null },
+            onShare = {
+                println("分享图片: ${image.name}")
+                // TODO: 实现分享功能
+                previewImage = null
+            },
+            onDownload = {
+                println("下载图片: ${image.name}")
+                // TODO: 实现下载功能
+                previewImage = null
+            },
+            onDelete = {
+                println("删除图片: ${image.name}")
+                // TODO: 实现删除功能
+                previewImage = null
+            }
+        )
     }
 }

@@ -2,9 +2,11 @@ package com.cephalon.lucyApp.screens.nas
 
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.img_demo
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -40,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import org.jetbrains.compose.resources.painterResource
 
 internal val NasButtonBackgroundColor = Color(0xFFF1F1F3)
@@ -161,6 +164,57 @@ internal fun NasSearchBar(
 }
 
 @Composable
+internal fun NasImageActionPopup(
+    image: NasImageItem,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.8f),
+            shape = RoundedCornerShape(18.dp),
+            color = Color.White
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Image(
+                    painter = painterResource(Res.drawable.img_demo),
+                    contentDescription = image.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1.25f)
+                        .clip(RoundedCornerShape(14.dp)),
+                    contentScale = ContentScale.Crop
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NasActionTextButton(
+                        text = "发送朋友",
+                        onClick = onShare
+                    )
+                    NasActionTextButton(
+                        text = "下载",
+                        onClick = onDownload
+                    )
+                    NasActionTextButton(
+                        text = "删除",
+                        onClick = onDelete,
+                        textColor = Color(0xFFFF3B30)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun NasPhotoSelectionBottomBar(
     onShareClick: () -> Unit,
     onDownloadClick: () -> Unit,
@@ -231,6 +285,7 @@ internal fun NasPhotosContent(
     selectionMode: Boolean = false,
     selectedImageIds: Collection<String> = emptyList(),
     onImageClick: (NasImageItem) -> Unit = {},
+    onImageLongClick: (NasImageItem) -> Unit = {},
     onImageSelectionToggle: (NasImageItem) -> Unit = {}
 ) {
     Column(
@@ -265,6 +320,11 @@ internal fun NasPhotosContent(
                                         onImageSelectionToggle(image)
                                     } else {
                                         onImageClick(image)
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        onImageLongClick(image)
                                     }
                                 }
                             )
@@ -439,21 +499,28 @@ internal fun NasCircularIconButton(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 internal fun NasImageThumbnail(
     image: NasImageItem,
     modifier: Modifier = Modifier,
     showSelectionIndicator: Boolean = false,
     isSelected: Boolean = false,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
+    val cardShape = RoundedCornerShape(12.dp)
+
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(cardShape)
             .background(Color(0xFFF4F4F5))
             .then(
-                if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick
+                    )
                 } else {
                     Modifier
                 }
