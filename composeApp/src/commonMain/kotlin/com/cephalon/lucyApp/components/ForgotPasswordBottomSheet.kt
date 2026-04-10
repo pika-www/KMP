@@ -74,6 +74,7 @@ fun ForgotPasswordBottomSheet(
 @Composable
 fun ForgotPasswordForm(
     onResetSuccess: () -> Unit,
+    onShowToast: ((String) -> Unit)? = null,
 ) {
     val authRepository = koinInject<AuthRepository>()
     val scope = rememberCoroutineScope()
@@ -83,17 +84,16 @@ fun ForgotPasswordForm(
     var code by remember { mutableStateOf("") }
     var pwd by remember { mutableStateOf("") }
     var confirmPwd by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
+    val showError: (String) -> Unit = { msg -> onShowToast?.invoke(msg) }
 
     val performReset: () -> Unit = performReset@{
         if (account.isBlank() || code.isBlank() || pwd.isBlank() || confirmPwd.isBlank()) {
-            error = "请填写完整信息"
+            showError("请填写完整信息")
         } else if (pwd != confirmPwd) {
-            error = "两次输入的密码不一致"
+            showError("两次输入的密码不一致")
         } else {
             isLoading = true
-            error = ""
             val input = account.trim()
             val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
             val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
@@ -103,7 +103,7 @@ fun ForgotPasswordForm(
             val normalizedAccount = normalizedEmail ?: normalizedPhone
             if (normalizedAccount == null) {
                 isLoading = false
-                error = "请输入正确的手机号(+86 11位)或邮箱(.com)"
+                showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
                 return@performReset
             }
             val accountType = if (isEmail) "email" else "phone"
@@ -116,10 +116,10 @@ fun ForgotPasswordForm(
                         authRepository.isPhoneExist(normalizedAccount)
                     }
                     if (existsResponse.code == 20000) {
-                        val isExit = existsResponse.data?.get("is_exit") as? Boolean ?: false
+                        val isExit = existsResponse.data?.isExist ?: false
                         if (!isExit) {
                             isLoading = false
-                            error = existsResponse.msg
+                            showError(existsResponse.msg)
                             return@launch
                         }
                     }
@@ -137,11 +137,11 @@ fun ForgotPasswordForm(
                     if (response.code == 20000) {
                         onResetSuccess()
                     } else {
-                        error = response.msg
+                        showError(response.msg)
                     }
                 } catch (e: Exception) {
                     isLoading = false
-                    error = "网络异常，请稍后再试"
+                    showError("网络异常，请稍后再试")
                 }
             }
         }
@@ -166,17 +166,17 @@ fun ForgotPasswordForm(
 
         AccountInput(
             value = account,
-            onValueChange = { account = it; error = "" },
+            onValueChange = { account = it },
             enabled = !isLoading,
             imeAction = ImeAction.Next,
-            onValidationError = { msg -> error = msg }
+            onValidationError = { msg -> showError(msg) }
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
         CodeInput(
             value = code,
-            onValueChange = { code = it; error = "" },
+            onValueChange = { code = it },
             enabled = !isLoading,
             imeAction = ImeAction.Next,
             onSendCode = { startTimer ->
@@ -188,7 +188,7 @@ fun ForgotPasswordForm(
                 val isEmail = normalizedEmail != null
                 val normalizedAccount = normalizedEmail ?: normalizedPhone
                 if (normalizedAccount == null) {
-                    error = "请输入正确的手机号(+86 11位)或邮箱(.com)"
+                    showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
                     return@CodeInput
                 }
 
@@ -200,10 +200,10 @@ fun ForgotPasswordForm(
                         authRepository.isPhoneExist(normalizedAccount)
                     }
                     if (existsResponse.code == 20000) {
-                        val isExit = existsResponse.data?.get("is_exit") as? Boolean ?: false
+                        val isExit = existsResponse.data?.isExist ?: false
                         if (!isExit) {
                             isLoading = false
-                            error = existsResponse.msg
+                            showError(existsResponse.msg)
                             return@launch
                         }
                     }
@@ -215,10 +215,9 @@ fun ForgotPasswordForm(
                     }
                     isLoading = false
                     if (response.code == 20000) {
-                        error = ""
                         startTimer()
                     } else {
-                        error = response.msg
+                        showError(response.msg)
                     }
                 }
             }
@@ -228,7 +227,7 @@ fun ForgotPasswordForm(
 
         PasswordInput(
             value = pwd,
-            onValueChange = { pwd = it; error = "" },
+            onValueChange = { pwd = it },
             enabled = !isLoading,
             label = "新密码",
             imeAction = ImeAction.Next
@@ -238,23 +237,12 @@ fun ForgotPasswordForm(
 
         PasswordInput(
             value = confirmPwd,
-            onValueChange = { confirmPwd = it; error = "" },
+            onValueChange = { confirmPwd = it },
             enabled = !isLoading,
             label = "确认新密码",
             imeAction = ImeAction.Done,
             onDone = { performReset() }
         )
-
-        if (error.isNotEmpty()) {
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-            )
-        }
 
         Spacer(modifier = Modifier.height(32.dp))
 

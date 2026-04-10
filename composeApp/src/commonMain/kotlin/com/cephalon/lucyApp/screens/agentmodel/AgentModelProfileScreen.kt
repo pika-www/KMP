@@ -787,7 +787,7 @@ private fun RechargeContent(
                             if (isIos) {
                                 onNavigateToPackage()
                             } else {
-                                uriHandler.openUri("https://cephalin.cloud")
+                                uriHandler.openUri("https://cephalon.cloud")
                             }
                         }
                     ) {

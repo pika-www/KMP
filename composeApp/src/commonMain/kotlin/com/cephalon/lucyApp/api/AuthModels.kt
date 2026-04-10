@@ -88,6 +88,12 @@ data class BalanceData(
     val balances: Map<String, Long> = emptyMap()
 )
 
+@Serializable
+data class IsExistData(
+    @SerialName("is_exist")
+    val isExist: Boolean = false
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

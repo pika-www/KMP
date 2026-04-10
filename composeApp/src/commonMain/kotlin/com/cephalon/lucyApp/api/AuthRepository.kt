@@ -43,13 +43,12 @@ class AuthRepository(
      * 校验手机号是否存在
      * 使用 Map<String, Any?> 接收后端返回的所有动态数据，无需定义数据类。
      */
-    suspend fun isPhoneExist(phone: String): BaseResponse<Map<String, Any?>> {
-        // 调用通用的 get 方法，指定返回类型为 Map<String, Any?>
-        return authApi.get<Map<String, Any?>>("/is-phone-exist", mapOf("phone" to phone))
+    suspend fun isPhoneExist(phone: String): BaseResponse<IsExistData> {
+        return authApi.get<IsExistData>("/is-phone-exist", mapOf("phone" to phone))
     }
 
-    suspend fun isEmailExist(email: String): BaseResponse<Map<String, Any?>> {
-        return authApi.get<Map<String, Any?>>("/is-email-exist", mapOf("email" to email))
+    suspend fun isEmailExist(email: String): BaseResponse<IsExistData> {
+        return authApi.get<IsExistData>("/is-email-exist", mapOf("email" to email))
     }
 
     /**

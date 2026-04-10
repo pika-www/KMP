@@ -1,130 +1,54 @@
 package com.cephalon.lucyApp.screens
 
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.login_bg
 import androidios.composeapp.generated.resources.logo
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthInput
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LoginRequest
+import com.cephalon.lucyApp.components.*
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import com.cephalon.lucyApp.components.AccountInput
-import com.cephalon.lucyApp.components.EmailInput
-import com.cephalon.lucyApp.components.PasswordInput
-import com.cephalon.lucyApp.components.ForgotPasswordForm
-import com.cephalon.lucyApp.components.HalfModalBottomSheet
 
 
 private enum class SheetPage {
     Login,
-    Forgot
+    Forgot,
+    Register
 }
-
-private val SheetPageShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-
-@Composable
-private fun SheetPageContainer(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                shape = SheetPageShape
-                clip = true
-                shadowElevation = 0f
-            }
-            .background(Color.White)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) { content() }
-    }
-}
-
-@Composable
-private fun SheetTopBar(
-    showBack: Boolean,
-    onBack: (() -> Unit)?,
-    onClose: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (showBack) {
-            IconButton(
-                onClick = { onBack?.invoke() },
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFE6E6E6))
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color(0xFF2D2D2D),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        } else {
-            Spacer(modifier = Modifier.size(40.dp))
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        IconButton(
-            onClick = onClose,
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFE6E6E6))
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Close",
-                tint = Color(0xFF2D2D2D),
-                modifier = Modifier.size(22.dp)
-            )
-        }
-    }
-}
-
 
 @Composable
 fun LoginScreen(
@@ -138,25 +62,29 @@ fun LoginScreen(
 
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) } // 2. 登录加载状态
+    var confirmPassword by remember { mutableStateOf("") }
+    var verifyCode by remember { mutableStateOf("") }
+    val toastState = rememberToastState()
+    var isLoading by remember { mutableStateOf(false) }
 
     val keyboardController = LocalSoftwareKeyboardController.current
-
 
     var loginSheetVisible by remember { mutableStateOf(false) }
     var preferEmailLogin by remember { mutableStateOf(false) }
     var sheetPage by remember { mutableStateOf(SheetPage.Login) }
+    var needsRegister by remember { mutableStateOf(false) }
+    var isAccountEmail by remember { mutableStateOf(false) }
+    var normalizedAccount by remember { mutableStateOf("") }
+    var sheetTitle by remember { mutableStateOf("Welcome to Lucy") }
 
 
     // 3. 登录逻辑封装：接通拦截器与接口请求
     val performLogin: () -> Unit = {
         if (username.isBlank() || password.isBlank()) {
-            error = "请输入用户名和密码"
+            toastState.show("请输入用户名和密码")
         } else {
             keyboardController?.hide()
             isLoading = true
-            error = ""
 
             scope.launch {
                 val rawAccount = AuthInput.normalizeAccount(username)
@@ -173,7 +101,7 @@ fun LoginScreen(
                 val account = if (isEmail) normalizedEmail else normalizedPhone
                 if (account == null) {
                     isLoading = false
-                    error = if (isEmail) "请输入正确的邮箱(.com)" else "请输入正确的手机号(+86 11位)"
+                    toastState.show(if (isEmail) "请输入正确的邮箱(.com)" else "请输入正确的手机号(+86 11位)")
                     return@launch
                 }
 
@@ -194,16 +122,70 @@ fun LoginScreen(
                     loginSheetVisible = false
                     onLoginSuccess()
                 } else {
-                    error = response.msg
+                    toastState.show(response.msg)
                 }
             }
         }
     }
 
-    Box(
+    val resetSheetState: () -> Unit = {
+        username = ""
+        password = ""
+        confirmPassword = ""
+        verifyCode = ""
+        isLoading = false
+        needsRegister = false
+        isAccountEmail = false
+        normalizedAccount = ""
+        sheetTitle = "Welcome to Lucy"
+    }
+
+    val validateAccount: () -> Unit = {
+        val input = username.trim()
+        if (input.isNotBlank()) {
+            val emailPattern = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$")
+            val normalizedEmail = if (emailPattern.matches(input)) input else null
+            val normalizedPhone = input.replace(" ", "")
+                .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
+                .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
+                .takeIf { Regex("^1\\d{10}$").matches(it) }
+
+            val isEmail = normalizedEmail != null
+            val account = normalizedEmail ?: normalizedPhone
+            if (account == null) {
+                toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
+            } else {
+                isAccountEmail = isEmail
+                normalizedAccount = account
+                scope.launch {
+                    isLoading = true
+                    val response = if (isEmail) {
+                        authRepository.isEmailExist(account)
+                    } else {
+                        authRepository.isPhoneExist(account)
+                    }
+                    isLoading = false
+                    if (response.code == 20000) {
+                        val exists = response.data?.isExist ?: false
+                        if (exists) {
+                            needsRegister = false
+                            sheetTitle = "Welcome to Lucy"
+                        } else {
+                            needsRegister = true
+                            val typeLabel = if (isEmail) "邮箱" else "手机号"
+                            sheetTitle = "此${typeLabel}还未注册"
+                        }
+                    } else {
+                        toastState.show(response.msg)
+                    }
+                }
+            }
+        }
+    }
+
+    DesignScaleProvider(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -211,115 +193,121 @@ fun LoginScreen(
                 focusManager.clearFocus()
             }
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Spacer(modifier = Modifier.height(88.dp))
+        val ds = LocalDesignScale.current
 
-            Surface(
-                color = MaterialTheme.colorScheme.onSurface,
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.size(56.dp)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.logo),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "欢迎使用 Lucy",
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurface
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 背景图 — 原尺寸，底部对齐
+            Image(
+                painter = painterResource(Res.drawable.login_bg),
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                contentScale = ContentScale.FillWidth,
+                alignment = Alignment.BottomCenter
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "AI 驱动的个人数据操作系统操作系统",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = {
-                    preferEmailLogin = false
-                    username = ""
-                    password = ""
-                    error = ""
-                    isLoading = false
-                    sheetPage = SheetPage.Login
-                    loginSheetVisible = true
-                },
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(28.dp)
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = ds.sw(26.dp)),
+                horizontalAlignment = Alignment.Start
             ) {
-                Icon(imageVector = Icons.Default.PhoneAndroid, contentDescription = null)
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(text = "通过手机号登录", style = MaterialTheme.typography.titleMedium)
-            }
+                Spacer(modifier = Modifier.height(ds.sh(88.dp)))
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedButton(
-                onClick = {
-                    preferEmailLogin = true
-                    username = ""
-                    password = ""
-                    error = ""
-                    isLoading = false
-                    sheetPage = SheetPage.Login
-                    loginSheetVisible = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(28.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Email, contentDescription = null)
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(text = "通过邮箱登录", style = MaterialTheme.typography.titleMedium)
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "目前还没注册账号还没有账号 ",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Logo — 无背景无边框, 64px
+                Icon(
+                    painter = painterResource(Res.drawable.logo),
+                    contentDescription = null,
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(ds.sm(64.dp))
                 )
-                Text(
-                    text = "点击注册",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                // 标题
+                Text(
+                    text = "欢迎使用 Lucy",
+                    color = Color.Black.copy(alpha = 0.90f),
+                    fontSize = ds.sp(28f),
+                    fontWeight = FontWeight.Medium,
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+
+                // 副标题
+                Text(
+                    text = "AI 驱动的个人数据操作系统",
+                    color = Color.Black.copy(alpha = 0.60f),
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Light,
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // 验证码登录按钮
+                LoginGlassButton(
+                    text = "通过验证码登录",
+                    icon = { Icon(Icons.Default.Shield, null, tint = Color.Black, modifier = Modifier.size(ds.sm(20.dp))) },
+                    backgroundColor = Color.White.copy(alpha = 0.90f),
+                    textColor = Color.Black,
+                    onClick = {
+                        resetSheetState()
+                        preferEmailLogin = false
+                        sheetPage = SheetPage.Login
+                        loginSheetVisible = true
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                // 密码登录按钮
+                LoginGlassButton(
+                    text = "通过密码登录",
+                    icon = { Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(ds.sm(20.dp))) },
+                    backgroundColor = Color.White.copy(alpha = 0.20f),
+                    textColor = Color.White,
+                    onClick = {
+                        resetSheetState()
+                        preferEmailLogin = true
+                        sheetPage = SheetPage.Login
+                        loginSheetVisible = true
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                // 底部注册提示
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.40f))) {
+                            append("没有账号的可以用手机号或邮箱注册 ")
+                        }
+                        withStyle(
+                            SpanStyle(
+                                color = Color.White,
+                                textDecoration = TextDecoration.Underline
+                            )
+                        ) {
+                            append("点击注册")
+                        }
+                    },
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.fillMaxWidth().clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        resetSheetState()
+                        sheetPage = SheetPage.Register
+                        sheetTitle = "注册账号"
+                        loginSheetVisible = true
+                    },
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+            }
         }
 
         HalfModalBottomSheet(
@@ -332,15 +320,16 @@ fun LoginScreen(
             showBackButton = false,
             showCloseButton = false,
             showTopBar = false,
-            containerShape = RoundedCornerShape(0.dp),
-            containerColor = Color.Transparent,
+            containerShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            containerColor = Color(0xFFF5F5F5),
             topPadding = 60.dp,
             contentPadding = PaddingValues(0.dp)
         ) {
             AnimatedContent(
                 targetState = sheetPage,
                 transitionSpec = {
-                    val goingForward = initialState == SheetPage.Login && targetState == SheetPage.Forgot
+                    val goingForward = (initialState == SheetPage.Login && targetState != SheetPage.Login) ||
+                        (initialState == SheetPage.Register && targetState == SheetPage.Forgot)
                     val slideSpec = tween<IntOffset>(durationMillis = 320, easing = FastOutSlowInEasing)
                     if (goingForward) {
                         ContentTransform(
@@ -372,182 +361,167 @@ fun LoginScreen(
                 },
                 label = "LoginSheetPage"
             ) { page ->
+                val ds = LocalDesignScale.current
+                val canSubmit = username.isNotBlank() && password.isNotBlank() && !isLoading &&
+                    (!needsRegister || (confirmPassword.isNotBlank() && (preferEmailLogin || verifyCode.isNotBlank()))) &&
+                    (preferEmailLogin || !needsRegister || verifyCode.isNotBlank())
+
                 when (page) {
                     SheetPage.Login -> {
-                        SheetPageContainer {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            SheetTopBar(
-                                showBack = false,
-                                onBack = null,
-                                onClose = { loginSheetVisible = false }
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
-                            ) {
-                                Text(
-                                    text = if (preferEmailLogin) "邮箱登录" else "手机号登录",
-                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                if (preferEmailLogin) {
-                                    EmailInput(
-                                        value = username,
-                                        onValueChange = {
-                                            username = it
-                                            error = ""
-                                        },
-                                        enabled = !isLoading,
-                                        onValidationError = { msg ->
-                                            error = msg
-                                        },
-                                        onValidated = { normalized ->
-                                            scope.launch {
-                                                isLoading = true
-                                                val response = authRepository.isEmailExist(normalized)
-                                                isLoading = false
-                                                if (response.code == 20000) {
-                                                    val isExit = response.data?.get("is_exit") as? Boolean ?: false
-                                                    if (!isExit) {
-                                                        error = response.msg
-                                                    }
-                                                } else {
-                                                    error = response.msg
-                                                }
-                                            }
-                                        }
-                                    )
-                                } else {
-                                    AccountInput(
-                                        value = username,
-                                        onValueChange = {
-                                            username = it
-                                            error = ""
-                                        },
-                                        enabled = !isLoading,
-                                        onValidationError = { msg ->
-                                            error = msg
-                                        },
-                                        onValidated = { normalized, isEmail ->
-                                            if (isEmail) {
-                                                error = "请输入正确的手机号(+86 11位)"
-                                                return@AccountInput
-                                            }
-                                            scope.launch {
-                                                isLoading = true
-                                                val response = authRepository.isPhoneExist(normalized)
-                                                isLoading = false
-                                                if (response.code == 20000) {
-                                                    val isExit = response.data?.get("is_exit") as? Boolean ?: false
-                                                    if (!isExit) {
-                                                        error = response.msg
-                                                    }
-                                                } else {
-                                                    error = response.msg
-                                                }
-                                            }
-                                        }
-                                    )
+                        LoginSheetContent(
+                            ds = ds,
+                            sheetTitle = sheetTitle,
+                            preferEmailLogin = preferEmailLogin,
+                            needsRegister = needsRegister,
+                            username = username,
+                            onUsernameChange = { username = it; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } },
+                            password = password,
+                            onPasswordChange = { password = it },
+                            confirmPassword = confirmPassword,
+                            onConfirmPasswordChange = { confirmPassword = it },
+                            verifyCode = verifyCode,
+                            onVerifyCodeChange = { verifyCode = it },
+                            isLoading = isLoading,
+                            canSubmit = canSubmit,
+                            normalizedAccount = normalizedAccount,
+                            isAccountEmail = isAccountEmail,
+                            onBackClick = { loginSheetVisible = false },
+                            onFocusLostValidate = validateAccount,
+                            onForgotClick = { sheetPage = SheetPage.Forgot },
+                            onSubmit = performLogin,
+                            onSendCode = { startTimer ->
+                                if (normalizedAccount.isBlank()) {
+                                    toastState.show("请先输入正确的手机号或邮箱")
+                                    return@LoginSheetContent
                                 }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                PasswordInput(
-                                    value = password,
-                                    onValueChange = {
-                                        password = it
-                                        error = ""
-                                    },
-                                    enabled = !isLoading,
-                                    label = "密码",
-                                    onDone = { performLogin() }
-                                )
-
-                                if (error.isNotEmpty()) {
-                                    Text(
-                                        text = error,
-                                        color = MaterialTheme.colorScheme.error,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 12.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(22.dp))
-
-                                Button(
-                                    onClick = performLogin,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    enabled = !isLoading
-                                ) {
-                                    if (isLoading) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                            strokeWidth = 2.dp
-                                        )
+                                scope.launch {
+                                    isLoading = true
+                                    val response = if (isAccountEmail) {
+                                        authRepository.getCode(email = normalizedAccount, actionType = "login", appType = "lucy")
                                     } else {
-                                        Text(
-                                            "登 录",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                        )
+                                        authRepository.getCode(phone = normalizedAccount, actionType = "login", appType = "lucy")
+                                    }
+                                    isLoading = false
+                                    if (response.code == 20000) {
+                                        startTimer()
+                                    } else {
+                                        toastState.show(response.msg)
                                     }
                                 }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                TextButton(
-                                    onClick = {
-                                        sheetPage = SheetPage.Forgot
-                                    },
-                                    enabled = !isLoading,
-                                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                                ) {
-                                    Text(
-                                        text = "忘记密码？",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
+                            },
+                            toastState = toastState
+                        )
                     }
 
                     SheetPage.Forgot -> {
                         SheetPageContainer {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            SheetTopBar(
-                                showBack = true,
-                                onBack = { sheetPage = SheetPage.Login },
-                                onClose = { loginSheetVisible = false }
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)
-                                    .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
+                                    .padding(horizontal = ds.sw(20.dp))
                             ) {
+                                Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+                                SheetBackButton(onClick = { sheetPage = SheetPage.Login })
+                                Spacer(modifier = Modifier.height(ds.sh(52.dp)))
                                 ForgotPasswordForm(
-                                    onResetSuccess = {
-                                        loginSheetVisible = false
-                                    }
+                                    onResetSuccess = { loginSheetVisible = false },
+                                    onShowToast = { toastState.show(it) }
                                 )
                             }
                         }
                     }
+
+                    SheetPage.Register -> {
+                        LoginSheetContent(
+                            ds = ds,
+                            sheetTitle = "注册账号",
+                            preferEmailLogin = false,
+                            needsRegister = true,
+                            isRegisterPage = true,
+                            username = username,
+                            onUsernameChange = { username = it },
+                            password = password,
+                            onPasswordChange = { password = it },
+                            confirmPassword = confirmPassword,
+                            onConfirmPasswordChange = { confirmPassword = it },
+                            verifyCode = verifyCode,
+                            onVerifyCodeChange = { verifyCode = it },
+                            isLoading = isLoading,
+                            canSubmit = username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() && verifyCode.isNotBlank() && !isLoading,
+                            normalizedAccount = normalizedAccount,
+                            isAccountEmail = isAccountEmail,
+                            onBackClick = { loginSheetVisible = false },
+                            onFocusLostValidate = validateAccount,
+                            onForgotClick = null,
+                            onSubmit = performLogin,
+                            onSendCode = { startTimer ->
+                                if (normalizedAccount.isBlank()) {
+                                    toastState.show("请先输入正确的手机号或邮箱")
+                                    return@LoginSheetContent
+                                }
+                                scope.launch {
+                                    isLoading = true
+                                    val response = if (isAccountEmail) {
+                                        authRepository.getCode(email = normalizedAccount, actionType = "register", appType = "lucy")
+                                    } else {
+                                        authRepository.getCode(phone = normalizedAccount, actionType = "register", appType = "lucy")
+                                    }
+                                    isLoading = false
+                                    if (response.code == 20000) {
+                                        startTimer()
+                                    } else {
+                                        toastState.show(response.msg)
+                                    }
+                                }
+                            },
+                            toastState = toastState
+                        )
+                    }
                 }
             }
+        }
+
+        ToastHost(state = toastState)
+    }
+}
+
+@Composable
+private fun LoginGlassButton(
+    text: String,
+    icon: @Composable () -> Unit,
+    backgroundColor: Color,
+    textColor: Color,
+    onClick: () -> Unit
+) {
+    val ds = LocalDesignScale.current
+    val shape = RoundedCornerShape(100.dp)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ds.sh(48.dp))
+            .clip(shape)
+            .background(backgroundColor, shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            icon()
+            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+            Text(
+                text = text,
+                color = textColor,
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }

@@ -146,11 +146,11 @@ fun HalfModalBottomSheet(
                         .graphicsLayer { translationY = dragOffsetPx }
                         .clip(containerShape)
                         .background(containerColor)
+                        .imePadding()
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { dismissKeyboard() }
-                        .imePadding()
                 ) {
                     Box(
                         modifier = Modifier
