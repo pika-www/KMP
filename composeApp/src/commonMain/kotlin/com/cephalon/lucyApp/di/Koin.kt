@@ -7,6 +7,7 @@ import com.cephalon.lucyApp.network.NetworkUrlFactory
 import com.cephalon.lucyApp.network.createNetworkClient
 import com.cephalon.lucyApp.settings.createSettings
 import com.cephalon.lucyApp.ws.WsApi
+import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.ws.WsRepository
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
@@ -27,6 +28,7 @@ val appModule = module {
     single { AuthRepository(get(), get()) }
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
+    single { BalanceWsManager(get(), get(), get(), get()) }
 
     // 在这里添加您的其他依赖注入配置，例如 ViewModel
 }

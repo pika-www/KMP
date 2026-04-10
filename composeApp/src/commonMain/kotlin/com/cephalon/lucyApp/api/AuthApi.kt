@@ -37,6 +37,21 @@ class AuthApi(
     }
 
     /**
+     * 支持重复 key 的 GET 请求（如 symbol_ids=1&symbol_ids=4）
+     */
+    suspend inline fun <reified R> getWithListParams(path: String, params: Map<String, List<String>> = emptyMap()): BaseResponse<R> {
+        return try {
+            client.get(urlFactory.http("$prefix$path")) {
+                params.forEach { (key, values) ->
+                    values.forEach { value -> parameter(key, value) }
+                }
+            }.body()
+        } catch (e: Exception) {
+            BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
+        }
+    }
+
+    /**
      * 通用的 POST 请求方法
      */
     suspend inline fun <reified T, reified R> post(path: String, body: T): BaseResponse<R> {

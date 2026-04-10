@@ -14,13 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,7 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import com.cephalon.lucyApp.time.currentTimeMillis
-import androidx.compose.material3.rememberDrawerState
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
@@ -51,7 +45,6 @@ import com.cephalon.lucyApp.screens.agentmodel.DraftAttachmentType
 import com.cephalon.lucyApp.screens.agentmodel.ImagePreviewState
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelAttachmentPanel
-import com.cephalon.lucyApp.screens.agentmodel.AgentModelDrawerContent
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelSearchScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelComposer
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelImagePreview
@@ -64,12 +57,12 @@ import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
 @Composable
 fun AgentModelScreen(
     onBack: () -> Unit,
-    onNavigateToNas: () -> Unit = {}
+    onNavigateToNas: () -> Unit = {},
+    onLogout: () -> Unit = {},
 ) {
     val uriHandler = LocalUriHandler.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     val logs = remember {
         mutableStateListOf(
@@ -255,55 +248,6 @@ fun AgentModelScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
     if (previewState == null) {
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = Color.White
-            ) {
-                AgentModelDrawerContent(
-                    conversations = orderedConversations,
-                    selectedId = selectedConversationId,
-                    onSelect = { item ->
-                        selectedConversationId = item.id
-                        inputText = ""
-                        draftAttachments.clear()
-                        attachmentsExpanded = false
-                        coroutineScope.launch { drawerState.close() }
-                    },
-                    onDelete = { item ->
-                        conversations.remove(item)
-                        if (selectedConversationId == item.id) {
-                            selectedConversationId = conversations
-                                .sortedWith(compareByDescending<ConversationItem> { false }
-                                    .thenByDescending { it.lastActiveAt })
-                                .firstOrNull()
-                                ?.id
-                        }
-                    },
-                    onNewChat = {
-                        val newId = (conversations.maxOfOrNull { it.id.toIntOrNull() ?: 0 }?.plus(1) ?: 1).toString()
-                        val newItem = ConversationItem(
-                            id = newId,
-                            title = "新对话",
-                            messages = emptyList(),
-                            lastActiveAt = currentTimeMillis()
-                        )
-                        conversations.add(newItem)
-                        selectedConversationId = newId
-                        inputText = ""
-                        draftAttachments.clear()
-                        attachmentsExpanded = false
-                        coroutineScope.launch { drawerState.close() }
-                    },
-                    onOpenSearch = {
-                        coroutineScope.launch { drawerState.close() }
-                        showSearchPage = true
-                    }
-                )
-            }
-        }
-    ) {
         Scaffold(
             containerColor = Color.White,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -328,7 +272,6 @@ fun AgentModelScreen(
                         AgentModelTopBar(
                             title = "脑花",
                             subtitle = "内容由 AI 生成",
-                            onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
                             onOpenProfile = {
                                 focusManager.clearFocus()
                                 attachmentsExpanded = false
@@ -422,6 +365,7 @@ fun AgentModelScreen(
                     isVisible = showProfilePage,
                     onDismiss = { showProfilePage = false },
                     onNavigateToNas = onNavigateToNas,
+                    onLogout = onLogout,
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -451,7 +395,6 @@ fun AgentModelScreen(
 
             }
         }
-    }
 
     } // end if previewState == null
 

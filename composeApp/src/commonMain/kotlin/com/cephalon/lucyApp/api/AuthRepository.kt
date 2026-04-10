@@ -18,6 +18,8 @@ class AuthRepository(
         val token = response.data?.token
         if (response.code == 20000 && token != null) {
             tokenStore.saveToken(token)
+            request.phone?.let { tokenStore.saveUserPhone(it) }
+            request.email?.let { tokenStore.saveUserEmail(it) }
         }
         return response
     }
@@ -25,7 +27,7 @@ class AuthRepository(
     /**
      * 获取验证码
      */
-    suspend fun getCode(phone: String? = null, email: String? = null, actionType: String, appType: String): BaseResponse<Unit> {
+    suspend fun getCode(phone: String? = null, email: String? = null, actionType: String, appType: String = "lucy"): BaseResponse<Unit> {
         val request = CodeRequest(
             phone = phone,
             email = email,
@@ -55,6 +57,21 @@ class AuthRepository(
      */
     suspend fun forgetPassword(request: ForgetPasswordRequest): BaseResponse<Unit> {
         return authApi.post<ForgetPasswordRequest, Unit>("/pwd/forget", request)
+    }
+
+    suspend fun closeAccount(request: CloseAccountRequest): BaseResponse<Unit> {
+        return authApi.post<CloseAccountRequest, Unit>("/user/close", request)
+    }
+
+    /**
+     * 查询余额
+     * symbol_ids: 1=充值脑力值, 4=免费脑力值
+     */
+    suspend fun getBalance(symbolIds: List<Int> = listOf(1, 4)): BaseResponse<BalanceData> {
+        return authApi.getWithListParams<BalanceData>(
+            "/user/balance",
+            mapOf("symbol_ids" to symbolIds.map { it.toString() })
+        )
     }
 
     fun logout() {

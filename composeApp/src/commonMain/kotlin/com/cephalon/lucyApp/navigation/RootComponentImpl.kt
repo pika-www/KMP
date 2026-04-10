@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.navigation
 
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
@@ -18,7 +19,8 @@ import com.russhwolf.settings.Settings
 class RootComponentImpl(
     componentContext: ComponentContext,
     private val authRepository: AuthRepository,
-    private val settings: Settings
+    private val settings: Settings,
+    private val balanceWsManager: BalanceWsManager,
 ) : RootComponent, ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -27,6 +29,13 @@ class RootComponentImpl(
 
     private fun markOnboardingSeen() {
         settings.putBoolean(KEY_ONBOARDING_SEEN, true)
+    }
+
+    init {
+        // 已有有效 token 时，启动时自动连接 WS
+        if (authRepository.hasValidToken()) {
+            balanceWsManager.start()
+        }
     }
 
     override val stack: Value<ChildStack<*, RootComponent.Child>> = childStack(
@@ -51,6 +60,7 @@ class RootComponentImpl(
             Config.Login -> RootComponent.Child.Login(
                 component = object : LoginComponent {
                     override fun onLoginSuccess() {
+                        balanceWsManager.start()
                         navigation.replaceAll(Config.Home)
                     }
 
@@ -71,6 +81,7 @@ class RootComponentImpl(
             Config.Home -> RootComponent.Child.Home(
                 component = object : HomeComponent {
                     override fun onLogout() {
+                        balanceWsManager.stop()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)
                     }
@@ -146,9 +157,13 @@ class RootComponentImpl(
                     override fun onBack() {
                         navigation.pop()
                     }
-
                     override fun onNavigateToNas() {
                         navigation.push(Config.Nas)
+                    }
+                    override fun onLogout() {
+                        balanceWsManager.stop()
+                        authRepository.logout()
+                        navigation.replaceAll(Config.Login)
                     }
                 }
             )

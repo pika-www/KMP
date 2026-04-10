@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +28,6 @@ import androidx.compose.ui.unit.dp
 internal fun AgentModelTopBar(
     title: String,
     subtitle: String,
-    onOpenDrawer: () -> Unit,
     onOpenProfile: () -> Unit,
     onCall: () -> Unit,
     modifier: Modifier = Modifier,
@@ -44,14 +42,6 @@ internal fun AgentModelTopBar(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onOpenDrawer) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "Menu",
-                    tint = Color(0xFF111111)
-                )
-            }
-
             Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,

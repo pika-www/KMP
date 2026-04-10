@@ -71,6 +71,23 @@ data class LoginData(
     val nickname: String? = null
 )
 
+@Serializable
+data class CloseAccountRequest(
+    val phone: String? = null,
+    val email: String? = null,
+    val code: String,
+    val way: String,
+)
+
+/**
+ * /user/balance 余额响应
+ * data: { balances: { "1": 0, "4": 0 } }
+ */
+@Serializable
+data class BalanceData(
+    val balances: Map<String, Long> = emptyMap()
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

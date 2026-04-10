@@ -54,7 +54,7 @@ fun createNetworkClient(
         install(DefaultRequest) {
             val token = tokenStore.getValidTokenOrNull()
             if (token != null) {
-                header(HttpHeaders.Authorization, token)
+                header(HttpHeaders.Authorization, "Bearer $token")
             }
         }
 

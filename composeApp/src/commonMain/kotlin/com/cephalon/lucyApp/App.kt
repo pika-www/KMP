@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import com.arkivanov.decompose.extensions.compose.stack.Children
 import com.arkivanov.decompose.Child
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.navigation.RootComponent
 import com.cephalon.lucyApp.navigation.RootComponentImpl
 import com.cephalon.lucyApp.navigation.createDefaultComponentContext
@@ -48,9 +49,10 @@ fun App() {
         ) {
             val authRepository = koinInject<AuthRepository>()
             val settings = koinInject<Settings>()
+            val balanceWsManager = koinInject<BalanceWsManager>()
 
             val root: RootComponent = remember {
-                RootComponentImpl(createDefaultComponentContext(), authRepository, settings)
+                RootComponentImpl(createDefaultComponentContext(), authRepository, settings, balanceWsManager)
             }
 
             Children(stack = root.stack) { child: Child.Created<*, RootComponent.Child> ->
@@ -96,7 +98,8 @@ fun App() {
                     is RootComponent.Child.AgentModel -> {
                         AgentModelScreen(
                             onBack = instance.component::onBack,
-                            onNavigateToNas = instance.component::onNavigateToNas
+                            onNavigateToNas = instance.component::onNavigateToNas,
+                            onLogout = instance.component::onLogout
                         )
                     }
 

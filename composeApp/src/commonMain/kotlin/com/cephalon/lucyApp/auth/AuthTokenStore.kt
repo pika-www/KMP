@@ -16,8 +16,22 @@ class AuthTokenStore(
         settings.putString(KEY_TOKEN, token)
     }
 
+    fun saveUserPhone(phone: String) {
+        settings.putString(KEY_PHONE, phone)
+    }
+
+    fun getUserPhone(): String? = settings.getStringOrNull(KEY_PHONE)
+
+    fun saveUserEmail(email: String) {
+        settings.putString(KEY_EMAIL, email)
+    }
+
+    fun getUserEmail(): String? = settings.getStringOrNull(KEY_EMAIL)
+
     fun clear() {
         settings.remove(KEY_TOKEN)
+        settings.remove(KEY_PHONE)
+        settings.remove(KEY_EMAIL)
     }
 
     fun isTokenExpired(): Boolean {
@@ -37,5 +51,7 @@ class AuthTokenStore(
 
     private companion object {
         private const val KEY_TOKEN = "auth.token"
+        private const val KEY_PHONE = "auth.phone"
+        private const val KEY_EMAIL = "auth.email"
     }
 }
