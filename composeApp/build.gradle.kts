@@ -55,6 +55,11 @@ kotlin {
 
                 // --- 5. 原有：其他依赖 ---
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime") {
+                    version {
+                        strictly("0.6.1")
+                    }
+                }
                 implementation("com.russhwolf:multiplatform-settings:1.1.1")
                 implementation("com.russhwolf:multiplatform-settings-no-arg:1.1.1")
                 implementation("com.russhwolf:multiplatform-settings-serialization:1.1.1")
