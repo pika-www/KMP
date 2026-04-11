@@ -1,6 +1,9 @@
 package com.cephalon.lucyApp.api
 
 import com.cephalon.lucyApp.auth.AuthTokenStore
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * 适配通用 AuthApi 后的 AuthRepository，支持动态 Map 数据访问。
@@ -73,7 +76,33 @@ class AuthRepository(
         )
     }
 
+    // ---- 用户信息 ----
+    private val _userInfo = MutableStateFlow<UserInfoData?>(null)
+    val userInfo: StateFlow<UserInfoData?> = _userInfo.asStateFlow()
+
+    /**
+     * 获取用户信息 GET /user/info
+     */
+    suspend fun getUserInfo(): BaseResponse<UserInfoData> {
+        val response = authApi.get<UserInfoData>("/user/info")
+        if (response.code == 20000 && response.data != null) {
+            _userInfo.value = response.data
+        }
+        return response
+    }
+
+    /**
+     * 获取充值套餐列表 GET /campaign/recharge/rule/list?app_source=lucy_app
+     */
+    suspend fun getRechargeRules(): BaseResponse<List<RechargeRuleItem>> {
+        return authApi.get<List<RechargeRuleItem>>(
+            "/campaign/recharge/rule/list",
+            mapOf("app_source" to "lucy_app")
+        )
+    }
+
     fun logout() {
+        _userInfo.value = null
         tokenStore.clear()
     }
 

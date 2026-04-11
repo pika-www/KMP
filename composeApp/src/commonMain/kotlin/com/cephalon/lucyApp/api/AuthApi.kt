@@ -37,6 +37,19 @@ class AuthApi(
     }
 
     /**
+     * GET 请求 — 使用完整路径（不拼接 prefix）
+     */
+    suspend inline fun <reified R> getAbsolute(path: String, params: Map<String, String> = emptyMap()): BaseResponse<R> {
+        return try {
+            client.get(urlFactory.http(path)) {
+                params.forEach { (key, value) -> parameter(key, value) }
+            }.body()
+        } catch (e: Exception) {
+            BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
+        }
+    }
+
+    /**
      * 支持重复 key 的 GET 请求（如 symbol_ids=1&symbol_ids=4）
      */
     suspend inline fun <reified R> getWithListParams(path: String, params: Map<String, List<String>> = emptyMap()): BaseResponse<R> {

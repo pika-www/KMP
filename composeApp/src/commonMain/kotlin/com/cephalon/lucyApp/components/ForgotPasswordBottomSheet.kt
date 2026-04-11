@@ -1,20 +1,20 @@
 package com.cephalon.lucyApp.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,58 +24,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.ForgetPasswordRequest
-import com.cephalon.lucyApp.components.AccountInput
-import com.cephalon.lucyApp.components.CodeInput
-import com.cephalon.lucyApp.components.PasswordInput
 import org.koin.compose.koinInject
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.shape.RoundedCornerShape
-
-@Composable
-fun ForgotPasswordBottomSheet(
-    onDismiss: () -> Unit,
-    onResetSuccess: () -> Unit
-) {
-    var isVisible by remember { mutableStateOf(true) }
-
-    // 统一的退出逻辑，先触发退场动画，动画结束后 onDismissed 会回调 onDismiss
-    val requestCloseSheet = {
-        isVisible = false
-    }
-
-    // 调用重构后的自定义组件
-    HalfModalBottomSheet(
-        onDismissRequest = { requestCloseSheet() },
-        onDismissed = onDismiss,
-        isVisible = isVisible,
-        // 关键点 2: 将返回按钮与关闭逻辑绑定
-        onBack = { requestCloseSheet() },
-        showBackButton = true,
-        showCloseButton = true
-    ) {
-        ForgotPasswordForm(
-            onResetSuccess = {
-                onResetSuccess()
-                requestCloseSheet()
-            }
-        )
-    }
-}
 
 @Composable
 fun ForgotPasswordForm(
     onResetSuccess: () -> Unit,
     onShowToast: ((String) -> Unit)? = null,
 ) {
+    val ds = LocalDesignScale.current
     val authRepository = koinInject<AuthRepository>()
     val scope = rememberCoroutineScope()
 
@@ -87,187 +55,220 @@ fun ForgotPasswordForm(
     var isLoading by remember { mutableStateOf(false) }
     val showError: (String) -> Unit = { msg -> onShowToast?.invoke(msg) }
 
+    val canSubmit = account.isNotBlank() && code.isNotBlank() && pwd.isNotBlank() && confirmPwd.isNotBlank() && !isLoading
+
     val performReset: () -> Unit = performReset@{
-        if (account.isBlank() || code.isBlank() || pwd.isBlank() || confirmPwd.isBlank()) {
-            showError("请填写完整信息")
-        } else if (pwd != confirmPwd) {
+        if (!canSubmit) return@performReset
+        if (pwd != confirmPwd) {
             showError("两次输入的密码不一致")
-        } else {
-            isLoading = true
-            val input = account.trim()
-            val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
-            val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
-                if (Regex("^1\\d{10}$").matches(v)) v else null
-            }
-            val isEmail = normalizedEmail != null
-            val normalizedAccount = normalizedEmail ?: normalizedPhone
-            if (normalizedAccount == null) {
-                isLoading = false
-                showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
-                return@performReset
-            }
-            val accountType = if (isEmail) "email" else "phone"
+            return@performReset
+        }
+        isLoading = true
+        val input = account.trim()
+        val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
+        val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
+            if (Regex("^1\\d{10}$").matches(v)) v else null
+        }
+        val isEmail = normalizedEmail != null
+        val normalizedAccount = normalizedEmail ?: normalizedPhone
+        if (normalizedAccount == null) {
+            isLoading = false
+            showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
+            return@performReset
+        }
+        val accountType = if (isEmail) "email" else "phone"
 
-            scope.launch {
-                try {
-                    val existsResponse = if (isEmail) {
-                        authRepository.isEmailExist(normalizedAccount)
-                    } else {
-                        authRepository.isPhoneExist(normalizedAccount)
-                    }
-                    if (existsResponse.code == 20000) {
-                        val isExit = existsResponse.data?.isExist ?: false
-                        if (!isExit) {
-                            isLoading = false
-                            showError(existsResponse.msg)
-                            return@launch
-                        }
-                    }
-
-                    val response = authRepository.forgetPassword(
-                        ForgetPasswordRequest(
-                            account = normalizedAccount,
-                            code = code,
-                            pwd = pwd,
-                            confirmPwd = confirmPwd,
-                            type = accountType
-                        )
-                    )
-                    isLoading = false
-                    if (response.code == 20000) {
-                        onResetSuccess()
-                    } else {
-                        showError(response.msg)
-                    }
-                } catch (e: Exception) {
-                    isLoading = false
-                    showError("网络异常，请稍后再试")
+        scope.launch {
+            try {
+                val existsResponse = if (isEmail) {
+                    authRepository.isEmailExist(normalizedAccount)
+                } else {
+                    authRepository.isPhoneExist(normalizedAccount)
                 }
+                if (existsResponse.code == 20000) {
+                    val exists = existsResponse.data?.isExist ?: false
+                    if (!exists) {
+                        isLoading = false
+                        showError("该账号未注册")
+                        return@launch
+                    }
+                }
+
+                val response = authRepository.forgetPassword(
+                    ForgetPasswordRequest(
+                        account = normalizedAccount,
+                        code = code,
+                        pwd = pwd,
+                        confirmPwd = confirmPwd,
+                        type = accountType
+                    )
+                )
+                isLoading = false
+                if (response.code == 20000) {
+                    onResetSuccess()
+                } else {
+                    showError(response.msg)
+                }
+            } catch (e: Exception) {
+                isLoading = false
+                showError("网络异常，请稍后再试")
             }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "重置密码",
-            style = MaterialTheme.typography.headlineSmall.copy(
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            ),
-            modifier = Modifier.padding(vertical = 12.dp)
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        AccountInput(
-            value = account,
-            onValueChange = { account = it },
-            enabled = !isLoading,
-            imeAction = ImeAction.Next,
-            onValidationError = { msg -> showError(msg) }
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        CodeInput(
-            value = code,
-            onValueChange = { code = it },
-            enabled = !isLoading,
-            imeAction = ImeAction.Next,
-            onSendCode = { startTimer ->
-                val input = account.trim()
-                val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
-                val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
-                    if (Regex("^1\\d{10}$").matches(v)) v else null
-                }
-                val isEmail = normalizedEmail != null
-                val normalizedAccount = normalizedEmail ?: normalizedPhone
-                if (normalizedAccount == null) {
-                    showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
-                    return@CodeInput
-                }
-
-                scope.launch {
-                    isLoading = true
-                    val existsResponse = if (isEmail) {
-                        authRepository.isEmailExist(normalizedAccount)
-                    } else {
-                        authRepository.isPhoneExist(normalizedAccount)
-                    }
-                    if (existsResponse.code == 20000) {
-                        val isExit = existsResponse.data?.isExist ?: false
-                        if (!isExit) {
-                            isLoading = false
-                            showError(existsResponse.msg)
-                            return@launch
-                        }
-                    }
-
-                    val response = if (isEmail) {
-                        authRepository.getCode(email = normalizedAccount, actionType = "modify", appType = "lucy")
-                    } else {
-                        authRepository.getCode(phone = normalizedAccount, actionType = "modify", appType = "lucy")
-                    }
-                    isLoading = false
-                    if (response.code == 20000) {
-                        startTimer()
-                    } else {
-                        showError(response.msg)
-                    }
-                }
-            }
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        PasswordInput(
-            value = pwd,
-            onValueChange = { pwd = it },
-            enabled = !isLoading,
-            label = "新密码",
-            imeAction = ImeAction.Next
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        PasswordInput(
-            value = confirmPwd,
-            onValueChange = { confirmPwd = it },
-            enabled = !isLoading,
-            label = "确认新密码",
-            imeAction = ImeAction.Done,
-            onDone = { performReset() }
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = performReset,
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 可滚动的输入区域
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(12.dp),
-            enabled = !isLoading
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = "设置新密码",
+                color = TitleColor,
+                fontSize = ds.sp(28f),
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+            AccountInput(
+                value = account,
+                onValueChange = { account = it },
+                enabled = !isLoading,
+                imeAction = ImeAction.Next,
+                onValidationError = { msg -> showError(msg) }
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+            CodeInput(
+                value = code,
+                onValueChange = { code = it },
+                enabled = !isLoading,
+                imeAction = ImeAction.Next,
+                onSendCode = { startTimer ->
+                    val input = account.trim()
+                    val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
+                    val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
+                        if (Regex("^1\\d{10}$").matches(v)) v else null
+                    }
+                    val isEmail = normalizedEmail != null
+                    val normalizedAccount = normalizedEmail ?: normalizedPhone
+                    if (normalizedAccount == null) {
+                        showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
+                        return@CodeInput
+                    }
+
+                    scope.launch {
+                        isLoading = true
+                        val existsResponse = if (isEmail) {
+                            authRepository.isEmailExist(normalizedAccount)
+                        } else {
+                            authRepository.isPhoneExist(normalizedAccount)
+                        }
+                        if (existsResponse.code == 20000) {
+                            val exists = existsResponse.data?.isExist ?: false
+                            if (!exists) {
+                                isLoading = false
+                                showError("该账号未注册")
+                                return@launch
+                            }
+                        }
+
+                        val response = if (isEmail) {
+                            authRepository.getCode(email = normalizedAccount, actionType = "modify", appType = "lucy")
+                        } else {
+                            authRepository.getCode(phone = normalizedAccount, actionType = "modify", appType = "lucy")
+                        }
+                        isLoading = false
+                        if (response.code == 20000) {
+                            startTimer()
+                        } else {
+                            showError(response.msg)
+                        }
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+            PasswordInput(
+                value = pwd,
+                onValueChange = { pwd = it },
+                enabled = !isLoading,
+                label = "设置密码",
+                imeAction = ImeAction.Next
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+            PasswordInput(
+                value = confirmPwd,
+                onValueChange = { confirmPwd = it },
+                enabled = !isLoading,
+                label = "再次输入密码",
+                imeAction = ImeAction.Done,
+                onDone = { performReset() }
+            )
+        }
+
+        // 固定在底部的按钮和条款
+        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ds.sh(48.dp))
+                .clip(RoundedCornerShape(80.dp))
+                .background(if (canSubmit) EnabledBtnColor else DisabledBtnColor)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    enabled = canSubmit
+                ) { performReset() },
+            contentAlignment = Alignment.Center
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.5.dp,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    modifier = Modifier.size(ds.sm(24.dp)),
+                    color = Color.White,
+                    strokeWidth = 2.dp
                 )
             } else {
                 Text(
-                    "重置并登录",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    text = "重置并登录",
+                    color = Color.White,
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Normal,
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+        Text(
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                    append("登录即表示同意我们的 ")
+                }
+                withStyle(SpanStyle(color = LinkColor)) {
+                    append("《服务条款》")
+                }
+                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                    append(" 和 ")
+                }
+                withStyle(SpanStyle(color = LinkColor)) {
+                    append("《隐私政策》")
+                }
+            },
+            fontSize = ds.sp(10f),
+            fontWeight = FontWeight.Normal,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
     }
 }

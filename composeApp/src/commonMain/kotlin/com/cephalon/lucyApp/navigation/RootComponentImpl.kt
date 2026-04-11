@@ -14,6 +14,10 @@ import com.arkivanov.decompose.value.Value
 import kotlinx.serialization.Serializable
 import com.arkivanov.decompose.DelicateDecomposeApi // 确保导入这个
 import com.russhwolf.settings.Settings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 @OptIn(DelicateDecomposeApi::class) // 添加这一行
 
@@ -33,11 +37,14 @@ class RootComponentImpl(
         settings.putBoolean(KEY_ONBOARDING_SEEN, true)
     }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     init {
-        // 已有有效 token 时，启动时自动连接 WS
+        // 已有有效 token 时，启动时自动连接 WS 并拉取用户信息
         if (authRepository.hasValidToken()) {
             balanceWsManager.start()
             sdkSessionManager.reconnectOnAppStartIfTokenExists()
+            scope.launch { authRepository.getUserInfo() }
         }
     }
 

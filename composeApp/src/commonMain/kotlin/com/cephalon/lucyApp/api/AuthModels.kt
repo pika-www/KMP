@@ -94,6 +94,36 @@ data class IsExistData(
     val isExist: Boolean = false
 )
 
+/**
+ * /user/info 用户信息响应
+ */
+@Serializable
+data class UserInfoData(
+    @SerialName("user_id")
+    val userId: String? = null,
+    val nickname: String? = null,
+    val avatar: String? = null,
+    val phone: String? = null,
+    val email: String? = null,
+)
+
+/**
+ * /campaign/recharge/rule/list 充值规则
+ * little_value ~ large_value 为充值金额区间（元），gift_percent 为赠送比例(%)
+ */
+@Serializable
+data class RechargeRuleItem(
+    val id: String? = null,
+    @SerialName("little_value")
+    val littleValue: Long = 0,
+    @SerialName("large_value")
+    val largeValue: Long = 0,
+    @SerialName("gift_percent")
+    val giftPercent: Int = 0,
+    @SerialName("app_source")
+    val appSource: String? = null,
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

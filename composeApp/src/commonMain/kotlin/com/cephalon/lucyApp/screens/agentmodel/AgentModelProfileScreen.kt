@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.CloseAccountRequest
+import com.cephalon.lucyApp.api.RechargeRuleItem
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.components.CodeInput
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
@@ -877,66 +878,105 @@ private fun RechargeContent(
     }
 }
 
+private data class FixedPackage(
+    val price: Double,
+    val priceLabel: String,
+    val base: Long,
+    val tag: String? = null,
+)
+
+private val fixedPackages = listOf(
+    FixedPackage(9.9, "¥9.9", 7000, tag = "体验"),
+    FixedPackage(99.0, "¥99", 70000, tag = "推荐"),
+    FixedPackage(999.0, "¥999", 700000, tag = "最佳价值"),
+    FixedPackage(39.9, "¥39.9", 28000),
+    FixedPackage(69.9, "¥69.9", 49000),
+    FixedPackage(299.0, "¥299", 210000),
+    FixedPackage(499.0, "¥499", 350000),
+    FixedPackage(699.0, "¥699", 490000),
+    FixedPackage(899.0, "¥899", 630000),
+)
+
+private fun findGiftPercent(price: Double, rules: List<RechargeRuleItem>): Int {
+    return rules.firstOrNull { price >= it.littleValue && price < it.largeValue }?.giftPercent ?: 0
+}
+
 @Composable
 private fun RechargePackageContent() {
-    data class PackageItem(
-        val total: String,
-        val detail: String,
-        val price: String,
-        val tag: String? = null,
-    )
+    val authRepository: AuthRepository = koinInject()
 
-    val packages = listOf(
-        PackageItem("7000", "基础7000+0奖励", "¥9.9", tag = "体验"),
-        PackageItem("72100", "基础70000+2100奖励", "¥99", tag = "推荐"),
-        PackageItem("756000", "基础700000+56000奖励", "¥999", tag = "最佳价值"),
-        PackageItem("28840", "基础28000+840", "¥39.9"),
-        PackageItem("50470", "基础49000+1470", "¥69.9"),
-        PackageItem("220500", "基础210000+10500", "¥299"),
-        PackageItem("367500", "基础350000+17500", "¥499"),
-        PackageItem("529200", "基础490000+39200", "¥699"),
-        PackageItem("680400", "基础630000+50400", "¥899"),
-    )
+    var rules by remember { mutableStateOf<List<RechargeRuleItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val response = authRepository.getRechargeRules()
+        if (response.code == 20000 && response.data != null) {
+            rules = response.data.sortedBy { it.littleValue }
+        }
+        isLoading = false
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 前三个：单列全宽带标签
-        packages.take(3).forEach { pkg ->
-            PackageCard(
-                total = pkg.total,
-                detail = pkg.detail,
-                price = pkg.price,
-                tag = pkg.tag,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // 后六个：两列网格
-        val gridItems = packages.drop(3)
-        for (i in gridItems.indices step 2) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(200.dp),
+                contentAlignment = Alignment.Center
             ) {
-                PackageCard(
-                    total = gridItems[i].total,
-                    detail = gridItems[i].detail,
-                    price = gridItems[i].price,
-                    tag = gridItems[i].tag,
-                    modifier = Modifier.weight(1f)
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFF111111)
                 )
-                if (i + 1 < gridItems.size) {
+            }
+        } else {
+            // 前三个：单列全宽带标签
+            fixedPackages.take(3).forEach { pkg ->
+                val giftPercent = findGiftPercent(pkg.price, rules)
+                val gift = pkg.base * giftPercent / 100
+                val total = pkg.base + gift
+                PackageCard(
+                    total = "$total",
+                    detail = "基础${pkg.base}+${gift}奖励",
+                    price = pkg.priceLabel,
+                    tag = pkg.tag,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // 后六个：两列网格
+            val gridItems = fixedPackages.drop(3)
+            for (i in gridItems.indices step 2) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val pkg1 = gridItems[i]
+                    val gp1 = findGiftPercent(pkg1.price, rules)
+                    val gift1 = pkg1.base * gp1 / 100
                     PackageCard(
-                        total = gridItems[i + 1].total,
-                        detail = gridItems[i + 1].detail,
-                        price = gridItems[i + 1].price,
-                        tag = gridItems[i + 1].tag,
+                        total = "${pkg1.base + gift1}",
+                        detail = "基础${pkg1.base}+${gift1}",
+                        price = pkg1.priceLabel,
+                        tag = pkg1.tag,
                         modifier = Modifier.weight(1f)
                     )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
+                    if (i + 1 < gridItems.size) {
+                        val pkg2 = gridItems[i + 1]
+                        val gp2 = findGiftPercent(pkg2.price, rules)
+                        val gift2 = pkg2.base * gp2 / 100
+                        PackageCard(
+                            total = "${pkg2.base + gift2}",
+                            detail = "基础${pkg2.base}+${gift2}",
+                            price = pkg2.priceLabel,
+                            tag = pkg2.tag,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }

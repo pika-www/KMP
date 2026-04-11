@@ -97,11 +97,11 @@ fun LoginScreen(
                     .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
                     .takeIf { Regex("^1\\d{10}$").matches(it) }
 
-                val isEmail = preferEmailLogin
-                val account = if (isEmail) normalizedEmail else normalizedPhone
+                val isEmail = normalizedEmail != null
+                val account = normalizedEmail ?: normalizedPhone
                 if (account == null) {
                     isLoading = false
-                    toastState.show(if (isEmail) "请输入正确的邮箱(.com)" else "请输入正确的手机号(+86 11位)")
+                    toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
                     return@launch
                 }
 
@@ -119,6 +119,7 @@ fun LoginScreen(
                 isLoading = false
 
                 if (response.code == 20000 && response.data != null) {
+                    authRepository.getUserInfo()
                     loginSheetVisible = false
                     onLoginSuccess()
                 } else {
