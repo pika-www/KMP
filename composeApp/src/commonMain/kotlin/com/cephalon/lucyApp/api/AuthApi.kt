@@ -93,6 +93,19 @@ class AuthApi(
     }
 
     /**
+     * PUT 请求 — 无请求体
+     */
+    suspend inline fun <reified R> put(path: String): BaseResponse<R> {
+        return try {
+            client.put(urlFactory.http("$prefix$path")) {
+                contentType(ContentType.Application.Json)
+            }.body()
+        } catch (e: Exception) {
+            BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
+        }
+    }
+
+    /**
      * 通用的 DELETE 请求方法
      */
     suspend inline fun <reified R> delete(path: String, params: Map<String, String> = emptyMap()): BaseResponse<R> {

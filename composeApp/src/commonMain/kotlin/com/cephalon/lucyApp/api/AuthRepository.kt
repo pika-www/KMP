@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.api
 
 import com.cephalon.lucyApp.auth.AuthTokenStore
+import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,7 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class AuthRepository(
     private val authApi: AuthApi,
-    private val tokenStore: AuthTokenStore
+    private val tokenStore: AuthTokenStore,
+    private val settings: Settings,
 ) {
 
     /**
@@ -101,10 +103,53 @@ class AuthRepository(
         )
     }
 
+    // ---- Lucy App 连接标记 ----
+
+    private val connectionFlagPath = "/channels/lucy-app/current-user/connection-flag"
+
+    /**
+     * 检查连接标记：优先读本地缓存，若无缓存则请求接口并存储
+     */
+    suspend fun checkConnectionFlag(): Boolean {
+        // 优先读本地缓存
+        if (settings.getBoolean(KEY_CONNECTION_FLAG, false)) {
+            return true
+        }
+        // 本地无缓存，请求接口
+        val resp = authApi.get<ConnectionFlagData>(connectionFlagPath)
+        val connected = resp.code == 20000 && resp.data?.hasConnectedLucyApp == true
+        if (connected) {
+            settings.putBoolean(KEY_CONNECTION_FLAG, true)
+        }
+        return connected
+    }
+
+    /**
+     * 设置连接标记：调接口 + 写本地缓存
+     */
+    suspend fun setConnectionFlag(): Boolean {
+        val resp = authApi.put<ConnectionFlagData>(connectionFlagPath)
+        val success = resp.code == 20000
+        if (success) {
+            settings.putBoolean(KEY_CONNECTION_FLAG, true)
+        }
+        return success
+    }
+
+    /**
+     * 本地缓存是否已连接（同步读取，不走网络）
+     */
+    fun isConnectionFlagCached(): Boolean = settings.getBoolean(KEY_CONNECTION_FLAG, false)
+
     fun logout() {
         _userInfo.value = null
+        settings.remove(KEY_CONNECTION_FLAG)
         tokenStore.clear()
     }
 
     fun hasValidToken(): Boolean = tokenStore.getValidTokenOrNull() != null
+
+    private companion object {
+        const val KEY_CONNECTION_FLAG = "lucy_app.has_connected"
+    }
 }

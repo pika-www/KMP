@@ -52,7 +52,10 @@ class BalanceWsManager(
     private val tokenStore: AuthTokenStore,
     private val settings: Settings,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+        println("$TAG: 协程异常(已捕获): ${throwable.message}")
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + exceptionHandler)
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -184,32 +187,33 @@ class BalanceWsManager(
                     ConnectionState.CONNECTING
                 }
 
-                // 1. 建立 WS 连接
+                // 使用块式 API，Ktor 内部 reader/writer 异常会正确传播到此 try-catch
                 val wsUuid = getWsUuid()
-                val newSession = wsApi.connect(wsUuid)
-                session = newSession
-                println("$TAG: WS 已连接")
+                wsApi.withConnection(wsUuid) {
+                    session = this
+                    println("$TAG: WS 已连接")
 
-                // 2. 发送 Login (event_id=7)
-                sendLogin(newSession, token)
+                    // 发送 Login (event_id=7)
+                    sendLogin(this, token)
 
-                // 3. 接收消息循环
-                lastPongTime = currentTimeMs()
-                for (frame in newSession.incoming) {
-                    if (!isActive) break
-                    when (frame) {
-                        is Frame.Text -> {
-                            val text = frame.readText()
-                            handleMessage(newSession, text)
+                    // 接收消息循环
+                    lastPongTime = currentTimeMs()
+                    for (frame in incoming) {
+                        if (!isActive) break
+                        when (frame) {
+                            is Frame.Text -> {
+                                val text = frame.readText()
+                                handleMessage(this@withConnection, text)
+                            }
+                            is Frame.Close -> {
+                                println("$TAG: 服务端关闭连接")
+                                break
+                            }
+                            else -> Unit
                         }
-                        is Frame.Close -> {
-                            println("$TAG: 服务端关闭连接")
-                            break
-                        }
-                        else -> Unit
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 println("$TAG: 连接异常 ${e.message}")
             }
 
@@ -347,19 +351,27 @@ class BalanceWsManager(
     // ─────────── 发送方法 ───────────
 
     private suspend fun sendLogin(session: DefaultClientWebSocketSession, token: String) {
-        val payload = WsLoginPayload(
-            data = WsLoginData(jwt = "Bearer $token")
-        )
-        val text = json.encodeToString(WsLoginPayload.serializer(), payload)
-        session.send(Frame.Text(text))
-        println("$TAG: 发送 Login")
+        try {
+            val payload = WsLoginPayload(
+                data = WsLoginData(jwt = "Bearer $token")
+            )
+            val text = json.encodeToString(WsLoginPayload.serializer(), payload)
+            session.send(Frame.Text(text))
+            println("$TAG: 发送 Login")
+        } catch (e: Throwable) {
+            println("$TAG: 发送 Login 失败 ${e.message}")
+        }
     }
 
     private suspend fun sendEvent(session: DefaultClientWebSocketSession, eventId: Int) {
-        val payload = WsSimpleEvent(eventId = eventId)
-        val text = json.encodeToString(WsSimpleEvent.serializer(), payload)
-        session.send(Frame.Text(text))
-        println("$TAG: 发送 event_id=$eventId")
+        try {
+            val payload = WsSimpleEvent(eventId = eventId)
+            val text = json.encodeToString(WsSimpleEvent.serializer(), payload)
+            session.send(Frame.Text(text))
+            println("$TAG: 发送 event_id=$eventId")
+        } catch (e: Throwable) {
+            println("$TAG: 发送 event_id=$eventId 失败 ${e.message}")
+        }
     }
 
     // ─────────── 心跳 ───────────
@@ -374,13 +386,13 @@ class BalanceWsManager(
                 // 检查 pong 超时（连续 2 个周期没收到 pong 则认为断线）
                 if (currentTimeMs() - lastPongTime > PONG_TIMEOUT_MS) {
                     println("$TAG: Pong 超时，断开重连")
-                    try { session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Pong timeout")) } catch (_: Exception) {}
+                    try { session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Pong timeout")) } catch (_: Throwable) {}
                     break
                 }
 
                 try {
                     sendEvent(session, EventId.PING)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     println("$TAG: 心跳发送失败 ${e.message}")
                     break
                 }
@@ -393,7 +405,7 @@ class BalanceWsManager(
     private suspend fun closeSession() {
         try {
             session?.close(CloseReason(CloseReason.Codes.NORMAL, "Closed by client"))
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
         session = null
         _connectionState.value = ConnectionState.DISCONNECTED
     }

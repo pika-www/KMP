@@ -124,6 +124,15 @@ data class RechargeRuleItem(
     val appSource: String? = null,
 )
 
+/**
+ * /v1/channels/lucy-app/current-user/connection-flag
+ */
+@Serializable
+data class ConnectionFlagData(
+    @SerialName("has_connected_lucy_app")
+    val hasConnectedLucyApp: Boolean = false
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

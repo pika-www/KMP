@@ -29,7 +29,10 @@ import lucy.im.sdk.collectDevices
 class SdkSessionManager(
     private val tokenStore: AuthTokenStore,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+        appLogD(TAG, "协程异常(已捕获): ${throwable.message}")
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + exceptionHandler)
     private val connectMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -273,7 +276,11 @@ class SdkSessionManager(
         consumerJob = null
         deviceObserverJob = null
         deviceObserver = null
-        session?.close()
+        try {
+            session?.close()
+        } catch (e: Exception) {
+            appLogD(TAG, "session.close() 异常: ${e.message}")
+        }
         session = null
         _onlineDevices.value = emptyList()
         _onlineDeviceCdis.value = emptyList()

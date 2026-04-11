@@ -29,7 +29,10 @@ import kotlinx.serialization.json.contentOrNull
  * WebSocket 业务入口，屏蔽具体 ws 路径和连接细节。
  */
 class WsRepository(private val wsApi: WsApi) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+        println("WsRepository: 协程异常(已捕获): ${throwable.message}")
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + exceptionHandler)
     private val json = Json { encodeDefaults = true }
 
     private val _messages = MutableStateFlow<List<String>>(emptyList())
@@ -76,13 +79,17 @@ class WsRepository(private val wsApi: WsApi) {
             return
         }
 
-        val payload = WsAuthPayload(
-            data = WsAuthData(jwt = token)
-        )
-        val text = json.encodeToString(WsAuthPayload.serializer(), payload)
-        isAwaitingAuthResult = true
-        currentSession.send(Frame.Text(text))
-        appendMessage("发送: $text")
+        try {
+            val payload = WsAuthPayload(
+                data = WsAuthData(jwt = token)
+            )
+            val text = json.encodeToString(WsAuthPayload.serializer(), payload)
+            isAwaitingAuthResult = true
+            currentSession.send(Frame.Text(text))
+            appendMessage("发送: $text")
+        } catch (e: Throwable) {
+            appendMessage("发送 JWT 失败: ${e.message}")
+        }
     }
 
     suspend fun sendEvent(eventId: Int) {
@@ -92,10 +99,14 @@ class WsRepository(private val wsApi: WsApi) {
             return
         }
 
-        val payload = WsEventPayload(eventId = eventId)
-        val text = json.encodeToString(WsEventPayload.serializer(), payload)
-        currentSession.send(Frame.Text(text))
-        appendMessage("发送: $text")
+        try {
+            val payload = WsEventPayload(eventId = eventId)
+            val text = json.encodeToString(WsEventPayload.serializer(), payload)
+            currentSession.send(Frame.Text(text))
+            appendMessage("发送: $text")
+        } catch (e: Throwable) {
+            appendMessage("发送 event 失败: ${e.message}")
+        }
     }
 
     suspend fun close() {
@@ -112,12 +123,14 @@ class WsRepository(private val wsApi: WsApi) {
         heartbeatJob?.cancelAndJoin()
         heartbeatJob = null
 
-        session?.close(
-            CloseReason(
-                CloseReason.Codes.NORMAL,
-                "Closed by user"
+        try {
+            session?.close(
+                CloseReason(
+                    CloseReason.Codes.NORMAL,
+                    "Closed by user"
+                )
             )
-        )
+        } catch (_: Throwable) {}
         session = null
         isAwaitingAuthResult = false
         isAuthenticated = false
@@ -144,10 +157,15 @@ class WsRepository(private val wsApi: WsApi) {
         heartbeatJob = scope.launch {
             while (true) {
                 delay(15_000)
-                val payload = WsEventPayload(eventId = 99)
-                val text = json.encodeToString(WsEventPayload.serializer(), payload)
-                currentSession.send(Frame.Text(text))
-                appendMessage("发送心跳: $text")
+                try {
+                    val payload = WsEventPayload(eventId = 99)
+                    val text = json.encodeToString(WsEventPayload.serializer(), payload)
+                    currentSession.send(Frame.Text(text))
+                    appendMessage("发送心跳: $text")
+                } catch (e: Exception) {
+                    appendMessage("心跳发送失败: ${e.message}")
+                    break
+                }
             }
         }
     }

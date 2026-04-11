@@ -31,13 +31,28 @@ class RootComponentImpl(
 
     private val navigation = StackNavigation<Config>()
 
+    // 防止快速点击导致重复 push 闪退
+    private var isNavigating = false
+    private fun safePush(config: Config) {
+        if (isNavigating) return
+        isNavigating = true
+        navigation.push(config) {
+            isNavigating = false
+        }
+    }
+
     private fun isOnboardingSeen(): Boolean = settings.getBoolean(KEY_ONBOARDING_SEEN, false)
 
     private fun markOnboardingSeen() {
         settings.putBoolean(KEY_ONBOARDING_SEEN, true)
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main +
+        kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+            println("RootComponent: 协程异常(已捕获): ${throwable.message}")
+        }
+    )
 
     init {
         // 已有有效 token 时，启动时自动连接 WS 并拉取用户信息
@@ -45,6 +60,15 @@ class RootComponentImpl(
             balanceWsManager.start()
             sdkSessionManager.reconnectOnAppStartIfTokenExists()
             scope.launch { authRepository.getUserInfo() }
+            // 本地缓存未命中时，异步查询接口并跳转
+            if (!authRepository.isConnectionFlagCached()) {
+                scope.launch {
+                    val connected = authRepository.checkConnectionFlag()
+                    if (connected) {
+                        navigation.replaceAll(Config.AgentModel)
+                    }
+                }
+            }
         }
     }
 
@@ -52,7 +76,7 @@ class RootComponentImpl(
         source = navigation,
         serializer = Config.serializer(),
         initialConfiguration = if (authRepository.hasValidToken()) {
-            Config.Home
+            if (authRepository.isConnectionFlagCached()) Config.AgentModel else Config.Home
         } else if (isOnboardingSeen()) {
             Config.Login
         } else {
@@ -72,7 +96,15 @@ class RootComponentImpl(
                     override fun onLoginSuccess() {
                         balanceWsManager.start()
                         sdkSessionManager.connectAfterLogin()
-                        navigation.replaceAll(Config.Home)
+                        scope.launch {
+                            authRepository.getUserInfo()
+                            val connected = authRepository.checkConnectionFlag()
+                            if (connected) {
+                                navigation.replaceAll(Config.AgentModel)
+                            } else {
+                                navigation.replaceAll(Config.Home)
+                            }
+                        }
                     }
 
 //                    override fun onForgotPassword() {
@@ -99,27 +131,31 @@ class RootComponentImpl(
                     }
 
                     override fun onOpenSdkTest() {
-                        navigation.push(Config.SdkTest)
+                        safePush(Config.SdkTest)
                     }
 
                     override fun onOpenWsTest() {
-                        navigation.push(Config.WsTest)
+                        safePush(Config.WsTest)
                     }
 
                     override fun onOpenBrainBoxGuide() {
-                        navigation.push(Config.BrainBoxGuide(source = BrainBoxGuideSource.FromHome))
+                        safePush(Config.BrainBoxGuide(source = BrainBoxGuideSource.FromHome))
                     }
 
                     override fun onOpenAgentModel() {
-                        navigation.push(Config.AgentModel)
+                        // 设置连接标记后跳转对话页
+                        scope.launch {
+                            authRepository.setConnectionFlag()
+                            navigation.replaceAll(Config.AgentModel)
+                        }
                     }
 
                     override fun onOpenScanBindChannel() {
-                        navigation.push(Config.ScanBindChannel)
+                        safePush(Config.ScanBindChannel)
                     }
 
                     override fun onOpenNas() {
-                        navigation.push(Config.Nas)
+                        safePush(Config.Nas)
                     }
                 }
             )
@@ -167,10 +203,10 @@ class RootComponentImpl(
             Config.AgentModel -> RootComponent.Child.AgentModel(
                 component = object : AgentModelComponent {
                     override fun onBack() {
-                        navigation.pop()
+                        navigation.replaceAll(Config.Home)
                     }
                     override fun onNavigateToNas() {
-                        navigation.push(Config.Nas)
+                        safePush(Config.Nas)
                     }
                     override fun onLogout() {
                         balanceWsManager.stop()
@@ -185,6 +221,12 @@ class RootComponentImpl(
                 component = object : ScanBindChannelComponent {
                     override fun onBack() {
                         navigation.pop()
+                    }
+                    override fun onScanSuccess() {
+                        scope.launch {
+                            authRepository.setConnectionFlag()
+                            navigation.replaceAll(Config.AgentModel)
+                        }
                     }
                 }
             )

@@ -48,6 +48,7 @@ private enum class ScanState {
 @Composable
 fun ScanBindChannelScreen(
     onBack: () -> Unit,
+    onScanSuccess: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val scrollState = rememberScrollState()
@@ -91,7 +92,7 @@ fun ScanBindChannelScreen(
 
         if (scanState == ScanState.Success) {
             delay(700)
-            onBack()
+            onScanSuccess()
         }
     }
 

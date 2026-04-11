@@ -75,9 +75,9 @@ internal fun AgentModelTopBar(
                     }
                 }
 
-                IconButton(onClick = onCall) {
-                    Icon(Icons.Default.Call, contentDescription = "Call", tint = Color(0xFF111111))
-                }
+//                IconButton(onClick = onCall) {
+//                    Icon(Icons.Default.Call, contentDescription = "Call", tint = Color(0xFF111111))
+//                }
             }
         }
     }

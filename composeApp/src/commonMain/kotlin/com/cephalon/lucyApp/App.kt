@@ -54,8 +54,14 @@ fun App() {
             val sdkSessionManager = koinInject<SdkSessionManager>()
 
             BindAppLifecycle(
-                onForeground = { sdkSessionManager.onForeground() },
-                onBackground = { sdkSessionManager.onBackground() },
+                onForeground = {
+                    sdkSessionManager.onForeground()
+                    balanceWsManager.onForeground()
+                },
+                onBackground = {
+                    sdkSessionManager.onBackground()
+                    balanceWsManager.onBackground()
+                },
             )
 
             val root: RootComponent = remember {
@@ -118,7 +124,8 @@ fun App() {
 
                     is RootComponent.Child.ScanBindChannel -> {
                         ScanBindChannelScreen(
-                            onBack = instance.component::onBack
+                            onBack = instance.component::onBack,
+                            onScanSuccess = instance.component::onScanSuccess,
                         )
                     }
 

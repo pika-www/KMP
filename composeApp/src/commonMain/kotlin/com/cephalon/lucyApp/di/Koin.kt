@@ -26,7 +26,7 @@ val appModule = module {
 
     // 2. 业务 API 与 Repository
     single { AuthApi(get(), get()) }
-    single { AuthRepository(get(), get()) }
+    single { AuthRepository(get(), get(), get()) }
     single { SdkSessionManager(get()) }
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
