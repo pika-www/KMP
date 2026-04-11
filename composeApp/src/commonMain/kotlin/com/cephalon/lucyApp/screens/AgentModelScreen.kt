@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import com.cephalon.lucyApp.time.currentTimeMillis
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
@@ -53,6 +55,11 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelProfileScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
+import com.cephalon.lucyApp.sdk.SdkSessionManager
+import org.koin.compose.koinInject
+
+private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
+private const val TYPEWRITER_DELAY_MS = 20L
 
 @Composable
 fun AgentModelScreen(
@@ -60,9 +67,13 @@ fun AgentModelScreen(
     onNavigateToNas: () -> Unit = {},
     onLogout: () -> Unit = {},
 ) {
+    val sdkSessionManager = koinInject<SdkSessionManager>()
     val uriHandler = LocalUriHandler.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
+    val assistantReplyText by sdkSessionManager.assistantReplyText.collectAsState()
+    val assistantReplyStreaming by sdkSessionManager.assistantReplyStreaming.collectAsState()
+    val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
 
     val logs = remember {
         mutableStateListOf(
@@ -135,6 +146,56 @@ fun AgentModelScreen(
         }
     }
 
+    fun upsertStreamingAssistantMessageInConversation(conversationId: String?, text: String) {
+        updateConversation(conversationId) { conversation ->
+            val updatedMessages = conversation.messages.toMutableList()
+            val lastItem = updatedMessages.lastOrNull()
+            if (lastItem is ChatItem.Assistant && lastItem.text != STREAMING_PLACEHOLDER_TEXT) {
+                updatedMessages[updatedMessages.lastIndex] = ChatItem.Assistant(text)
+            } else {
+                updatedMessages.add(ChatItem.Assistant(text))
+            }
+            conversation.copy(
+                messages = updatedMessages,
+                lastActiveAt = currentTimeMillis()
+            )
+        }
+    }
+
+    fun removeAssistantPlaceholderInConversation(conversationId: String?) {
+        updateConversation(conversationId) { conversation ->
+            val updatedMessages = conversation.messages.toMutableList()
+            val placeholderIndex =
+                updatedMessages.indexOfLast {
+                    it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                }
+            if (placeholderIndex >= 0) {
+                updatedMessages.removeAt(placeholderIndex)
+            }
+            conversation.copy(
+                messages = updatedMessages,
+                lastActiveAt = currentTimeMillis()
+            )
+        }
+    }
+
+    fun appendMessageToConversation(conversationId: String?, message: ChatItem) {
+        updateConversation(conversationId) { conversation ->
+            val updatedMessages = conversation.messages + message
+            val nextTitle = when {
+                conversation.title != "新对话" && conversation.title.isNotBlank() -> conversation.title
+                message is ChatItem.User && message.text.isNotBlank() -> message.text.trim()
+                message is ChatItem.UserAttachments && !message.text.isNullOrBlank() -> message.text.trim()
+                else -> conversation.title
+            }
+            conversation.copy(
+                title = nextTitle,
+                messages = updatedMessages,
+                lastActiveAt = currentTimeMillis()
+            )
+        }
+    }
+
     val orderedConversations = conversations
         .sortedWith(compareByDescending<ConversationItem> { it.id == selectedConversationId }
             .thenByDescending { it.lastActiveAt })
@@ -159,9 +220,53 @@ fun AgentModelScreen(
     var lastPickedFilesSize by remember { mutableStateOf(0) }
     var isVoiceBusy by remember { mutableStateOf(false) }
     var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
+    var activeStreamingConversationId by remember { mutableStateOf<String?>(null) }
+    var typedAssistantReply by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
+        sdkSessionManager.connectIfTokenValid()
         mediaAccessController.refreshRecentImages()
+    }
+
+    LaunchedEffect(assistantReplyText, assistantReplyStreaming, activeStreamingConversationId, selectedConversationId) {
+        val targetConversationId = activeStreamingConversationId ?: return@LaunchedEffect
+        if (targetConversationId != selectedConversationId) {
+            if (!assistantReplyStreaming) {
+                activeStreamingConversationId = null
+                typedAssistantReply = ""
+            }
+            return@LaunchedEffect
+        }
+
+        if (assistantReplyText.isBlank()) {
+            // 等待首个 assistant.partial/assistant.final，不要在空文本且未流式时提前清理目标会话
+            return@LaunchedEffect
+        }
+
+        val current = typedAssistantReply
+        val target = assistantReplyText
+        val shouldType =
+            assistantReplyStreaming &&
+                target.length >= current.length &&
+                target.startsWith(current)
+
+        if (!shouldType) {
+            typedAssistantReply = target
+            upsertStreamingAssistantMessageInConversation(targetConversationId, target)
+        } else {
+            for (index in (current.length + 1)..target.length) {
+                val nextText = target.take(index)
+                typedAssistantReply = nextText
+                upsertStreamingAssistantMessageInConversation(targetConversationId, nextText)
+                delay(TYPEWRITER_DELAY_MS)
+            }
+        }
+
+        if (!assistantReplyStreaming) {
+            removeAssistantPlaceholderInConversation(targetConversationId)
+            activeStreamingConversationId = null
+            typedAssistantReply = ""
+        }
     }
 
     LaunchedEffect(attachmentsExpanded) {
@@ -229,8 +334,10 @@ fun AgentModelScreen(
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
+            val targetConversationId = selectedConversationId
             if (attachments.isNotEmpty()) {
-                appendMessageToSelectedConversation(
+                appendMessageToConversation(
+                    targetConversationId,
                     ChatItem.UserAttachments(
                         text = text.ifBlank { null },
                         attachments = attachments
@@ -238,7 +345,43 @@ fun AgentModelScreen(
                 )
                 draftAttachments.clear()
             } else {
-                appendMessageToSelectedConversation(ChatItem.User(text))
+                appendMessageToConversation(targetConversationId, ChatItem.User(text))
+            }
+
+            val outgoingText =
+                text.ifBlank {
+                    "请基于我发送的附件内容，提炼重点并给出下一步建议。"
+                }
+            val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
+            typedAssistantReply = ""
+            appendMessageToConversation(
+                targetConversationId,
+                ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
+            )
+            coroutineScope.launch {
+                val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
+                if (connectResult.isFailure) {
+                    removeAssistantPlaceholderInConversation(targetConversationId)
+                    appendMessageToConversation(
+                        targetConversationId,
+                        ChatItem.System("连接失败：${connectResult.exceptionOrNull()?.message ?: "unknown"}")
+                    )
+                    return@launch
+                }
+
+                activeStreamingConversationId = targetConversationId
+                sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)
+                    .onFailure { error ->
+                        if (activeStreamingConversationId == targetConversationId) {
+                            activeStreamingConversationId = null
+                        }
+                        typedAssistantReply = ""
+                        removeAssistantPlaceholderInConversation(targetConversationId)
+                        appendMessageToConversation(
+                            targetConversationId,
+                            ChatItem.System("发送失败：${error.message ?: "unknown"}")
+                        )
+                    }
             }
 
             inputText = ""

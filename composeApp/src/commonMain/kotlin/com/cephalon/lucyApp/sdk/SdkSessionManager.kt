@@ -3,6 +3,7 @@ package com.cephalon.lucyApp.sdk
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.di.AppConfig
 import com.cephalon.lucyApp.logging.appLogD
+import com.cephalon.lucyApp.time.currentTimeMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -106,40 +110,46 @@ class SdkSessionManager(
 
     fun connectIfTokenValid() {
         scope.launch {
-            connectMutex.withLock {
-                if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) return@withLock
+            ensureConnectedIfTokenValid()
+        }
+    }
 
-                val token = tokenStore.getValidTokenOrNull()
-                if (token.isNullOrBlank()) {
-                    _connectionState.value = SdkConnectionState.DISCONNECTED
-                    _connectionLog.value = "连接失败：未找到有效登录 token"
-                    appLogD(TAG, _connectionLog.value)
-                    return@withLock
-                }
-
-                _connectionState.value = SdkConnectionState.CONNECTING
-                _connectionLog.value = "连接中..."
-                appLogD(TAG, _connectionLog.value)
-
-                runCatching {
-                    sdkClient.connect(token)
-                }.onSuccess { newSession ->
-                    resetSessionResources()
-                    session = newSession
-                    _connectionState.value = SdkConnectionState.CONNECTED
-                    _connectionLog.value = "连接成功，userId=${newSession.userId}"
-                    appLogD(TAG, _connectionLog.value)
-                    startObservers(newSession)
-                }.onFailure { error ->
-                    _connectionState.value = SdkConnectionState.ERROR
-                    _connectionLog.value = "连接失败：${error.message ?: "unknown"}"
-                    _consumerLog.value = "监听启动失败"
-                    _deviceLog.value = "设备监听启动失败"
-                    appLogD(TAG, _connectionLog.value)
-                    appLogD(TAG, _consumerLog.value)
-                    appLogD(TAG, _deviceLog.value)
-                }
+    suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
+        return connectMutex.withLock {
+            if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
+                return@withLock Result.success(Unit)
             }
+
+            val token = tokenStore.getValidTokenOrNull()
+            if (token.isNullOrBlank()) {
+                _connectionState.value = SdkConnectionState.DISCONNECTED
+                _connectionLog.value = "连接失败：未找到有效登录 token"
+                appLogD(TAG, _connectionLog.value)
+                return@withLock Result.failure(IllegalStateException("未找到有效登录 token"))
+            }
+
+            _connectionState.value = SdkConnectionState.CONNECTING
+            _connectionLog.value = "连接中..."
+            appLogD(TAG, _connectionLog.value)
+
+            runCatching {
+                sdkClient.connect(token)
+            }.onSuccess { newSession ->
+                resetSessionResources()
+                session = newSession
+                _connectionState.value = SdkConnectionState.CONNECTED
+                _connectionLog.value = "连接成功，userId=${newSession.userId}"
+                appLogD(TAG, _connectionLog.value)
+                startObservers(newSession)
+            }.onFailure { error ->
+                _connectionState.value = SdkConnectionState.ERROR
+                _connectionLog.value = "连接失败：${error.message ?: "unknown"}"
+                _consumerLog.value = "监听启动失败"
+                _deviceLog.value = "设备监听启动失败"
+                appLogD(TAG, _connectionLog.value)
+                appLogD(TAG, _consumerLog.value)
+                appLogD(TAG, _deviceLog.value)
+            }.map { Unit }
         }
     }
 
@@ -190,6 +200,17 @@ class SdkSessionManager(
         }
     }
 
+    suspend fun publishTextToNpc(cdi: String, text: String): Result<String> {
+        val trimmedText = text.trim()
+        if (trimmedText.isBlank()) {
+            return Result.failure(IllegalArgumentException("消息不能为空"))
+        }
+        val messageId = generateMessageId19()
+        val payload =
+            """{"version":2,"messageId":"$messageId","text":"${trimmedText.escapeForJson()}","timestamp":${currentTimeMillis()}}"""
+        return publishToNpc(cdi = cdi, payload = payload).map { messageId }
+    }
+
     private fun startObservers(newSession: ConnectedSession) {
         _receivedMessages.value = emptyList()
 
@@ -218,9 +239,24 @@ class SdkSessionManager(
                     runCatching { messagePayload.decodeToString() }.getOrDefault(
                         "<binary payload ${messagePayload.size} bytes>",
                     )
-                val incomingSourceMessageId = extractSourceMessageId(messageText)
+                val machineEvent = parseMachineEvent(messageText)
+                val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
                 val currentRequestMessageId = _currentRequestMessageId.value
-                if (currentRequestMessageId.isNullOrBlank() || incomingSourceMessageId != currentRequestMessageId) {
+                val sourceMatched = incomingSourceMessageId == currentRequestMessageId
+                val shouldAcceptAssistantEventWithDifferentSource =
+                    machineEvent != null &&
+                        machineEvent.type.startsWith("assistant.") &&
+                        !currentRequestMessageId.isNullOrBlank()
+                val shouldAcceptMachineEventWithoutSource =
+                    machineEvent != null &&
+                        incomingSourceMessageId.isNullOrBlank() &&
+                        !currentRequestMessageId.isNullOrBlank()
+                if (
+                    currentRequestMessageId.isNullOrBlank() ||
+                    (!sourceMatched &&
+                        !shouldAcceptMachineEventWithoutSource &&
+                        !shouldAcceptAssistantEventWithDifferentSource)
+                ) {
                     appLogD(
                         TAG,
                         "忽略消息 source_message_id=${incomingSourceMessageId ?: "none"}, currentMessageId=${currentRequestMessageId ?: "none"}",
@@ -231,7 +267,7 @@ class SdkSessionManager(
                 _receivedMessages.update { current ->
                     (listOf("subject=$subject\n$messageText") + current).take(100)
                 }
-                handleMachineEvent(messageText)
+                handleMachineEvent(machineEvent)
                 extractMessageId(messageText)?.let { messageId ->
                     _lastReplyMessageId.value = messageId
                     appLogD(TAG, "收到回复 messageId=$messageId")
@@ -291,8 +327,8 @@ class SdkSessionManager(
         _assistantReplyStreaming.value = false
     }
 
-    private fun handleMachineEvent(payload: String) {
-        val event = parseMachineEvent(payload) ?: return
+    private fun handleMachineEvent(event: NpcMachineEvent?) {
+        event ?: return
         when (event.type) {
             "assistant.start" -> {
                 _assistantReplyText.value = ""
@@ -319,12 +355,65 @@ class SdkSessionManager(
 
     private fun parseMachineEvent(payload: String): NpcMachineEvent? {
         val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
-        val type = root["type"]?.jsonPrimitive?.contentOrNull ?: return null
-        val text = root["text"]?.jsonPrimitive?.contentOrNull
+        val candidates = buildList {
+            add(root)
+            root["event"]?.let { runCatching { it.jsonObject }.getOrNull()?.let(::add) }
+            root["data"]?.let { runCatching { it.jsonObject }.getOrNull()?.let(::add) }
+            root["payload"]?.let { runCatching { it.jsonObject }.getOrNull()?.let(::add) }
+            root["events"]?.let { events ->
+                runCatching { events.jsonArray }.getOrNull()?.forEach { item ->
+                    runCatching { item.jsonObject }.getOrNull()?.let(::add)
+                }
+            }
+        }
+
+        candidates.forEach { candidate ->
+            val event = parseMachineEventObject(candidate)
+            if (event != null) return event
+        }
+        return null
+    }
+
+    private fun parseMachineEventObject(root: JsonObject): NpcMachineEvent? {
+        val type =
+            root["type"]?.jsonPrimitive?.contentOrNull
+                ?: root["event_type"]?.jsonPrimitive?.contentOrNull
+                ?: return null
+
+        val text = extractTextFromEventObject(root)
+
         val sourceMessageId =
             root["source_message_id"]?.jsonPrimitive?.contentOrNull
+                ?: root["sourceMessageId"]?.jsonPrimitive?.contentOrNull
+                ?: root["request_id"]?.jsonPrimitive?.contentOrNull
                 ?: root["messageId"]?.jsonPrimitive?.contentOrNull
+
         return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId)
+    }
+
+    private fun extractTextFromEventObject(root: JsonObject): String? {
+        val directKeys = listOf("text", "content", "delta", "message", "answer")
+        directKeys.forEach { key ->
+            val value = root[key] ?: return@forEach
+            extractTextValue(value)?.let { return it }
+        }
+
+        val nestedKeys = listOf("data", "payload", "event", "result")
+        nestedKeys.forEach { key ->
+            val nested = runCatching { root[key]?.jsonObject }.getOrNull() ?: return@forEach
+            extractTextFromEventObject(nested)?.let { return it }
+        }
+        return null
+    }
+
+    private fun extractTextValue(value: JsonElement): String? {
+        runCatching { value.jsonPrimitive.contentOrNull }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        val asObject = runCatching { value.jsonObject }.getOrNull() ?: return null
+        return extractTextFromEventObject(asObject)
     }
 
     private fun extractMessageId(payload: String): String? {
@@ -342,7 +431,24 @@ class SdkSessionManager(
 
     companion object {
         private const val TAG = "SdkSessionManager"
+        const val DEFAULT_TARGET_CDI = "2042541809425543168"
     }
+}
+
+private fun generateMessageId19(): String {
+    val now = currentTimeMillis().coerceAtLeast(0L)
+    val millisPart = (now % 1_000_000_000_000L).toString().padStart(12, '0')
+    val nanoPart =
+        (kotlin.time.TimeSource.Monotonic.markNow().elapsedNow().inWholeNanoseconds and Long.MAX_VALUE) %
+            10_000_000L
+    val randomPart = (nanoPart % 10_000_000L).toString().padStart(7, '0')
+    return millisPart + randomPart
+}
+
+private fun String.escapeForJson(): String {
+    return this
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
 }
 
 private data class NpcMachineEvent(

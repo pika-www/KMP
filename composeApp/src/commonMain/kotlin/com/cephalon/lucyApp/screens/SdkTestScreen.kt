@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.logging.appLogD
 import com.cephalon.lucyApp.sdk.SdkSessionManager
-import com.cephalon.lucyApp.time.currentTimeMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -97,7 +96,7 @@ fun SdkTestScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
             Spacer(modifier = Modifier.height(12.dp))
             TextField(
-                value = FIXED_TARGET_CDI,
+                value = SdkSessionManager.DEFAULT_TARGET_CDI,
                 onValueChange = {},
                 readOnly = true,
                 label = { Text("目标 CDI（固定）") },
@@ -123,12 +122,13 @@ fun SdkTestScreen(onBack: () -> Unit) {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
-                            val messageId = generateMessageId19()
-                            val payload =
-                                """{"version":2,"messageId":"$messageId","text":"${textMessage.escapeForJson()}","timestamp":${currentTimeMillis()}}"""
-                            sdkSessionManager.publishToNpc(cdi = FIXED_TARGET_CDI, payload = payload)
+                            sdkSessionManager.publishTextToNpc(
+                                cdi = SdkSessionManager.DEFAULT_TARGET_CDI,
+                                text = textMessage,
+                            )
                                 .onSuccess {
-                                    actionText = "发送成功 -> cdi=$FIXED_TARGET_CDI, messageId=$messageId"
+                                    actionText =
+                                        "发送成功 -> cdi=${SdkSessionManager.DEFAULT_TARGET_CDI}, messageId=$it"
                                 }
                                 .onFailure { error ->
                                     actionText = "发送失败：${error.message ?: "unknown"}"
@@ -175,19 +175,4 @@ fun SdkTestScreen(onBack: () -> Unit) {
     }
 }
 
-private fun generateMessageId19(): String {
-    val now = currentTimeMillis().coerceAtLeast(0L)
-    val millisPart = (now % 1_000_000_000_000L).toString().padStart(12, '0')
-    val nanoPart = (kotlin.time.TimeSource.Monotonic.markNow().elapsedNow().inWholeNanoseconds and Long.MAX_VALUE) % 10_000_000L
-    val randomPart = (nanoPart % 10_000_000L).toString().padStart(7, '0')
-    return millisPart + randomPart
-}
-
-private const val FIXED_TARGET_CDI = "2042541809425543168"
 private const val TYPEWRITER_DELAY_MS = 20L
-
-private fun String.escapeForJson(): String {
-    return this
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-}

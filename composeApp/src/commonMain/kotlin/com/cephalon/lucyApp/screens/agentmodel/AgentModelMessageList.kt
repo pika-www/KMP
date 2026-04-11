@@ -30,6 +30,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,6 +44,9 @@ import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
+import kotlinx.coroutines.delay
+
+private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
 
 @Composable
 internal fun AgentModelMessageList(
@@ -61,8 +69,14 @@ internal fun AgentModelMessageList(
         items(items = messages) { item ->
             when (item) {
                 is ChatItem.Assistant -> {
+                    val displayText =
+                        if (item.text == STREAMING_PLACEHOLDER_TEXT) {
+                            rememberThinkingStatusText()
+                        } else {
+                            item.text
+                        }
                     Bubble(
-                        text = item.text,
+                        text = displayText,
                         background = Color.White,
                         textColor = Color(0xFF111111),
                         alignEnd = false,
@@ -318,6 +332,23 @@ internal fun AgentModelMessageList(
             Spacer(modifier = Modifier.height(12.dp))
         }
     }
+}
+
+@Composable
+private fun rememberThinkingStatusText(): String {
+    var step by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(420L)
+            step = (step + 1) % 3
+        }
+    }
+    val dots = when (step) {
+        0 -> "."
+        1 -> ".."
+        else -> "..."
+    }
+    return "思考中$dots"
 }
 
 @Composable
