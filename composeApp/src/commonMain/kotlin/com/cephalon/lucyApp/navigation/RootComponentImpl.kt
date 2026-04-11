@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.navigation
 
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.arkivanov.decompose.ComponentContext
 import com.arkivanov.decompose.router.stack.ChildStack
@@ -21,6 +22,7 @@ class RootComponentImpl(
     private val authRepository: AuthRepository,
     private val settings: Settings,
     private val balanceWsManager: BalanceWsManager,
+    private val sdkSessionManager: SdkSessionManager,
 ) : RootComponent, ComponentContext by componentContext {
 
     private val navigation = StackNavigation<Config>()
@@ -35,6 +37,7 @@ class RootComponentImpl(
         // 已有有效 token 时，启动时自动连接 WS
         if (authRepository.hasValidToken()) {
             balanceWsManager.start()
+            sdkSessionManager.reconnectOnAppStartIfTokenExists()
         }
     }
 
@@ -61,6 +64,7 @@ class RootComponentImpl(
                 component = object : LoginComponent {
                     override fun onLoginSuccess() {
                         balanceWsManager.start()
+                        sdkSessionManager.connectAfterLogin()
                         navigation.replaceAll(Config.Home)
                     }
 
@@ -82,6 +86,7 @@ class RootComponentImpl(
                 component = object : HomeComponent {
                     override fun onLogout() {
                         balanceWsManager.stop()
+                        sdkSessionManager.disconnect()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)
                     }
@@ -162,6 +167,7 @@ class RootComponentImpl(
                     }
                     override fun onLogout() {
                         balanceWsManager.stop()
+                        sdkSessionManager.disconnect()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)
                     }

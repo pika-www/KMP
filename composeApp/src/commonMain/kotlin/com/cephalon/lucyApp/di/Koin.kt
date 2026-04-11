@@ -5,6 +5,7 @@ import com.cephalon.lucyApp.api.AuthApi
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.network.NetworkUrlFactory
 import com.cephalon.lucyApp.network.createNetworkClient
+import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.settings.createSettings
 import com.cephalon.lucyApp.ws.WsApi
 import com.cephalon.lucyApp.ws.BalanceWsManager
@@ -26,6 +27,7 @@ val appModule = module {
     // 2. 业务 API 与 Repository
     single { AuthApi(get(), get()) }
     single { AuthRepository(get(), get()) }
+    single { SdkSessionManager(get()) }
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
     single { BalanceWsManager(get(), get(), get(), get()) }
