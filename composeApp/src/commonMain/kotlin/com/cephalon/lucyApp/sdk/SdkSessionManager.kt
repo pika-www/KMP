@@ -103,8 +103,18 @@ class SdkSessionManager(
     }
 
     fun onBackground() {
-        if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
-            _connectionLog.value = "应用在后台，连接保持中"
+        // 主动断开 NATS 连接，防止息屏后 socket 断开导致 natskt 内部协程
+        // 抛出 ClosedByteChannelException (ENOTCONN) 未捕获异常闪退
+        if (session != null) {
+            appLogD(TAG, "应用进入后台，主动断开 NATS 连接")
+            scope.launch {
+                connectMutex.withLock {
+                    resetSessionResources()
+                    _connectionState.value = SdkConnectionState.DISCONNECTED
+                    _connectionLog.value = "应用在后台，已主动断开"
+                    appLogD(TAG, _connectionLog.value)
+                }
+            }
         }
     }
 
@@ -314,7 +324,7 @@ class SdkSessionManager(
         deviceObserver = null
         try {
             session?.close()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             appLogD(TAG, "session.close() 异常: ${e.message}")
         }
         session = null

@@ -83,36 +83,14 @@ fun AgentModelScreen(
         )
     }
 
-    val initialAssistantMessage = ChatItem.Assistant(
-        "去系统设置里改，非常方便。\n\n你可以在这里测试：相机、相册、文件选择、录音。"
-    )
-
     val conversations = remember {
         mutableStateListOf(
             ConversationItem(
                 id = "1",
-                title = "云浏览器怎么让用户接管云端电脑",
-                messages = listOf(initialAssistantMessage),
+                title = "新对话",
+                messages = emptyList(),
                 lastActiveAt = currentTimeMillis()
-            ),
-            ConversationItem(
-                id = "2",
-                title = "分析特斯拉股票最近的表现",
-                messages = listOf(
-                    ChatItem.User("分析特斯拉股票最近的表现"),
-                    ChatItem.Assistant("可以从营收、交付量和估值三个维度先看。")
-                ),
-                lastActiveAt = currentTimeMillis() - 1_000L
-            ),
-            ConversationItem(
-                id = "3",
-                title = "Mac卡住了，鼠标一直转圈如何解决",
-                messages = listOf(
-                    ChatItem.User("Mac卡住了，鼠标一直转圈如何解决"),
-                    ChatItem.Assistant("可以先尝试强制退出当前应用，再检查活动监视器。")
-                ),
-                lastActiveAt = currentTimeMillis() - 2_000L
-            ),
+            )
         )
     }
     var selectedConversationId by remember { mutableStateOf<String?>("1") }
@@ -206,7 +184,7 @@ fun AgentModelScreen(
 
     val mediaAccessController = rememberPlatformMediaAccessController { message ->
         logs.add(0, message)
-        appendMessageToSelectedConversation(ChatItem.System(message))
+        appendMessageToConversation(selectedConversationId, ChatItem.System(message))
     }
 
     var inputText by remember { mutableStateOf("") }
@@ -477,28 +455,28 @@ fun AgentModelScreen(
                             if (attachmentsExpanded) focusManager.clearFocus()
                         },
                         onSend = sendMessage,
-                        onSuggestionClick = { appendMessageToSelectedConversation(ChatItem.User(it)) }
+                        onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) }
                     )
 
                     if (attachmentsExpanded) {
                         AgentModelAttachmentPanel(
                             recentImages = mediaAccessController.recentImages,
                             onOpenCamera = {
-                                appendMessageToSelectedConversation(ChatItem.System("打开相机"))
+                                appendMessageToConversation(selectedConversationId, ChatItem.System("打开相机"))
                                 mediaAccessController.openCamera()
                             },
                             onOpenGallery = {
-                                appendMessageToSelectedConversation(ChatItem.System("选择图片"))
+                                appendMessageToConversation(selectedConversationId, ChatItem.System("选择图片"))
                                 mediaAccessController.openGallery()
                             },
                             onOpenFilePicker = {
-                                appendMessageToSelectedConversation(ChatItem.System("选择系统文件"))
+                                appendMessageToConversation(selectedConversationId, ChatItem.System("选择系统文件"))
                                 mediaAccessController.openFilePicker()
                             },
                             onImageClick = { previewState = it },
                             onClearLogs = {
                                 logs.clear()
-                                appendMessageToSelectedConversation(ChatItem.System("已清空记录"))
+                                appendMessageToConversation(selectedConversationId, ChatItem.System("已清空记录"))
                             }
                         )
                     }
@@ -541,17 +519,11 @@ fun AgentModelScreen(
 
     } // end if previewState == null
 
-    // 搜索页 - 全屏覆盖
+    // 搜索页（侧边栏）- 保持隐藏
     if (showSearchPage) {
         AgentModelSearchScreen(
-            conversations = orderedConversations,
-            onSelect = { item ->
-                selectedConversationId = item.id
-                inputText = ""
-                draftAttachments.clear()
-                attachmentsExpanded = false
-                showSearchPage = false
-            },
+            conversations = conversations,
+            onSelect = { showSearchPage = false },
             onCancel = { showSearchPage = false }
         )
     }
