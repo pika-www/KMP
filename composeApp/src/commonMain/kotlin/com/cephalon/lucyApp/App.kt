@@ -19,6 +19,7 @@ import com.arkivanov.decompose.extensions.compose.stack.Children
 import com.arkivanov.decompose.Child
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.sdk.SdkSessionManager
+import com.cephalon.lucyApp.sdk.createLocalNotificationSender
 import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.navigation.RootComponent
 import com.cephalon.lucyApp.navigation.RootComponentImpl
@@ -62,6 +63,12 @@ fun App() {
             val settings = koinInject<Settings>()
             val balanceWsManager = koinInject<BalanceWsManager>()
             val sdkSessionManager = koinInject<SdkSessionManager>()
+
+            LaunchedEffect(Unit) {
+                if (sdkSessionManager.localNotificationSender == null) {
+                    sdkSessionManager.localNotificationSender = createLocalNotificationSender()
+                }
+            }
 
             // 冷启动时也尝试领取每日奖励
             LaunchedEffect(Unit) {

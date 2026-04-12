@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -64,7 +66,6 @@ import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.time.currentTimeMillis
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
@@ -84,7 +85,6 @@ import com.cephalon.lucyApp.sdk.SdkSessionManager
 import org.koin.compose.koinInject
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
-private const val TYPEWRITER_DELAY_MS = 20L
 
 @Composable
 fun AgentModelScreen(
@@ -99,6 +99,7 @@ fun AgentModelScreen(
     val coroutineScope = rememberCoroutineScope()
     val assistantReplyText by sdkSessionManager.assistantReplyText.collectAsState()
     val assistantReplyStreaming by sdkSessionManager.assistantReplyStreaming.collectAsState()
+    val streamingStatusText by sdkSessionManager.streamingStatusText.collectAsState()
     val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
 
     val logs = remember {
@@ -232,44 +233,49 @@ fun AgentModelScreen(
         sdkSessionManager.connectIfTokenValid()
     }
 
-    LaunchedEffect(assistantReplyText, assistantReplyStreaming, activeStreamingConversationId, selectedConversationId) {
+    LaunchedEffect(activeStreamingConversationId, selectedConversationId) {
         val targetConversationId = activeStreamingConversationId ?: return@LaunchedEffect
-        if (targetConversationId != selectedConversationId) {
-            if (!assistantReplyStreaming) {
+        if (targetConversationId != selectedConversationId) return@LaunchedEffect
+
+        var streamingStarted = false
+        var displayedText = ""
+
+        while (isActive) {
+            val text = sdkSessionManager.assistantReplyText.value
+            val streaming = sdkSessionManager.assistantReplyStreaming.value
+
+            if (streaming) streamingStarted = true
+
+            if (text.isNotBlank()) {
+                if (text.length > displayedText.length && text.startsWith(displayedText)) {
+                    // 逐字追加，落后多时加速
+                    val remaining = text.length - displayedText.length
+                    val step = when {
+                        remaining > 30 -> 4
+                        remaining > 10 -> 2
+                        else -> 1
+                    }
+                    displayedText = text.take(displayedText.length + step)
+                    upsertStreamingAssistantMessageInConversation(targetConversationId, displayedText)
+                } else if (text != displayedText) {
+                    // 文本不兼容变化，直接跳到最新
+                    displayedText = text
+                    upsertStreamingAssistantMessageInConversation(targetConversationId, text)
+                }
+            }
+
+            if (!streaming && streamingStarted) {
+                // 流式结束，立即显示完整文本
+                if (text.isNotBlank() && displayedText != text) {
+                    upsertStreamingAssistantMessageInConversation(targetConversationId, text)
+                }
+                removeAssistantPlaceholderInConversation(targetConversationId)
                 activeStreamingConversationId = null
                 typedAssistantReply = ""
+                break
             }
-            return@LaunchedEffect
-        }
 
-        if (assistantReplyText.isBlank()) {
-            // 等待首个 assistant.partial/assistant.final，不要在空文本且未流式时提前清理目标会话
-            return@LaunchedEffect
-        }
-
-        val current = typedAssistantReply
-        val target = assistantReplyText
-        val shouldType =
-            assistantReplyStreaming &&
-                target.length >= current.length &&
-                target.startsWith(current)
-
-        if (!shouldType) {
-            typedAssistantReply = target
-            upsertStreamingAssistantMessageInConversation(targetConversationId, target)
-        } else {
-            for (index in (current.length + 1)..target.length) {
-                val nextText = target.take(index)
-                typedAssistantReply = nextText
-                upsertStreamingAssistantMessageInConversation(targetConversationId, nextText)
-                delay(TYPEWRITER_DELAY_MS)
-            }
-        }
-
-        if (!assistantReplyStreaming) {
-            removeAssistantPlaceholderInConversation(targetConversationId)
-            activeStreamingConversationId = null
-            typedAssistantReply = ""
+            delay(if (text.length > displayedText.length) 15L else 50L)
         }
     }
 
@@ -528,6 +534,7 @@ fun AgentModelScreen(
                                 inputText = skillText
                                 sendMessage()
                             },
+                            streamingStatusText = streamingStatusText,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)

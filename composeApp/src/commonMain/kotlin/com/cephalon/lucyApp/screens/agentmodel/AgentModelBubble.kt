@@ -1,13 +1,19 @@
 package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -92,40 +98,129 @@ private fun MarkdownBubbleText(
                     )
                 }
             } else {
-                block.lines().forEach { rawLine ->
-                    val line = rawLine.trimEnd()
-                    if (line.isBlank()) return@forEach
-                    when {
-                        line.startsWith("### ") -> MarkdownLine(
-                            line.removePrefix("### "),
-                            textColor,
-                            ds.sp(16f),
-                            FontWeight.SemiBold
-                        )
+                val lines = block.lines().map { it.trimEnd() }
+                var i = 0
+                while (i < lines.size) {
+                    val line = lines[i]
+                    if (line.isBlank()) { i++; continue }
 
-                        line.startsWith("## ") -> MarkdownLine(
-                            line.removePrefix("## "),
-                            textColor,
-                            ds.sp(18f),
-                            FontWeight.SemiBold
-                        )
+                    if (line.trimStart().startsWith("|")) {
+                        val tableLines = mutableListOf<String>()
+                        while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                            tableLines.add(lines[i])
+                            i++
+                        }
+                        MarkdownTable(tableLines, textColor)
+                    } else {
+                        when {
+                            line.startsWith("### ") -> MarkdownLine(
+                                line.removePrefix("### "),
+                                textColor,
+                                ds.sp(16f),
+                                FontWeight.SemiBold
+                            )
 
-                        line.startsWith("# ") -> MarkdownLine(
-                            line.removePrefix("# "),
-                            textColor,
-                            ds.sp(20f),
-                            FontWeight.Bold
-                        )
+                            line.startsWith("## ") -> MarkdownLine(
+                                line.removePrefix("## "),
+                                textColor,
+                                ds.sp(18f),
+                                FontWeight.SemiBold
+                            )
 
-                        line.startsWith("- ") || line.startsWith("* ") -> MarkdownLine(
-                            "• ${line.drop(2)}",
-                            textColor,
-                            ds.sp(14f),
-                            FontWeight.Normal
-                        )
+                            line.startsWith("# ") -> MarkdownLine(
+                                line.removePrefix("# "),
+                                textColor,
+                                ds.sp(20f),
+                                FontWeight.Bold
+                            )
 
-                        else -> MarkdownLine(line, textColor, ds.sp(14f), FontWeight.Normal)
+                            line.startsWith("- ") || line.startsWith("* ") -> MarkdownLine(
+                                "• ${line.drop(2)}",
+                                textColor,
+                                ds.sp(14f),
+                                FontWeight.Normal
+                            )
+
+                            else -> MarkdownLine(line, textColor, ds.sp(14f), FontWeight.Normal)
+                        }
+                        i++
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownTable(
+    tableLines: List<String>,
+    textColor: Color,
+) {
+    val ds = LocalDesignScale.current
+    val borderColor = Color(0xFFE0E0E0)
+
+    val rows = tableLines.mapNotNull { line ->
+        val trimmed = line.trim()
+        if (trimmed.matches(Regex("^\\|[\\s\\-:|]+\\|$"))) return@mapNotNull null
+        trimmed.trim('|').split("|").map { it.trim() }
+    }
+    if (rows.isEmpty()) return
+
+    val columnCount = rows.maxOf { it.size }
+
+    Surface(
+        shape = RoundedCornerShape(ds.sm(8.dp)),
+        border = BorderStroke(0.5.dp, borderColor),
+        color = Color.Transparent
+    ) {
+        Column {
+            rows.forEachIndexed { rowIndex, cells ->
+                val isHeader = rowIndex == 0
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .then(
+                            if (isHeader) Modifier.background(Color(0xFFF5F5F7))
+                            else Modifier
+                        )
+                ) {
+                    for (colIndex in 0 until columnCount) {
+                        if (colIndex > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .width(0.5.dp)
+                                    .fillMaxHeight()
+                                    .background(borderColor)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(
+                                    horizontal = ds.sw(8.dp),
+                                    vertical = ds.sh(6.dp)
+                                )
+                        ) {
+                            Text(
+                                text = markdownInlineAnnotatedString(
+                                    cells.getOrElse(colIndex) { "" },
+                                    textColor
+                                ),
+                                fontSize = ds.sp(13f),
+                                fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
+                                color = textColor
+                            )
+                        }
+                    }
+                }
+                if (rowIndex < rows.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(0.5.dp)
+                            .background(borderColor)
+                    )
                 }
             }
         }

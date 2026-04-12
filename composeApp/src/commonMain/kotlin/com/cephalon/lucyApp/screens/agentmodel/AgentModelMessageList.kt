@@ -68,6 +68,7 @@ internal fun AgentModelMessageList(
     onFileClick: (PickedFile) -> Unit,
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
+    streamingStatusText: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
@@ -85,7 +86,7 @@ internal fun AgentModelMessageList(
                     val isThinkingPlaceholder = item.text == STREAMING_PLACEHOLDER_TEXT
                     val displayText =
                         if (isThinkingPlaceholder) {
-                            rememberThinkingStatusText()
+                            streamingStatusText ?: rememberThinkingStatusText()
                         } else {
                             item.text
                         }

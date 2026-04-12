@@ -88,9 +88,21 @@ class SdkSessionManager(
     private val _assistantReplyStreaming = MutableStateFlow(false)
     val assistantReplyStreaming: StateFlow<Boolean> = _assistantReplyStreaming.asStateFlow()
 
+    private val _streamingStatusText = MutableStateFlow<String?>(null)
+    val streamingStatusText: StateFlow<String?> = _streamingStatusText.asStateFlow()
+
+    private val _reasoningText = MutableStateFlow("")
+    val reasoningText: StateFlow<String> = _reasoningText.asStateFlow()
+
     private val _currentRequestMessageId = MutableStateFlow<String?>(null)
 
     private val _pendingReplyMessageIds = MutableStateFlow<Set<String>>(emptySet())
+
+    private val _isInBackground = MutableStateFlow(false)
+    val isInBackground: StateFlow<Boolean> = _isInBackground.asStateFlow()
+    private var deferredDisconnectJob: Job? = null
+
+    var localNotificationSender: LocalNotificationSender? = null
 
     fun connectAfterLogin() {
         connectIfTokenValid()
@@ -101,22 +113,48 @@ class SdkSessionManager(
     }
 
     fun onForeground() {
+        _isInBackground.value = false
+        deferredDisconnectJob?.cancel()
+        deferredDisconnectJob = null
         if (tokenStore.getValidTokenOrNull().isNullOrBlank()) return
         connectIfTokenValid()
     }
 
     fun onBackground() {
-        // 主动断开 NATS 连接，防止息屏后 socket 断开导致 natskt 内部协程
+        _isInBackground.value = true
+        if (session == null) return
+
+        if (_assistantReplyStreaming.value || _currentRequestMessageId.value != null) {
+            // 对话进行中（或已发送请求等待回复），不断开连接
+            appLogD(TAG, "应用进入后台，对话进行中(streaming=${_assistantReplyStreaming.value}, reqId=${_currentRequestMessageId.value})，保持连接")
+            return
+        }
+
+        // 无对话进行，主动断开 NATS 连接，防止息屏后 socket 断开导致 natskt 内部协程
         // 抛出 ClosedByteChannelException (ENOTCONN) 未捕获异常闪退
-        if (session != null) {
-            appLogD(TAG, "应用进入后台，主动断开 NATS 连接")
-            scope.launch {
-                connectMutex.withLock {
-                    resetSessionResources()
-                    _connectionState.value = SdkConnectionState.DISCONNECTED
-                    _connectionLog.value = "应用在后台，已主动断开"
-                    appLogD(TAG, _connectionLog.value)
-                }
+        disconnectInBackground()
+    }
+
+    private fun disconnectInBackground() {
+        appLogD(TAG, "应用在后台，主动断开 NATS 连接")
+        scope.launch {
+            connectMutex.withLock {
+                resetSessionResources()
+                _connectionState.value = SdkConnectionState.DISCONNECTED
+                _connectionLog.value = "应用在后台，已主动断开"
+                appLogD(TAG, _connectionLog.value)
+            }
+        }
+    }
+
+    /** 对话结束后，若仍在后台则延迟断开连接 */
+    private fun scheduleBackgroundDisconnectIfNeeded() {
+        if (!_isInBackground.value) return
+        deferredDisconnectJob?.cancel()
+        deferredDisconnectJob = scope.launch {
+            delay(BACKGROUND_DISCONNECT_DELAY_MS)
+            if (_isInBackground.value && !_assistantReplyStreaming.value) {
+                disconnectInBackground()
             }
         }
     }
@@ -209,6 +247,8 @@ class SdkSessionManager(
             _pendingReplyMessageIds.value = setOf(outgoingMessageId)
             _assistantReplyText.value = ""
             _assistantReplyStreaming.value = false
+            _streamingStatusText.value = null
+            _reasoningText.value = ""
             appLogD(TAG, "发送请求 messageId=$outgoingMessageId，等待回复")
         }
         appLogD(TAG, "发送消息 cdi=$cdi payload=$payload")
@@ -268,7 +308,13 @@ class SdkSessionManager(
                     runCatching { messagePayload.decodeToString() }.getOrDefault(
                         "<binary payload ${messagePayload.size} bytes>",
                     )
+                appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject len=${messageText.length}")
                 val machineEvent = parseMachineEvent(messageText)
+                if (machineEvent != null) {
+                    appLogD(TAG, "[Consumer] 解析事件 type=${machineEvent.type}, text=${machineEvent.text?.take(80) ?: "null"}, sourceId=${machineEvent.sourceMessageId ?: "null"}")
+                } else {
+                    appLogD(TAG, "[Consumer] 未解析为事件，原始: ${messageText.take(200)}")
+                }
                 val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
                 val currentRequestMessageId = _currentRequestMessageId.value
                 val sourceMatched = incomingSourceMessageId == currentRequestMessageId
@@ -288,11 +334,11 @@ class SdkSessionManager(
                 ) {
                     appLogD(
                         TAG,
-                        "忽略消息 source_message_id=${incomingSourceMessageId ?: "none"}, currentMessageId=${currentRequestMessageId ?: "none"}",
+                        "[Consumer] 过滤掉消息: sourceId=${incomingSourceMessageId ?: "none"}, currentReqId=${currentRequestMessageId ?: "none"}, matched=$sourceMatched, acceptNoSource=$shouldAcceptMachineEventWithoutSource, acceptAssistant=$shouldAcceptAssistantEventWithDifferentSource",
                     )
                     return@startUserChannelConsumer
                 }
-                appLogD(TAG, "收到消息 subject=$subject payload=$messageText")
+                appLogD(TAG, "[Consumer] 接受消息 subject=$subject")
                 _receivedMessages.update { current ->
                     (listOf("subject=$subject\n$messageText") + current).take(100)
                 }
@@ -316,7 +362,13 @@ class SdkSessionManager(
             }
 
         consumerJob?.invokeOnCompletion { throwable ->
-            if (throwable == null || throwable is CancellationException) return@invokeOnCompletion
+            if (throwable is CancellationException) return@invokeOnCompletion
+            if (throwable == null) {
+                appLogD(TAG, "[Consumer] 消费者正常结束（不应发生），准备重建监听")
+                _consumerLog.value = "监听意外结束，准备恢复..."
+                scheduleObserverRestart("消费者正常结束")
+                return@invokeOnCompletion
+            }
             handleObserverFailure(
                 throwable = throwable,
                 logLabel = "监听",
@@ -325,7 +377,13 @@ class SdkSessionManager(
         }
 
         deviceObserverJob?.invokeOnCompletion { throwable ->
-            if (throwable == null || throwable is CancellationException) return@invokeOnCompletion
+            if (throwable is CancellationException) return@invokeOnCompletion
+            if (throwable == null) {
+                appLogD(TAG, "[DeviceObserver] 设备监听正常结束（不应发生），准备重建")
+                _deviceLog.value = "设备监听意外结束，准备恢复..."
+                scheduleObserverRestart("设备监听正常结束")
+                return@invokeOnCompletion
+            }
             handleObserverFailure(
                 throwable = throwable,
                 logLabel = "设备监听",
@@ -363,6 +421,8 @@ class SdkSessionManager(
         _currentRequestMessageId.value = null
         _assistantReplyText.value = ""
         _assistantReplyStreaming.value = false
+        _streamingStatusText.value = null
+        _reasoningText.value = ""
     }
 
     private fun handleObserverFailure(
@@ -473,28 +533,107 @@ class SdkSessionManager(
 
     private fun handleMachineEvent(event: NpcMachineEvent?) {
         event ?: return
+        appLogD(TAG, "[Event] 处理事件 type=${event.type}, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}, streaming=${_assistantReplyStreaming.value}")
         when (event.type) {
+            "inbound.accepted" -> {
+                _streamingStatusText.value = "消息已送达"
+                _assistantReplyStreaming.value = true
+                appLogD(TAG, "[Event] inbound.accepted → 已送达")
+            }
+
             "assistant.start" -> {
-                _assistantReplyText.value = ""
+                if (_assistantReplyText.value.isNotEmpty()) {
+                    appLogD(TAG, "[Event] assistant.start → 已有内容(len=${_assistantReplyText.value.length})，跳过清空")
+                } else {
+                    _assistantReplyText.value = ""
+                }
+                _reasoningText.value = ""
+                _streamingStatusText.value = "正在生成回复..."
+                _assistantReplyStreaming.value = true
+                appLogD(TAG, "[Event] assistant.start → streaming=true")
+            }
+
+            "reasoning.partial" -> {
+                if (event.text != null) {
+                    _reasoningText.value = event.text
+                    appLogD(TAG, "[Event] reasoning.partial → 思考中 len=${event.text.length}")
+                }
+                _streamingStatusText.value = "正在思考..."
                 _assistantReplyStreaming.value = true
             }
 
+            "reasoning.final" -> {
+                if (event.text != null) {
+                    _reasoningText.value = event.text
+                    appLogD(TAG, "[Event] reasoning.final → 思考完成 len=${event.text.length}")
+                }
+                _streamingStatusText.value = "思考完成，正在组织回复..."
+                _assistantReplyStreaming.value = true
+            }
+
+            "tool.start" -> {
+                val toolLabel = event.toolName ?: event.text ?: "工具"
+                _streamingStatusText.value = "正在使用 $toolLabel..."
+                _assistantReplyStreaming.value = true
+                appLogD(TAG, "[Event] tool.start → 使用工具: $toolLabel")
+            }
+
+            "tool.end" -> {
+                _streamingStatusText.value = "工具调用完成，正在生成回复..."
+                _assistantReplyStreaming.value = true
+                appLogD(TAG, "[Event] tool.end → 工具调用完成")
+            }
+
             "assistant.partial" -> {
-                event.text?.let { _assistantReplyText.value = it }
+                if (event.text != null) {
+                    _assistantReplyText.value = event.text
+                    _streamingStatusText.value = null
+                    appLogD(TAG, "[Event] assistant.partial → text更新 len=${event.text.length}")
+                } else {
+                    appLogD(TAG, "[Event] assistant.partial → text为null，未更新!")
+                }
                 _assistantReplyStreaming.value = true
             }
 
             "assistant.final" -> {
-                event.text?.let { _assistantReplyText.value = it }
+                if (event.text != null) {
+                    _assistantReplyText.value = event.text
+                    appLogD(TAG, "[Event] assistant.final → text最终 len=${event.text.length}")
+                } else {
+                    appLogD(TAG, "[Event] assistant.final → text为null，保留当前text len=${_assistantReplyText.value.length}")
+                }
+                _streamingStatusText.value = null
                 _assistantReplyStreaming.value = false
                 _currentRequestMessageId.value = null
+                appLogD(TAG, "====== 对话结束 ====== 最终回复长度=${_assistantReplyText.value.length}")
+                notifyConversationCompleteIfInBackground()
+                scheduleBackgroundDisconnectIfNeeded()
             }
 
             "error" -> {
+                appLogD(TAG, "[Event] error事件，停止流式: ${event.text ?: "unknown"}")
+                _streamingStatusText.value = null
                 _assistantReplyStreaming.value = false
                 _currentRequestMessageId.value = null
+                appLogD(TAG, "====== 对话结束(异常) ====== error=${event.text ?: "unknown"}")
+                notifyConversationCompleteIfInBackground()
+                scheduleBackgroundDisconnectIfNeeded()
+            }
+
+            else -> {
+                appLogD(TAG, "[Event] 未处理的事件类型: ${event.type}")
             }
         }
+    }
+
+    private fun notifyConversationCompleteIfInBackground() {
+        if (!_isInBackground.value) return
+        val replyPreview = _assistantReplyText.value.take(80).ifBlank { "对话已完成" }
+        appLogD(TAG, "应用在后台，发送本地通知: $replyPreview")
+        localNotificationSender?.sendNotification(
+            title = "脑花",
+            body = replyPreview,
+        )
     }
 
     private fun parseMachineEvent(payload: String): NpcMachineEvent? {
@@ -532,7 +671,12 @@ class SdkSessionManager(
                 ?: root["request_id"]?.jsonPrimitive?.contentOrNull
                 ?: root["messageId"]?.jsonPrimitive?.contentOrNull
 
-        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId)
+        val toolName =
+            root["tool"]?.jsonPrimitive?.contentOrNull
+                ?: root["tool_name"]?.jsonPrimitive?.contentOrNull
+                ?: root["name"]?.jsonPrimitive?.contentOrNull
+
+        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName)
     }
 
     private fun extractTextFromEventObject(root: JsonObject): String? {
@@ -577,6 +721,7 @@ class SdkSessionManager(
         private const val TAG = "SdkSessionManager"
         private const val OBSERVER_RESTART_DELAY_MS = 800L
         private const val RECONNECT_DELAY_MS = 800L
+        private const val BACKGROUND_DISCONNECT_DELAY_MS = 3000L
         const val DEFAULT_TARGET_CDI = "2042541809425543168"
     }
 }
@@ -601,6 +746,7 @@ private data class NpcMachineEvent(
     val type: String,
     val text: String?,
     val sourceMessageId: String?,
+    val toolName: String? = null,
 )
 
 enum class SdkConnectionState {
