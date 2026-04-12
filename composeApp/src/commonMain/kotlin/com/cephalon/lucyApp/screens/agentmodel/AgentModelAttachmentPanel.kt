@@ -34,6 +34,7 @@ internal fun AgentModelAttachmentPanel(
     onOpenGallery: () -> Unit,
     onOpenFilePicker: () -> Unit,
     onImageClick: (ImagePreviewState) -> Unit,
+    onRecentImageSelect: (String) -> Unit,
     onClearLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -62,15 +63,9 @@ internal fun AgentModelAttachmentPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(images) { uri ->
-                val imageIndex = images.indexOf(uri)
                 Card(
                     modifier = Modifier.clickable {
-                        onImageClick(
-                            ImagePreviewState(
-                                images = images,
-                                selectedIndex = imageIndex.coerceAtLeast(0)
-                            )
-                        )
+                        onRecentImageSelect(uri)
                     },
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),

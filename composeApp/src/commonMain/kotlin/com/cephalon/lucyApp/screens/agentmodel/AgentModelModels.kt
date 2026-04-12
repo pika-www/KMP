@@ -21,7 +21,7 @@ internal data class ImagePreviewState(
 )
 
 internal sealed class ChatItem {
-    data class Assistant(val text: String) : ChatItem()
+    data class Assistant(val text: String, val messageId: String? = null) : ChatItem()
     data class User(val text: String) : ChatItem()
     data class UserAttachments(val text: String?, val attachments: List<DraftAttachment>) : ChatItem()
     data class System(val text: String) : ChatItem()

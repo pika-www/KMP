@@ -24,8 +24,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
@@ -166,14 +168,16 @@ fun AgentModelScreen(
         }
     }
 
-    fun upsertStreamingAssistantMessageInConversation(conversationId: String?, text: String) {
+    fun upsertStreamingAssistantMessageInConversation(conversationId: String?, messageId: String, text: String) {
         updateConversation(conversationId) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
-            val lastItem = updatedMessages.lastOrNull()
-            if (lastItem is ChatItem.Assistant) {
-                updatedMessages[updatedMessages.lastIndex] = ChatItem.Assistant(text)
+            val existingIndex = updatedMessages.indexOfLast {
+                it is ChatItem.Assistant && it.messageId == messageId
+            }
+            if (existingIndex >= 0) {
+                updatedMessages[existingIndex] = ChatItem.Assistant(text, messageId)
             } else {
-                updatedMessages.add(ChatItem.Assistant(text))
+                updatedMessages.add(ChatItem.Assistant(text, messageId))
             }
             conversation.copy(
                 messages = updatedMessages,
@@ -182,12 +186,14 @@ fun AgentModelScreen(
         }
     }
 
-    fun removeAssistantPlaceholderInConversation(conversationId: String?) {
+    fun removeAssistantPlaceholderInConversation(conversationId: String?, messageId: String? = null) {
         updateConversation(conversationId) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
             val placeholderIndex =
                 updatedMessages.indexOfLast {
-                    it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                    it is ChatItem.Assistant &&
+                        it.text == STREAMING_PLACEHOLDER_TEXT &&
+                        (messageId == null || it.messageId == messageId)
                 }
             if (placeholderIndex >= 0) {
                 updatedMessages.removeAt(placeholderIndex)
@@ -241,56 +247,53 @@ fun AgentModelScreen(
     var lastPickedFilesSize by remember { mutableStateOf(0) }
     var isVoiceBusy by remember { mutableStateOf(false) }
     var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
-    var activeStreamingConversationId by remember { mutableStateOf<String?>(null) }
-    var typedAssistantReply by remember { mutableStateOf("") }
+    val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
 
     LaunchedEffect(Unit) {
         sdkSessionManager.connectIfTokenValid()
     }
 
-    LaunchedEffect(activeStreamingConversationId, selectedConversationId) {
-        val targetConversationId = activeStreamingConversationId ?: return@LaunchedEffect
-        if (targetConversationId != selectedConversationId) return@LaunchedEffect
+    activeStreamingRequests.forEach { (msgId, convId) ->
+        key(msgId) {
+            LaunchedEffect(msgId) {
+                var streamingStarted = false
+                var displayedText = ""
 
-        var streamingStarted = false
-        var displayedText = ""
+                while (isActive) {
+                    val state = sdkSessionManager.replyStateMap.value[msgId]
+                    val text = state?.text ?: ""
+                    val streaming = state?.streaming ?: false
 
-        while (isActive) {
-            val text = sdkSessionManager.assistantReplyText.value
-            val streaming = sdkSessionManager.assistantReplyStreaming.value
+                    if (streaming) streamingStarted = true
 
-            if (streaming) streamingStarted = true
-
-            if (text.isNotBlank()) {
-                if (text.length > displayedText.length && text.startsWith(displayedText)) {
-                    // 逐字追加，落后多时加速
-                    val remaining = text.length - displayedText.length
-                    val step = when {
-                        remaining > 30 -> 4
-                        remaining > 10 -> 2
-                        else -> 1
+                    if (text.isNotBlank()) {
+                        if (text.length > displayedText.length && text.startsWith(displayedText)) {
+                            val remaining = text.length - displayedText.length
+                            val step = when {
+                                remaining > 30 -> 4
+                                remaining > 10 -> 2
+                                else -> 1
+                            }
+                            displayedText = text.take(displayedText.length + step)
+                            upsertStreamingAssistantMessageInConversation(convId, msgId, displayedText)
+                        } else if (text != displayedText) {
+                            displayedText = text
+                            upsertStreamingAssistantMessageInConversation(convId, msgId, text)
+                        }
                     }
-                    displayedText = text.take(displayedText.length + step)
-                    upsertStreamingAssistantMessageInConversation(targetConversationId, displayedText)
-                } else if (text != displayedText) {
-                    // 文本不兼容变化，直接跳到最新
-                    displayedText = text
-                    upsertStreamingAssistantMessageInConversation(targetConversationId, text)
+
+                    if (!streaming && streamingStarted) {
+                        if (text.isNotBlank() && displayedText != text) {
+                            upsertStreamingAssistantMessageInConversation(convId, msgId, text)
+                        }
+                        removeAssistantPlaceholderInConversation(convId, msgId)
+                        activeStreamingRequests.remove(msgId)
+                        break
+                    }
+
+                    delay(if (text.length > displayedText.length) 15L else 50L)
                 }
             }
-
-            if (!streaming && streamingStarted) {
-                // 流式结束，立即显示完整文本
-                if (text.isNotBlank() && displayedText != text) {
-                    upsertStreamingAssistantMessageInConversation(targetConversationId, text)
-                }
-                removeAssistantPlaceholderInConversation(targetConversationId)
-                activeStreamingConversationId = null
-                typedAssistantReply = ""
-                break
-            }
-
-            delay(if (text.length > displayedText.length) 15L else 50L)
         }
     }
 
@@ -379,7 +382,6 @@ fun AgentModelScreen(
                     if (imageAttachment != null) "看看这张图" else "请基于我发送的附件内容，提炼重点并给出下一步建议。"
                 }
             val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
-            typedAssistantReply = ""
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -417,7 +419,6 @@ fun AgentModelScreen(
                     }
                     val putResult = uploadResult.getOrThrow()
                     val contentType = inferImageContentType(fileName)
-                    activeStreamingConversationId = targetConversationId
                     sdkSessionManager.publishTextWithImageToNpc(
                         cdi = targetCdi,
                         text = outgoingText,
@@ -427,15 +428,28 @@ fun AgentModelScreen(
                         fileName = fileName,
                     )
                 } else {
-                    activeStreamingConversationId = targetConversationId
                     sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)
                 }
 
-                sendResult.onFailure { error ->
-                    if (activeStreamingConversationId == targetConversationId) {
-                        activeStreamingConversationId = null
+                sendResult.onSuccess { messageId ->
+                    updateConversation(targetConversationId) { conv ->
+                        val msgs = conv.messages.toMutableList()
+                        val idx = msgs.indexOfLast {
+                            it is ChatItem.Assistant &&
+                                it.messageId == null &&
+                                it.text == STREAMING_PLACEHOLDER_TEXT
+                        }
+                        if (idx >= 0) {
+                            msgs[idx] = ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT, messageId)
+                        }
+                        conv.copy(messages = msgs)
                     }
-                    typedAssistantReply = ""
+                    if (targetConversationId != null) {
+                        activeStreamingRequests[messageId] = targetConversationId
+                    }
+                }
+
+                sendResult.onFailure { error ->
                     removeAssistantPlaceholderInConversation(targetConversationId)
                     appendMessageToConversation(
                         targetConversationId,
@@ -645,6 +659,12 @@ fun AgentModelScreen(
                                 mediaAccessController.openFilePicker()
                             },
                             onImageClick = { previewState = it },
+                            onRecentImageSelect = { uri ->
+                                if (uri.isNotBlank() && draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }) {
+                                    draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
+                                }
+                                attachmentsExpanded = false
+                            },
                             onClearLogs = {
                                 logs.clear()
                                 appendMessageToConversation(selectedConversationId, ChatItem.System("已清空记录"))

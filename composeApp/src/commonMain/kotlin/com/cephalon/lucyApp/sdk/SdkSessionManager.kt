@@ -95,9 +95,13 @@ class SdkSessionManager(
     private val _reasoningText = MutableStateFlow("")
     val reasoningText: StateFlow<String> = _reasoningText.asStateFlow()
 
-    private val _currentRequestMessageId = MutableStateFlow<String?>(null)
+    private val _activeRequestIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeRequestIds: StateFlow<Set<String>> = _activeRequestIds.asStateFlow()
 
-    private val _pendingReplyMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
+    val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
+
+    private var _latestRequestId: String? = null
 
     private val _isInBackground = MutableStateFlow(false)
     val isInBackground: StateFlow<Boolean> = _isInBackground.asStateFlow()
@@ -125,9 +129,9 @@ class SdkSessionManager(
         _isInBackground.value = true
         if (session == null) return
 
-        if (_assistantReplyStreaming.value || _currentRequestMessageId.value != null) {
+        if (_activeRequestIds.value.isNotEmpty()) {
             // 对话进行中（或已发送请求等待回复），不断开连接
-            appLogD(TAG, "应用进入后台，对话进行中(streaming=${_assistantReplyStreaming.value}, reqId=${_currentRequestMessageId.value})，保持连接")
+            appLogD(TAG, "应用进入后台，对话进行中(activeIds=${_activeRequestIds.value})，保持连接")
             return
         }
 
@@ -154,7 +158,7 @@ class SdkSessionManager(
         deferredDisconnectJob?.cancel()
         deferredDisconnectJob = scope.launch {
             delay(BACKGROUND_DISCONNECT_DELAY_MS)
-            if (_isInBackground.value && !_assistantReplyStreaming.value) {
+            if (_isInBackground.value && _activeRequestIds.value.isEmpty()) {
                 disconnectInBackground()
             }
         }
@@ -227,8 +231,9 @@ class SdkSessionManager(
                 _deviceLog.value = "设备监听已停止"
                 _lastOnlineCdi.value = null
                 _lastReplyMessageId.value = null
-                _pendingReplyMessageIds.value = emptySet()
-                _currentRequestMessageId.value = null
+                _activeRequestIds.value = emptySet()
+                _replyStateMap.value = emptyMap()
+                _latestRequestId = null
                 _assistantReplyText.value = ""
                 _assistantReplyStreaming.value = false
                 appLogD(TAG, _connectionLog.value)
@@ -244,13 +249,14 @@ class SdkSessionManager(
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
-            _currentRequestMessageId.value = outgoingMessageId
-            _pendingReplyMessageIds.value = setOf(outgoingMessageId)
+            _activeRequestIds.update { it + outgoingMessageId }
+            _replyStateMap.update { it + (outgoingMessageId to ReplyState()) }
+            _latestRequestId = outgoingMessageId
             _assistantReplyText.value = ""
             _assistantReplyStreaming.value = false
             _streamingStatusText.value = null
             _reasoningText.value = ""
-            appLogD(TAG, "发送请求 messageId=$outgoingMessageId，等待回复")
+            appLogD(TAG, "发送请求 messageId=$outgoingMessageId，当前活跃: ${_activeRequestIds.value}")
         }
         appLogD(TAG, "发送消息 cdi=$cdi payload=$payload")
         return runCatching {
@@ -259,8 +265,11 @@ class SdkSessionManager(
             appLogD(TAG, "发送成功 cdi=$cdi")
         }.onFailure { error ->
             if (outgoingMessageId != null) {
-                _pendingReplyMessageIds.value = emptySet()
-                _currentRequestMessageId.value = null
+                _activeRequestIds.update { it - outgoingMessageId }
+                _replyStateMap.update { it - outgoingMessageId }
+                if (_latestRequestId == outgoingMessageId) {
+                    _latestRequestId = _activeRequestIds.value.lastOrNull()
+                }
             }
             appLogD(TAG, "发送失败 cdi=$cdi error=${error.message ?: "unknown"}")
         }
@@ -346,47 +355,22 @@ class SdkSessionManager(
                     appLogD(TAG, "[Consumer] 未解析为事件，原始: ${messageText.take(200)}")
                 }
                 val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
-                val currentRequestMessageId = _currentRequestMessageId.value
-                val sourceMatched = incomingSourceMessageId == currentRequestMessageId
-                val shouldAcceptAssistantEventWithDifferentSource =
-                    machineEvent != null &&
-                        machineEvent.type.startsWith("assistant.") &&
-                        !currentRequestMessageId.isNullOrBlank()
-                val shouldAcceptMachineEventWithoutSource =
-                    machineEvent != null &&
-                        incomingSourceMessageId.isNullOrBlank() &&
-                        !currentRequestMessageId.isNullOrBlank()
-                if (
-                    currentRequestMessageId.isNullOrBlank() ||
-                    (!sourceMatched &&
-                        !shouldAcceptMachineEventWithoutSource &&
-                        !shouldAcceptAssistantEventWithDifferentSource)
-                ) {
+                val activeIds = _activeRequestIds.value
+                val sourceMatched = !incomingSourceMessageId.isNullOrBlank() &&
+                    incomingSourceMessageId in activeIds
+                if (!sourceMatched) {
                     appLogD(
                         TAG,
-                        "[Consumer] 过滤掉消息: sourceId=${incomingSourceMessageId ?: "none"}, currentReqId=${currentRequestMessageId ?: "none"}, matched=$sourceMatched, acceptNoSource=$shouldAcceptMachineEventWithoutSource, acceptAssistant=$shouldAcceptAssistantEventWithDifferentSource",
+                        "[Consumer] 过滤掉消息: sourceId=${incomingSourceMessageId ?: "none"}, activeIds=$activeIds, matched=false",
                     )
                     return@startUserChannelConsumer
                 }
-                appLogD(TAG, "[Consumer] 接受消息 subject=$subject")
+                appLogD(TAG, "[Consumer] 接受消息 subject=$subject sourceId=$incomingSourceMessageId")
                 _receivedMessages.update { current ->
                     (listOf("subject=$subject\n$messageText") + current).take(100)
                 }
-                handleMachineEvent(machineEvent)
-                extractMessageId(messageText)?.let { messageId ->
-                    _lastReplyMessageId.value = messageId
-                    appLogD(TAG, "收到回复 messageId=$messageId")
-                    var matched = false
-                    _pendingReplyMessageIds.update { current ->
-                        matched = current.contains(messageId)
-                        if (matched) current - messageId else current
-                    }
-                    if (matched) {
-                        appLogD(TAG, "已关联回复 messageId=$messageId")
-                    } else {
-                        appLogD(TAG, "收到未匹配回复 messageId=$messageId")
-                    }
-                }
+                handleMachineEvent(machineEvent, incomingSourceMessageId)
+                _lastReplyMessageId.value = incomingSourceMessageId
                 _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
                 appLogD(TAG, _consumerLog.value)
             }
@@ -447,8 +431,9 @@ class SdkSessionManager(
         _onlineDevices.value = emptyList()
         _onlineDeviceCdis.value = emptyList()
         _lastReplyMessageId.value = null
-        _pendingReplyMessageIds.value = emptySet()
-        _currentRequestMessageId.value = null
+        _activeRequestIds.value = emptySet()
+        _replyStateMap.value = emptyMap()
+        _latestRequestId = null
         _assistantReplyText.value = ""
         _assistantReplyStreaming.value = false
         _streamingStatusText.value = null
@@ -561,104 +546,158 @@ class SdkSessionManager(
         startObservers(session)
     }
 
-    private fun handleMachineEvent(event: NpcMachineEvent?) {
+    private fun handleMachineEvent(event: NpcMachineEvent?, sourceMessageId: String?) {
         event ?: return
-        appLogD(TAG, "[Event] 处理事件 type=${event.type}, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}, streaming=${_assistantReplyStreaming.value}")
+        val msgId = sourceMessageId ?: return
+        val isLatest = msgId == _latestRequestId
+        appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
         when (event.type) {
             "inbound.accepted" -> {
-                _streamingStatusText.value = "消息已送达"
-                _assistantReplyStreaming.value = true
-                appLogD(TAG, "[Event] inbound.accepted → 已送达")
+                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "消息已送达") }
+                if (isLatest) {
+                    _streamingStatusText.value = "消息已送达"
+                    _assistantReplyStreaming.value = true
+                }
+                appLogD(TAG, "[Event] inbound.accepted → 已送达 msgId=$msgId")
             }
 
             "assistant.start" -> {
-                if (_assistantReplyText.value.isNotEmpty()) {
-                    appLogD(TAG, "[Event] assistant.start → 已有内容(len=${_assistantReplyText.value.length})，跳过清空")
-                } else {
-                    _assistantReplyText.value = ""
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        text = if (state.text.isNotEmpty()) state.text else "",
+                        streaming = true,
+                        reasoningText = "",
+                        streamingStatusText = "正在生成回复...",
+                    )
                 }
-                _reasoningText.value = ""
-                _streamingStatusText.value = "正在生成回复..."
-                _assistantReplyStreaming.value = true
-                appLogD(TAG, "[Event] assistant.start → streaming=true")
+                if (isLatest) {
+                    if (_assistantReplyText.value.isEmpty()) _assistantReplyText.value = ""
+                    _reasoningText.value = ""
+                    _streamingStatusText.value = "正在生成回复..."
+                    _assistantReplyStreaming.value = true
+                }
+                appLogD(TAG, "[Event] assistant.start → streaming=true msgId=$msgId")
             }
 
             "reasoning.partial" -> {
-                if (event.text != null) {
-                    _reasoningText.value = event.text
-                    appLogD(TAG, "[Event] reasoning.partial → 思考中 len=${event.text.length}")
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        reasoningText = event.text ?: state.reasoningText,
+                        streaming = true,
+                        streamingStatusText = "正在思考...",
+                    )
                 }
-                _streamingStatusText.value = "正在思考..."
-                _assistantReplyStreaming.value = true
+                if (isLatest) {
+                    if (event.text != null) _reasoningText.value = event.text
+                    _streamingStatusText.value = "正在思考..."
+                    _assistantReplyStreaming.value = true
+                }
             }
 
             "reasoning.final" -> {
-                if (event.text != null) {
-                    _reasoningText.value = event.text
-                    appLogD(TAG, "[Event] reasoning.final → 思考完成 len=${event.text.length}")
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        reasoningText = event.text ?: state.reasoningText,
+                        streaming = true,
+                        streamingStatusText = "思考完成，正在组织回复...",
+                    )
                 }
-                _streamingStatusText.value = "思考完成，正在组织回复..."
-                _assistantReplyStreaming.value = true
+                if (isLatest) {
+                    if (event.text != null) _reasoningText.value = event.text
+                    _streamingStatusText.value = "思考完成，正在组织回复..."
+                    _assistantReplyStreaming.value = true
+                }
             }
 
             "tool.start" -> {
                 val toolLabel = event.toolName ?: event.text ?: "工具"
-                _streamingStatusText.value = "正在使用 $toolLabel..."
-                _assistantReplyStreaming.value = true
-                appLogD(TAG, "[Event] tool.start → 使用工具: $toolLabel")
+                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "正在使用 $toolLabel...") }
+                if (isLatest) {
+                    _streamingStatusText.value = "正在使用 $toolLabel..."
+                    _assistantReplyStreaming.value = true
+                }
+                appLogD(TAG, "[Event] tool.start → 使用工具: $toolLabel msgId=$msgId")
             }
 
             "tool.end" -> {
-                _streamingStatusText.value = "工具调用完成，正在生成回复..."
-                _assistantReplyStreaming.value = true
-                appLogD(TAG, "[Event] tool.end → 工具调用完成")
+                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "工具调用完成，正在生成回复...") }
+                if (isLatest) {
+                    _streamingStatusText.value = "工具调用完成，正在生成回复..."
+                    _assistantReplyStreaming.value = true
+                }
+                appLogD(TAG, "[Event] tool.end → 工具调用完成 msgId=$msgId")
             }
 
             "assistant.partial" -> {
                 if (event.text != null) {
-                    _assistantReplyText.value = event.text
-                    _streamingStatusText.value = null
-                    appLogD(TAG, "[Event] assistant.partial → text更新 len=${event.text.length}")
+                    updateReplyState(msgId) { it.copy(text = event.text, streaming = true, streamingStatusText = null) }
+                    if (isLatest) {
+                        _assistantReplyText.value = event.text
+                        _streamingStatusText.value = null
+                    }
+                    appLogD(TAG, "[Event] assistant.partial → text更新 len=${event.text.length} msgId=$msgId")
                 } else {
-                    appLogD(TAG, "[Event] assistant.partial → text为null，未更新!")
+                    appLogD(TAG, "[Event] assistant.partial → text为null，未更新! msgId=$msgId")
                 }
-                _assistantReplyStreaming.value = true
+                updateReplyState(msgId) { it.copy(streaming = true) }
+                if (isLatest) _assistantReplyStreaming.value = true
             }
 
             "assistant.final" -> {
-                if (event.text != null) {
-                    _assistantReplyText.value = event.text
-                    appLogD(TAG, "[Event] assistant.final → text最终 len=${event.text.length}")
-                } else {
-                    appLogD(TAG, "[Event] assistant.final → text为null，保留当前text len=${_assistantReplyText.value.length}")
+                val finalText = event.text
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        text = finalText ?: state.text,
+                        streaming = false,
+                        streamingStatusText = null,
+                    )
                 }
-                _streamingStatusText.value = null
-                _assistantReplyStreaming.value = false
-                _currentRequestMessageId.value = null
-                appLogD(TAG, "====== 对话结束 ====== 最终回复长度=${_assistantReplyText.value.length}")
-                notifyConversationCompleteIfInBackground()
-                scheduleBackgroundDisconnectIfNeeded()
+                _activeRequestIds.update { it - msgId }
+                if (isLatest) {
+                    if (finalText != null) _assistantReplyText.value = finalText
+                    _streamingStatusText.value = null
+                    _assistantReplyStreaming.value = false
+                    _latestRequestId = _activeRequestIds.value.lastOrNull()
+                }
+                appLogD(TAG, "====== 对话结束 msgId=$msgId ====== 剩余活跃: ${_activeRequestIds.value}")
+                notifyConversationCompleteIfInBackground(msgId)
+                if (_activeRequestIds.value.isEmpty()) {
+                    scheduleBackgroundDisconnectIfNeeded()
+                }
             }
 
             "error" -> {
-                appLogD(TAG, "[Event] error事件，停止流式: ${event.text ?: "unknown"}")
-                _streamingStatusText.value = null
-                _assistantReplyStreaming.value = false
-                _currentRequestMessageId.value = null
-                appLogD(TAG, "====== 对话结束(异常) ====== error=${event.text ?: "unknown"}")
-                notifyConversationCompleteIfInBackground()
-                scheduleBackgroundDisconnectIfNeeded()
+                updateReplyState(msgId) { it.copy(streaming = false, streamingStatusText = null) }
+                _activeRequestIds.update { it - msgId }
+                if (isLatest) {
+                    _streamingStatusText.value = null
+                    _assistantReplyStreaming.value = false
+                    _latestRequestId = _activeRequestIds.value.lastOrNull()
+                }
+                appLogD(TAG, "====== 对话结束(异常) msgId=$msgId ====== error=${event.text ?: "unknown"}")
+                notifyConversationCompleteIfInBackground(msgId)
+                if (_activeRequestIds.value.isEmpty()) {
+                    scheduleBackgroundDisconnectIfNeeded()
+                }
             }
 
             else -> {
-                appLogD(TAG, "[Event] 未处理的事件类型: ${event.type}")
+                appLogD(TAG, "[Event] 未处理的事件类型: ${event.type} msgId=$msgId")
             }
         }
     }
 
-    private fun notifyConversationCompleteIfInBackground() {
+    private fun updateReplyState(messageId: String, transform: (ReplyState) -> ReplyState) {
+        _replyStateMap.update { map ->
+            val current = map[messageId] ?: ReplyState()
+            map + (messageId to transform(current))
+        }
+    }
+
+    private fun notifyConversationCompleteIfInBackground(messageId: String) {
         if (!_isInBackground.value) return
-        val replyPreview = _assistantReplyText.value.take(80).ifBlank { "对话已完成" }
+        val state = _replyStateMap.value[messageId]
+        val replyPreview = (state?.text ?: _assistantReplyText.value).take(80).ifBlank { "对话已完成" }
         appLogD(TAG, "应用在后台，发送本地通知: $replyPreview")
         localNotificationSender?.sendNotification(
             title = "脑花",
@@ -777,6 +816,13 @@ private data class NpcMachineEvent(
     val text: String?,
     val sourceMessageId: String?,
     val toolName: String? = null,
+)
+
+data class ReplyState(
+    val text: String = "",
+    val streaming: Boolean = false,
+    val reasoningText: String = "",
+    val streamingStatusText: String? = null,
 )
 
 enum class SdkConnectionState {

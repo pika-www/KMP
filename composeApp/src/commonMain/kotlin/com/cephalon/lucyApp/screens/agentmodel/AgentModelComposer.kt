@@ -138,6 +138,19 @@ internal fun AgentModelComposer(
                 }
             )
 
+            if (draftAttachments.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                DraftAttachmentPreviewRow(
+                    attachments = draftAttachments,
+                    onRemoveAttachment = onRemoveDraftAttachment,
+                    onImageClick = onImageClick,
+                    onFileClick = onFileClick,
+                    playingRecordingId = playingRecordingId,
+                    onToggleRecordingPlayback = onToggleRecordingPlayback,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
             // ── 底部操作栏 ──
