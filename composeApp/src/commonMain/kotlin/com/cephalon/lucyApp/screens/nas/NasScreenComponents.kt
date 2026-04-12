@@ -1,7 +1,13 @@
 package com.cephalon.lucyApp.screens.nas
 
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_audio
+import androidios.composeapp.generated.resources.ic_delete
+import androidios.composeapp.generated.resources.ic_doc
+import androidios.composeapp.generated.resources.ic_download
+import androidios.composeapp.generated.resources.ic_image
 import androidios.composeapp.generated.resources.img_demo
+import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -52,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.cephalon.lucyApp.components.LocalDesignScale
+import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 
 internal val NasButtonBackgroundColor = Color(0xFFF1F1F3)
@@ -69,10 +76,10 @@ private val NasGlassPressedGlow = Brush.radialGradient(
     radius = 1200f
 )
 
-internal enum class NasCategory(val title: String) {
-    Photos("照片"),
-    Recordings("音频"),
-    Documents("文档")
+internal enum class NasCategory(val title: String, val icon: DrawableResource) {
+    Photos("图片", Res.drawable.ic_image),
+    Recordings("音频", Res.drawable.ic_audio),
+    Documents("文档", Res.drawable.ic_doc)
 }
 
 @Composable
@@ -89,6 +96,7 @@ internal fun NasTopCategoryRow(
         NasCategory.values().forEach { category ->
             NasTopTabButton(
                 title = category.title,
+                icon = category.icon,
                 selected = selected == category,
                 onClick = { onSelect(category) },
                 modifier = Modifier.weight(1f)
@@ -174,6 +182,7 @@ internal fun NasCategoryAndAddRow(
             NasCategory.values().forEach { category ->
                 NasTopTabButton(
                     title = category.title,
+                    icon = category.icon,
                     selected = selected == category,
                     onClick = { onSelect(category) }
                 )
@@ -510,6 +519,7 @@ internal fun NasDocumentsContent(
 @Composable
 internal fun NasTopTabButton(
     title: String,
+    icon: DrawableResource? = null,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -546,10 +556,22 @@ internal fun NasTopTabButton(
         color = Color.Transparent,
         border = BorderStroke(1.dp, border)
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Row(
+            modifier = Modifier.padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = null,
+                    modifier = Modifier.size(ds.sm(14.dp)),
+                    tint = if (selected) NasPressedTextColor else Color.White
+                )
+                Spacer(modifier = Modifier.width(ds.sm(6.dp)))
+            }
             Text(
                 text = title,
-                modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(9.dp)),
                 style = MaterialTheme.typography.labelLarge.copy(
                     fontSize = ds.sp(12f),
                     fontWeight = FontWeight.SemiBold
@@ -608,7 +630,8 @@ internal fun NasTopBackButton(
 internal fun NasGlassTextButton(
     text: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    icon: DrawableResource? = null
 ) {
     val ds = LocalDesignScale.current
     val shape = RoundedCornerShape(100.dp)
@@ -635,19 +658,29 @@ internal fun NasGlassTextButton(
         color = Color.Transparent,
         border = BorderStroke(1.dp, border)
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .clip(shape)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
                     onClick = onClick
-                ),
-            contentAlignment = Alignment.Center
+                )
+                .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
+            if (icon != null) {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = null,
+                    modifier = Modifier.size(ds.sm(14.dp)),
+                    tint = if (isPressed) NasPressedTextColor else Color.White
+                )
+                Spacer(modifier = Modifier.width(ds.sm(6.dp)))
+            }
             Text(
                 text = text,
-                modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(9.dp)),
                 style = MaterialTheme.typography.labelLarge.copy(
                     fontSize = ds.sp(12f),
                     fontWeight = FontWeight.SemiBold

@@ -1,5 +1,9 @@
 package com.cephalon.lucyApp.screens.nas
 
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_delete
+import androidios.composeapp.generated.resources.ic_download
+import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -457,6 +461,7 @@ fun NasScreen(onBack: () -> Unit) {
                     })
 
                     if (isCurrentSelectionMode) {
+                        Spacer(modifier = Modifier.weight(1f))
                         NasGlassTextButton(
                             text = "上传脑花",
                             onClick = {
@@ -467,7 +472,7 @@ fun NasScreen(onBack: () -> Unit) {
                                 }
                                 println("发送朋友: ${count}项")
                             },
-                            modifier = Modifier.weight(1f)
+                            icon = Res.drawable.ic_share
                         )
                         NasGlassTextButton(
                             text = "下载",
@@ -479,7 +484,7 @@ fun NasScreen(onBack: () -> Unit) {
                                 }
                                 println("下载资源: ${count}项")
                             },
-                            modifier = Modifier.weight(1f)
+                            icon = Res.drawable.ic_download
                         )
                         NasGlassTextButton(
                             text = "删除",
@@ -491,7 +496,7 @@ fun NasScreen(onBack: () -> Unit) {
                                 }
                                 println("删除资源: ${count}项")
                             },
-                            modifier = Modifier.weight(1f)
+                            icon = Res.drawable.ic_delete
                         )
                     } else {
                         NasGlassCircleButton(
