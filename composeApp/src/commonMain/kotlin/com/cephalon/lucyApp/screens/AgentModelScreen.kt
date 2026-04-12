@@ -198,13 +198,8 @@ fun AgentModelScreen(
         }
     }
 
-<<<<<<< Updated upstream
     fun upsertStreamingAssistantMessageInConversation(conversationId: String?, messageId: String, text: String) {
-        updateConversation(conversationId) { conversation ->
-=======
-    fun upsertStreamingAssistantMessageInConversation(conversationId: String?, text: String) {
         updateConversation(conversationId, persist = false) { conversation ->
->>>>>>> Stashed changes
             val updatedMessages = conversation.messages.toMutableList()
             val existingIndex = updatedMessages.indexOfLast {
                 it is ChatItem.Assistant && it.messageId == messageId
@@ -322,6 +317,7 @@ fun AgentModelScreen(
                             upsertStreamingAssistantMessageInConversation(convId, msgId, text)
                         }
                         removeAssistantPlaceholderInConversation(convId, msgId)
+                        saveConversationsToCache()
                         activeStreamingRequests.remove(msgId)
                         break
                     }
@@ -329,23 +325,6 @@ fun AgentModelScreen(
                     delay(if (text.length > displayedText.length) 15L else 50L)
                 }
             }
-<<<<<<< Updated upstream
-=======
-
-            if (!streaming && streamingStarted) {
-                // 流式结束，立即显示完整文本
-                if (text.isNotBlank() && displayedText != text) {
-                    upsertStreamingAssistantMessageInConversation(targetConversationId, text)
-                }
-                removeAssistantPlaceholderInConversation(targetConversationId)
-                saveConversationsToCache()
-                activeStreamingConversationId = null
-                typedAssistantReply = ""
-                break
-            }
-
-            delay(if (text.length > displayedText.length) 15L else 50L)
->>>>>>> Stashed changes
         }
     }
 
