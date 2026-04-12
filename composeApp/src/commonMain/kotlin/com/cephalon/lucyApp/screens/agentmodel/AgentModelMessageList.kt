@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
@@ -85,13 +86,26 @@ internal fun AgentModelMessageList(
                 }
 
                 is ChatItem.User -> {
-                    Bubble(
-                        text = item.text,
-                        background = Color(0xFF111111),
-                        textColor = Color.White,
-                        alignEnd = true,
-                        onClick = onTapMessageArea
-                    )
+                    BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
+                        Surface(
+                            shape = RoundedCornerShape(99.dp),
+                            color = Color.White,
+                            border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
+                            modifier = Modifier
+                                .clickable { onTapMessageArea() }
+                                .wrapContentWidth()
+                                .widthIn(max = bubbleMaxWidth)
+                        ) {
+                            Text(
+                                text = item.text,
+                                color = Color(0xFF1F2535),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
                 }
 
                 is ChatItem.UserAttachments -> {

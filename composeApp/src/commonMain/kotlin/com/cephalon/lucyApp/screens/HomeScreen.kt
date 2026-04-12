@@ -96,7 +96,7 @@ fun HomeScreen(
     DesignScaleProvider(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(Color(0xFFF5F5F7))
     ) {
         val ds = LocalDesignScale.current
         val currentPage = pagerState.currentPage

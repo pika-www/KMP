@@ -133,6 +133,55 @@ data class ConnectionFlagData(
     val hasConnectedLucyApp: Boolean = false
 )
 
+/**
+ * /v1/channels/lucy-app/current-user/devices
+ */
+@Serializable
+data class LucyDevicesData(
+    val devices: List<LucyDevice> = emptyList()
+)
+
+@Serializable
+data class LucyDevice(
+    val id: String = "",
+    val name: String = "",
+    @SerialName("serial_number")
+    val serialNumber: String = "",
+    val status: String = "offline"
+)
+
+/**
+ * POST /v1/channels/lucy-app/feedback
+ */
+@Serializable
+data class FeedbackRequest(
+    val title: String = "",
+    val category: String = "other",
+    val content: String,
+    val contact: String = "",
+    val images: List<String> = emptyList()
+)
+
+@Serializable
+data class FeedbackData(
+    val id: String = "",
+    val title: String = "",
+    val category: String = "",
+    val content: String = "",
+    val contact: String = "",
+    val images: List<String> = emptyList()
+)
+
+/**
+ * POST /v1/channels/lucy-app/daily-reward
+ */
+@Serializable
+data class DailyRewardData(
+    val granted: Boolean = false,
+    @SerialName("reward_amount")
+    val rewardAmount: Long = 0
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

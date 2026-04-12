@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.api
 
 import com.cephalon.lucyApp.auth.AuthTokenStore
+import com.cephalon.lucyApp.time.todayDateString
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -103,6 +104,43 @@ class AuthRepository(
         )
     }
 
+    // ---- Lucy 设备 ----
+
+    private val devicesPath = "/channels/lucy-app/current-user/devices"
+
+    suspend fun getDevices(): List<LucyDevice> {
+        val resp = authApi.get<LucyDevicesData>(devicesPath)
+        return if (resp.code == 20000) resp.data?.devices.orEmpty() else emptyList()
+    }
+
+    // ---- 意见反馈 ----
+
+    private val feedbackPath = "/channels/lucy-app/feedback"
+
+    suspend fun submitFeedback(request: FeedbackRequest): BaseResponse<FeedbackData> {
+        return authApi.post<FeedbackRequest, FeedbackData>(feedbackPath, request)
+    }
+
+    // ---- 每日免费脑力值 ----
+
+    private val dailyRewardPath = "/channels/lucy-app/daily-reward"
+
+    /**
+     * 领取每日免费脑力值。
+     * 本地用 Settings 存储上次领取的日期字符串（yyyy-MM-dd），
+     * 若与今天一致则跳过请求，否则调用接口并更新存储。
+     */
+    suspend fun claimDailyRewardIfNeeded() {
+        val today = todayDateString()
+        val lastClaimed = settings.getStringOrNull(KEY_DAILY_REWARD_DATE)
+        if (lastClaimed == today) return
+
+        val resp = authApi.post<Map<String, String>, DailyRewardData>(dailyRewardPath, emptyMap())
+        if (resp.code == 20000) {
+            settings.putString(KEY_DAILY_REWARD_DATE, today)
+        }
+    }
+
     // ---- Lucy App 连接标记 ----
 
     private val connectionFlagPath = "/channels/lucy-app/current-user/connection-flag"
@@ -151,5 +189,6 @@ class AuthRepository(
 
     private companion object {
         const val KEY_CONNECTION_FLAG = "lucy_app.has_connected"
+        const val KEY_DAILY_REWARD_DATE = "lucy_app.daily_reward_date"
     }
 }

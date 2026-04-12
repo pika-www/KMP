@@ -57,7 +57,7 @@ fun HalfModalBottomSheet(
     showCloseButton: Boolean = true,
     showTopBar: Boolean = true,
     containerShape: Shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-    containerColor: Color = Color.White,
+    containerColor: Color = Color(0xFFF5F5F7),
     topPadding: Dp = 60.dp,
     contentPadding: PaddingValues = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
     content: @Composable ColumnScope.() -> Unit

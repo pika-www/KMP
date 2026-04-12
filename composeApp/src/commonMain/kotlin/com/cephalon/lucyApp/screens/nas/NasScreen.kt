@@ -437,7 +437,7 @@ fun NasScreen(onBack: () -> Unit) {
         return
     }
 
-    Scaffold(containerColor = Color(0xF0FFFFFF)) { padding ->
+    Scaffold(containerColor = Color(0xFFF5F5F7)) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

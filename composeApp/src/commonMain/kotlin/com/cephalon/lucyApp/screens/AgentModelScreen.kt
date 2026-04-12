@@ -37,7 +37,32 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_close_circle
+import androidios.composeapp.generated.resources.ic_skill_image
+import androidios.composeapp.generated.resources.ic_skill_voice
+import androidios.composeapp.generated.resources.ic_skill_document
+import androidios.composeapp.generated.resources.ic_skill_chat
+import androidios.composeapp.generated.resources.ic_skill_knowledge
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.components.DesignScaleProvider
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.time.currentTimeMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -184,7 +209,6 @@ fun AgentModelScreen(
 
     val mediaAccessController = rememberPlatformMediaAccessController { message ->
         logs.add(0, message)
-        appendMessageToConversation(selectedConversationId, ChatItem.System(message))
     }
 
     var inputText by remember { mutableStateOf("") }
@@ -192,6 +216,8 @@ fun AgentModelScreen(
     var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
     var showProfilePage by remember { mutableStateOf(false) }
     var showSearchPage by remember { mutableStateOf(false) }
+    // 0 = 欢迎页, 1 = 技能卡片页, 2 = 已关闭
+    var emptyViewState by remember { mutableStateOf(0) }
 
     val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
     var lastPickedImagesSize by remember { mutableStateOf(0) }
@@ -203,7 +229,6 @@ fun AgentModelScreen(
 
     LaunchedEffect(Unit) {
         sdkSessionManager.connectIfTokenValid()
-        mediaAccessController.refreshRecentImages()
     }
 
     LaunchedEffect(assistantReplyText, assistantReplyStreaming, activeStreamingConversationId, selectedConversationId) {
@@ -367,16 +392,17 @@ fun AgentModelScreen(
         }
     }
 
+    DesignScaleProvider {
     Box(modifier = Modifier.fillMaxSize()) {
     if (previewState == null) {
         Scaffold(
-            containerColor = Color.White,
+            containerColor = Color(0xFFF5F5F7),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { padding ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White)
+                    .background(Color(0xFFF5F5F7))
                     .padding(padding)
                     .pointerInput(Unit) {
                         awaitEachGesture {
@@ -389,7 +415,7 @@ fun AgentModelScreen(
                     }
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    Surface(color = Color.White) {
+                    Surface(color = Color(0xFFF5F5F7)) {
                         AgentModelTopBar(
                             title = "脑花",
                             subtitle = "内容由 AI 生成",
@@ -405,21 +431,180 @@ fun AgentModelScreen(
                             }
                         )
                     }
-                    AgentModelMessageList(
-                        messages = currentMessages,
-                        playingRecordingId = mediaAccessController.playingRecordingId,
-                        onToggleRecordingPlayback = { mediaAccessController.toggleRecordingPlayback(it) },
-                        onImageClick = { previewState = it },
-                        onFileClick = { mediaAccessController.openFilePreview(it) },
-                        onTapMessageArea = {
-                            focusManager.clearFocus()
-                            attachmentsExpanded = false
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(horizontal = 12.dp)
-                    )
+                    if (currentMessages.isEmpty() && emptyViewState != 2) {
+                        val ds = LocalDesignScale.current
+                        val glassBrush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFFDFDFDF).copy(alpha = 0.10f),
+                                Color.White
+                            )
+                        )
+                        val cardShape = RoundedCornerShape(ds.sm(16.dp))
+
+                        if (emptyViewState == 0) {
+                            // ── 欢迎页 ──
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .padding(horizontal = ds.sw(20.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "探索您的精力上线",
+                                        color = Color(0xFF1F2535),
+                                        fontSize = ds.sp(28f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Spacer(modifier = Modifier.height(ds.sh(33.dp)))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .shadow(8.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
+                                            .clip(cardShape)
+                                            .background(glassBrush)
+                                            .border(1.dp, Color.White, cardShape)
+                                            .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp)),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            // 文字区域可点击进入技能页
+                                            Row(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) { emptyViewState = 1 },
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "探索脑花的能力",
+                                                    color = Color(0xFF1F2535),
+                                                    fontSize = ds.sp(16f),
+                                                    fontWeight = FontWeight.Normal
+                                                )
+                                            }
+                                            // 关闭按钮
+                                            Icon(
+                                                painter = painterResource(Res.drawable.ic_close_circle),
+                                                contentDescription = "Close",
+                                                tint = Color.Unspecified,
+                                                modifier = Modifier
+                                                    .size(ds.sm(24.dp))
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) { emptyViewState = 2 }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // ── 技能卡片页 ──
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .padding(horizontal = ds.sw(20.dp))
+                                    .verticalScroll(rememberScrollState()),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .shadow(8.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
+                                        .clip(cardShape)
+                                        .background(glassBrush)
+                                        .border(0.5.dp, Color.White, cardShape)
+                                        .padding(ds.sw(24.dp)),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(ds.sh(16.dp))
+                                ) {
+                                    // 标题 + 小字
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Text(
+                                            text = "Hi，我是脑花",
+                                            color = Color(0xFF12192B),
+                                            fontSize = ds.sp(20f),
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                                        Text(
+                                            text = "试试输入以下 Skill 来帮助完成工作细节",
+                                            color = Color(0xFF595E6B),
+                                            fontSize = ds.sp(14f),
+                                            fontWeight = FontWeight.Normal
+                                        )
+                                    }
+                                    // 技能按钮列表
+                                    val skillItems = listOf(
+                                        Res.drawable.ic_skill_image to "脑花找图片，模糊的信息也能找",
+                                        Res.drawable.ic_skill_voice to "脑花翻录音 记得一句就能翻出来",
+                                        Res.drawable.ic_skill_document to "脑花调文档 文件名忘了也能调",
+                                        Res.drawable.ic_skill_chat to "脑花搞内容 从想法到发出不断更",
+                                        Res.drawable.ic_skill_knowledge to "脑花帮解答 知识库检索专属答案",
+                                    )
+                                    skillItems.forEach { (iconRes, text) ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(ds.sh(44.dp))
+                                                .border(
+                                                    width = 0.5.dp,
+                                                    color = Color(0xFF1F2535).copy(alpha = 0.20f),
+                                                    shape = RoundedCornerShape(99.dp)
+                                                )
+                                                .clip(RoundedCornerShape(99.dp))
+                                                .background(Color.White)
+                                                .clickable { /* TODO: skill action */ }
+                                                .padding(horizontal = ds.sw(16.dp)),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(iconRes),
+                                                contentDescription = null,
+                                                tint = Color.Unspecified,
+                                                modifier = Modifier.size(ds.sm(20.dp))
+                                            )
+                                            Text(
+                                                text = text,
+                                                color = Color(0xFF12192B),
+                                                fontSize = ds.sp(14f),
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        AgentModelMessageList(
+                            messages = currentMessages,
+                            playingRecordingId = mediaAccessController.playingRecordingId,
+                            onToggleRecordingPlayback = { mediaAccessController.toggleRecordingPlayback(it) },
+                            onImageClick = { previewState = it },
+                            onFileClick = { mediaAccessController.openFilePreview(it) },
+                            onTapMessageArea = {
+                                focusManager.clearFocus()
+                                attachmentsExpanded = false
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = 20.dp)
+                        )
+                    }
 
                     AgentModelComposer(
                         inputText = inputText,
@@ -535,5 +720,6 @@ fun AgentModelScreen(
             onDismiss = { previewState = null }
         )
     }
-    }
+    } // Box
+    } // DesignScaleProvider
 }

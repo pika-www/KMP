@@ -66,36 +66,36 @@ internal fun AgentModelComposer(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(Color(0xFFF5F5F7))
             .padding(bottom = 8.dp)
     ) {
         HorizontalDivider(color = Color(0xFFEDEDED))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            SuggestionChip(text = "快速") { onSuggestionClick("快速") }
-            SuggestionChip(text = "帮我写作") { onSuggestionClick("帮我写作") }
-            SuggestionChip(text = "AI 创作") { onSuggestionClick("AI 创作") }
-            SuggestionChip(text = "拍题答疑") { onSuggestionClick("拍题答疑") }
-        }
-
-        if (draftAttachments.isNotEmpty()) {
-            DraftAttachmentPreviewRow(
-                attachments = draftAttachments,
-                onRemoveAttachment = onRemoveDraftAttachment,
-                onImageClick = onImageClick,
-                onFileClick = onFileClick,
-                playingRecordingId = playingRecordingId,
-                onToggleRecordingPlayback = onToggleRecordingPlayback,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-            )
-        }
+//        Row(
+//            modifier = Modifier
+//                .fillMaxWidth()
+//                .padding(horizontal = 12.dp, vertical = 10.dp),
+//            horizontalArrangement = Arrangement.spacedBy(10.dp)
+//        ) {
+//            SuggestionChip(text = "快速") { onSuggestionClick("快速") }
+//            SuggestionChip(text = "帮我写作") { onSuggestionClick("帮我写作") }
+//            SuggestionChip(text = "AI 创作") { onSuggestionClick("AI 创作") }
+//            SuggestionChip(text = "拍题答疑") { onSuggestionClick("拍题答疑") }
+//        }
+//
+//        if (draftAttachments.isNotEmpty()) {
+//            DraftAttachmentPreviewRow(
+//                attachments = draftAttachments,
+//                onRemoveAttachment = onRemoveDraftAttachment,
+//                onImageClick = onImageClick,
+//                onFileClick = onFileClick,
+//                playingRecordingId = playingRecordingId,
+//                onToggleRecordingPlayback = onToggleRecordingPlayback,
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .padding(horizontal = 12.dp)
+//            )
+//        }
 
         Row(
             modifier = Modifier

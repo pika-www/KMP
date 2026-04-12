@@ -46,7 +46,7 @@ fun WsTestScreen(onBack: () -> Unit) {
     val currentToken = authTokenStore.getValidTokenOrNull()
 
     Scaffold(
-        containerColor = Color(0xFFF1F1F1)
+        containerColor = Color(0xFFF5F5F7)
     ) { padding ->
         Column(
             modifier = Modifier

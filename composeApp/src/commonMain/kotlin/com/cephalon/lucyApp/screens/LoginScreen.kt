@@ -16,9 +16,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Shield
+import androidios.composeapp.generated.resources.ic_lock
+import androidios.composeapp.generated.resources.ic_shield_check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -249,7 +248,7 @@ fun LoginScreen(
                 // 验证码登录按钮
                 LoginGlassButton(
                     text = "通过验证码登录",
-                    icon = { Icon(Icons.Default.Shield, null, tint = Color.Black, modifier = Modifier.size(ds.sm(20.dp))) },
+                    icon = { Icon(painterResource(Res.drawable.ic_shield_check), null, tint = Color.Black, modifier = Modifier.size(ds.sm(20.dp))) },
                     backgroundColor = Color.White.copy(alpha = 0.90f),
                     textColor = Color.Black,
                     onClick = {
@@ -265,7 +264,7 @@ fun LoginScreen(
                 // 密码登录按钮
                 LoginGlassButton(
                     text = "通过密码登录",
-                    icon = { Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(ds.sm(20.dp))) },
+                    icon = { Icon(painterResource(Res.drawable.ic_lock), null, tint = Color.White, modifier = Modifier.size(ds.sm(20.dp))) },
                     backgroundColor = Color.White.copy(alpha = 0.20f),
                     textColor = Color.White,
                     onClick = {

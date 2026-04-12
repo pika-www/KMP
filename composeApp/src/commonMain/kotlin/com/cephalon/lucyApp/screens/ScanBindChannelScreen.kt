@@ -97,7 +97,7 @@ fun ScanBindChannelScreen(
     }
 
     Scaffold(
-        containerColor = Color(0xFFF1F1F1)
+        containerColor = Color(0xFFF5F5F7)
     ) { padding ->
         Column(
             modifier = Modifier
@@ -302,7 +302,7 @@ fun ScanBindChannelScreen(
             showCloseButton = false,
             showTopBar = false,
             containerShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            containerColor = Color.White,
+            containerColor = Color(0xFFF5F5F7),
             topPadding = 0.dp,
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)
         ) {

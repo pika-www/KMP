@@ -1,13 +1,19 @@
 package com.cephalon.lucyApp
 
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.layout.fillMaxSize
 import com.arkivanov.decompose.extensions.compose.stack.Children
 import com.arkivanov.decompose.Child
@@ -26,6 +32,9 @@ import com.cephalon.lucyApp.screens.ScanBindChannelScreen
 import com.cephalon.lucyApp.screens.SdkTestScreen
 import com.cephalon.lucyApp.screens.WsTestScreen
 import com.russhwolf.settings.Settings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 
@@ -43,6 +52,7 @@ fun App() {
     MaterialTheme(
         colorScheme = lightColorScheme()
     ) {
+      CompositionLocalProvider(LocalIndication provides NoIndication) {
         // 确保 Surface 也使用 MaterialTheme 的背景色
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -53,10 +63,26 @@ fun App() {
             val balanceWsManager = koinInject<BalanceWsManager>()
             val sdkSessionManager = koinInject<SdkSessionManager>()
 
+            // 冷启动时也尝试领取每日奖励
+            LaunchedEffect(Unit) {
+                if (authRepository.hasValidToken()) {
+                    try {
+                        authRepository.claimDailyRewardIfNeeded()
+                    } catch (_: Exception) { }
+                }
+            }
+
             BindAppLifecycle(
                 onForeground = {
                     sdkSessionManager.onForeground()
                     balanceWsManager.onForeground()
+                    if (authRepository.hasValidToken()) {
+                        CoroutineScope(Dispatchers.Default).launch {
+                            try {
+                                authRepository.claimDailyRewardIfNeeded()
+                            } catch (_: Exception) { }
+                        }
+                    }
                 },
                 onBackground = {
                     sdkSessionManager.onBackground()
@@ -137,5 +163,16 @@ fun App() {
                 }
             }
         }
+      }
     }
+}
+
+private object NoIndication : IndicationNodeFactory {
+    override fun create(interactionSource: InteractionSource): DelegatableNode {
+        return object : Modifier.Node() {}
+    }
+
+    override fun hashCode(): Int = -1
+
+    override fun equals(other: Any?): Boolean = other === this
 }
