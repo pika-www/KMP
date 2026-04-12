@@ -84,7 +84,10 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelProfileScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
+import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.screens.agentmodel.ChatHistoryCache
 import com.cephalon.lucyApp.sdk.SdkSessionManager
+import com.russhwolf.settings.Settings
 import org.koin.compose.koinInject
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
@@ -118,6 +121,15 @@ fun AgentModelScreen(
     val assistantReplyStreaming by sdkSessionManager.assistantReplyStreaming.collectAsState()
     val streamingStatusText by sdkSessionManager.streamingStatusText.collectAsState()
     val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+    val authRepository = koinInject<AuthRepository>()
+    val userInfo by authRepository.userInfo.collectAsState()
+    val settings = koinInject<Settings>()
+    val chatHistoryCache = remember { ChatHistoryCache(settings) }
+
+    // 当前用户 + 设备（用于缓存 key）
+    val currentUserId = userInfo?.userId ?: "anonymous"
+    val currentCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
+    val cacheKey = "${currentUserId}_${currentCdi}"
 
     val logs = remember {
         mutableStateListOf(
@@ -127,28 +139,46 @@ fun AgentModelScreen(
         )
     }
 
-    val conversations = remember {
-        mutableStateListOf(
-            ConversationItem(
-                id = "1",
-                title = "新对话",
-                messages = emptyList(),
-                lastActiveAt = currentTimeMillis()
+    // 从缓存加载对话记录，找不到则创建默认对话
+    val cachedData = remember(cacheKey) { chatHistoryCache.load(cacheKey) }
+    val conversations = remember(cacheKey) {
+        val cached = cachedData?.first
+        if (!cached.isNullOrEmpty()) {
+            mutableStateListOf(*cached.toTypedArray())
+        } else {
+            mutableStateListOf(
+                ConversationItem(
+                    id = "1",
+                    title = "新对话",
+                    messages = emptyList(),
+                    lastActiveAt = currentTimeMillis()
+                )
             )
-        )
+        }
     }
-    var selectedConversationId by remember { mutableStateOf<String?>("1") }
+    var selectedConversationId by remember(cacheKey) {
+        mutableStateOf(cachedData?.second ?: "1")
+    }
 
-    fun updateConversation(conversationId: String?, transform: (ConversationItem) -> ConversationItem) {
+    fun saveConversationsToCache() {
+        chatHistoryCache.save(cacheKey, conversations.toList(), selectedConversationId)
+    }
+
+    fun updateConversation(
+        conversationId: String?,
+        persist: Boolean = true,
+        transform: (ConversationItem) -> ConversationItem,
+    ) {
         val targetId = conversationId ?: return
         val index = conversations.indexOfFirst { it.id == targetId }
         if (index >= 0) {
             conversations[index] = transform(conversations[index])
+            if (persist) saveConversationsToCache()
         }
     }
 
     fun updateSelectedConversation(transform: (ConversationItem) -> ConversationItem) {
-        updateConversation(selectedConversationId, transform)
+        updateConversation(selectedConversationId, transform = transform)
     }
 
     fun appendMessageToSelectedConversation(message: ChatItem) {
@@ -168,8 +198,13 @@ fun AgentModelScreen(
         }
     }
 
+<<<<<<< Updated upstream
     fun upsertStreamingAssistantMessageInConversation(conversationId: String?, messageId: String, text: String) {
         updateConversation(conversationId) { conversation ->
+=======
+    fun upsertStreamingAssistantMessageInConversation(conversationId: String?, text: String) {
+        updateConversation(conversationId, persist = false) { conversation ->
+>>>>>>> Stashed changes
             val updatedMessages = conversation.messages.toMutableList()
             val existingIndex = updatedMessages.indexOfLast {
                 it is ChatItem.Assistant && it.messageId == messageId
@@ -294,6 +329,23 @@ fun AgentModelScreen(
                     delay(if (text.length > displayedText.length) 15L else 50L)
                 }
             }
+<<<<<<< Updated upstream
+=======
+
+            if (!streaming && streamingStarted) {
+                // 流式结束，立即显示完整文本
+                if (text.isNotBlank() && displayedText != text) {
+                    upsertStreamingAssistantMessageInConversation(targetConversationId, text)
+                }
+                removeAssistantPlaceholderInConversation(targetConversationId)
+                saveConversationsToCache()
+                activeStreamingConversationId = null
+                typedAssistantReply = ""
+                break
+            }
+
+            delay(if (text.length > displayedText.length) 15L else 50L)
+>>>>>>> Stashed changes
         }
     }
 
@@ -584,26 +636,42 @@ fun AgentModelScreen(
                             }
                         }
                     } else {
-                        AgentModelMessageList(
-                            messages = currentMessages,
-                            playingRecordingId = mediaAccessController.playingRecordingId,
-                            onToggleRecordingPlayback = { mediaAccessController.toggleRecordingPlayback(it) },
-                            onImageClick = { previewState = it },
-                            onFileClick = { mediaAccessController.openFilePreview(it) },
-                            onTapMessageArea = {
-                                focusManager.clearFocus()
-                                attachmentsExpanded = false
-                            },
-                            onSkillClick = { skillText ->
-                                inputText = skillText
-                                sendMessage()
-                            },
-                            streamingStatusText = streamingStatusText,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .padding(horizontal = 20.dp)
-                        )
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            AgentModelMessageList(
+                                messages = currentMessages,
+                                playingRecordingId = mediaAccessController.playingRecordingId,
+                                onToggleRecordingPlayback = { mediaAccessController.toggleRecordingPlayback(it) },
+                                onImageClick = { previewState = it },
+                                onFileClick = { mediaAccessController.openFilePreview(it) },
+                                onTapMessageArea = {
+                                    focusManager.clearFocus()
+                                    attachmentsExpanded = false
+                                },
+                                onSkillClick = { skillText ->
+                                    inputText = skillText
+                                    sendMessage()
+                                },
+                                streamingStatusText = streamingStatusText,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 20.dp)
+                            )
+                            // 底部渐变遮罩
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .align(Alignment.BottomCenter)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0xFFF5F5F7).copy(alpha = 0f),
+                                                Color(0xFFF5F5F7),
+                                            )
+                                        )
+                                    )
+                            )
+                        }
                     }
 
                     AgentModelComposer(

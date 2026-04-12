@@ -92,10 +92,10 @@ internal fun AgentModelMessageList(
                         }
                     Bubble(
                         text = displayText,
-                        background = Color.White,
+                        background = Color.Transparent,
                         textColor = Color(0xFF111111),
                         alignEnd = false,
-                        border = if (isThinkingPlaceholder) null else BorderStroke(1.dp, Color(0xFFE8E8E8)),
+                        border = null,
                         isMarkdown = !isThinkingPlaceholder,
                         onClick = onTapMessageArea
                     )
@@ -402,39 +402,37 @@ private fun SkillSuggestionsBubble(
         Res.drawable.ic_skill_knowledge to "脑花帮解答 知识库检索专属答案",
     )
 
-    Card(
-        shape = RoundedCornerShape(ds.sm(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.10f)),
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(ds.sm(16.dp)),
-            verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
-        ) {
-            Text(
-                text = "Hi，我是脑花",
-                fontSize = ds.sp(18f),
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF12192B)
-            )
-            Text(
-                text = "试试输入以下 Skill 来帮助完成工作细节",
-                fontSize = ds.sp(12f),
-                color = Color(0xFF595E6B)
-            )
+        Text(
+            text = "Hi，我是脑花",
+            fontSize = ds.sp(18f),
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF12192B)
+        )
+        Text(
+            text = "试试输入以下 Skill 来帮助完成工作细节",
+            fontSize = ds.sp(12f),
+            color = Color(0xFF595E6B)
+        )
 
-            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
-            skillItems.forEach { (iconRes, text) ->
+        skillItems.forEach { (iconRes, text) ->
+            Card(
+                shape = RoundedCornerShape(ds.sm(99.dp)),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.10f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSkillClick(text) }
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(ds.sh(44.dp))
-                        .clip(RoundedCornerShape(ds.sm(99.dp)))
-                        .background(Color(0xFFF5F5F7))
-                        .clickable { onSkillClick(text) }
                         .padding(horizontal = ds.sw(16.dp)),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))

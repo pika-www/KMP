@@ -47,28 +47,52 @@ internal fun Bubble(
 ) {
     val ds = LocalDesignScale.current
     BubbleContainer(alignEnd = alignEnd) { bubbleMaxWidth ->
-        Card(
-            shape = RoundedCornerShape(ds.sm(16.dp)),
-            colors = CardDefaults.cardColors(containerColor = background),
-            border = border,
-            modifier = Modifier
-                .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-                .wrapContentWidth()
-                .widthIn(max = bubbleMaxWidth)
-        ) {
-            if (isMarkdown) {
-                MarkdownBubbleText(
-                    markdown = text,
-                    textColor = textColor,
-                    modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
-                )
-            } else {
-                Text(
-                    text = text,
-                    fontSize = ds.sp(14f),
-                    color = textColor,
-                    modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
-                )
+        if (alignEnd) {
+            Card(
+                shape = RoundedCornerShape(ds.sm(16.dp)),
+                colors = CardDefaults.cardColors(containerColor = background),
+                border = border,
+                modifier = Modifier
+                    .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+                    .wrapContentWidth()
+                    .widthIn(max = bubbleMaxWidth)
+            ) {
+                if (isMarkdown) {
+                    MarkdownBubbleText(
+                        markdown = text,
+                        textColor = textColor,
+                        modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
+                    )
+                } else {
+                    Text(
+                        text = text,
+                        fontSize = ds.sp(14f),
+                        color = textColor,
+                        modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
+                    )
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+                    .wrapContentWidth()
+                    .widthIn(max = bubbleMaxWidth)
+            ) {
+                if (isMarkdown) {
+                    MarkdownBubbleText(
+                        markdown = text,
+                        textColor = textColor,
+                        modifier = Modifier
+                    )
+                } else {
+                    Text(
+                        text = text,
+                        fontSize = ds.sp(14f),
+                        color = textColor,
+                        modifier = Modifier
+                    )
+                }
             }
         }
     }

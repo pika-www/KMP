@@ -99,7 +99,7 @@ data class IsExistData(
  */
 @Serializable
 data class UserInfoData(
-    @SerialName("user_id")
+    @SerialName("id")
     val userId: String? = null,
     val nickname: String? = null,
     val avatar: String? = null,
