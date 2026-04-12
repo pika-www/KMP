@@ -1,5 +1,8 @@
 package com.cephalon.lucyApp.screens.nas
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,11 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -24,12 +24,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import kotlin.math.abs
@@ -56,152 +55,83 @@ fun NasScreen(onBack: () -> Unit) {
     )
     
     val imageMonths = remember {
+        fun img(id: String, name: String, time: String, location: String) = NasImageItem(
+            id = id, name = name, type = "图片", format = "png",
+            sizeKB = (2100..2300).random(), path = "drawable/img-demo.png",
+            time = time, location = location, resolution = "1920x1080"
+        )
         listOf(
             NasImageMonthGroup(
                 label = "2026年4月",
                 images = listOf(
-                    NasImageItem(
-                        id = "img_001",
-                        name = "morning_walk.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2191,
-                        path = "drawable/img-demo.png",
-                        time = "2026-04-09 08:30",
-                        location = "上海·徐汇滨江",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_002",
-                        name = "coffee_corner.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2187,
-                        path = "drawable/img-demo.png",
-                        time = "2026-04-12 10:15",
-                        location = "上海·静安",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_003",
-                        name = "team_lunch.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2204,
-                        path = "drawable/img-demo.png",
-                        time = "2026-04-18 12:40",
-                        location = "上海·长宁",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_004",
-                        name = "night_view.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2210,
-                        path = "drawable/img-demo.png",
-                        time = "2026-04-26 20:05",
-                        location = "上海·陆家嘴",
-                        resolution = "1920x1080"
-                    )
+                    img("img_001", "morning_walk.png", "2026-04-01 08:30", "上海·徐汇滨江"),
+                    img("img_002", "coffee_corner.png", "2026-04-03 10:15", "上海·静安"),
+                    img("img_003", "team_lunch.png", "2026-04-06 12:40", "上海·长宁"),
+                    img("img_004", "night_view.png", "2026-04-08 20:05", "上海·陆家嘴"),
+                    img("img_005", "rooftop_sunset.png", "2026-04-11 18:30", "上海·外滩"),
+                    img("img_006", "garden_bloom.png", "2026-04-14 09:00", "上海·世纪公园"),
+                    img("img_007", "street_art.png", "2026-04-17 15:20", "上海·莫干山路"),
+                    img("img_008", "bridge_night.png", "2026-04-20 21:10", "上海·南浦大桥"),
+                    img("img_009", "brunch_table.png", "2026-04-23 11:00", "上海·武康路"),
+                    img("img_010", "cat_cafe.png", "2026-04-26 14:45", "上海·愚园路"),
+                    img("img_011", "rain_drops.png", "2026-04-28 16:30", "上海·新天地"),
+                    img("img_012", "bookshelf.png", "2026-04-30 10:00", "上海·思南路")
                 )
             ),
             NasImageMonthGroup(
                 label = "2026年3月",
                 images = listOf(
-                    NasImageItem(
-                        id = "img_005",
-                        name = "spring_park.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2175,
-                        path = "drawable/img-demo.png",
-                        time = "2026-03-03 09:20",
-                        location = "杭州·西湖",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_006",
-                        name = "office_board.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2158,
-                        path = "drawable/img-demo.png",
-                        time = "2026-03-08 14:10",
-                        location = "杭州·滨江",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_007",
-                        name = "book_store.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2226,
-                        path = "drawable/img-demo.png",
-                        time = "2026-03-16 16:45",
-                        location = "杭州·天目里",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_008",
-                        name = "weekend_market.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2234,
-                        path = "drawable/img-demo.png",
-                        time = "2026-03-27 11:30",
-                        location = "杭州·武林路",
-                        resolution = "1920x1080"
-                    )
+                    img("img_013", "spring_park.png", "2026-03-02 09:20", "杭州·西湖"),
+                    img("img_014", "office_board.png", "2026-03-05 14:10", "杭州·滨江"),
+                    img("img_015", "book_store.png", "2026-03-08 16:45", "杭州·天目里"),
+                    img("img_016", "weekend_market.png", "2026-03-11 11:30", "杭州·武林路"),
+                    img("img_017", "tea_house.png", "2026-03-14 15:00", "杭州·龙井"),
+                    img("img_018", "lake_view.png", "2026-03-17 07:40", "杭州·断桥"),
+                    img("img_019", "night_canal.png", "2026-03-20 20:15", "杭州·拱宸桥"),
+                    img("img_020", "cherry_blossom.png", "2026-03-23 10:30", "杭州·太子湾"),
+                    img("img_021", "temple_steps.png", "2026-03-26 13:00", "杭州·灵隐"),
+                    img("img_022", "hill_trail.png", "2026-03-29 08:00", "杭州·北高峰")
                 )
             ),
             NasImageMonthGroup(
                 label = "2026年2月",
                 images = listOf(
-                    NasImageItem(
-                        id = "img_009",
-                        name = "train_window.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2149,
-                        path = "drawable/img-demo.png",
-                        time = "2026-02-02 07:55",
-                        location = "高铁上",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_010",
-                        name = "family_dinner.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2218,
-                        path = "drawable/img-demo.png",
-                        time = "2026-02-10 18:25",
-                        location = "苏州·园区",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_011",
-                        name = "museum_day.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2199,
-                        path = "drawable/img-demo.png",
-                        time = "2026-02-19 15:10",
-                        location = "苏州博物馆",
-                        resolution = "1920x1080"
-                    ),
-                    NasImageItem(
-                        id = "img_012",
-                        name = "river_evening.png",
-                        type = "图片",
-                        format = "png",
-                        sizeKB = 2208,
-                        path = "drawable/img-demo.png",
-                        time = "2026-02-25 17:45",
-                        location = "苏州·金鸡湖",
-                        resolution = "1920x1080"
-                    )
+                    img("img_023", "train_window.png", "2026-02-01 07:55", "高铁上"),
+                    img("img_024", "family_dinner.png", "2026-02-04 18:25", "苏州·园区"),
+                    img("img_025", "museum_day.png", "2026-02-07 15:10", "苏州博物馆"),
+                    img("img_026", "river_evening.png", "2026-02-10 17:45", "苏州·金鸡湖"),
+                    img("img_027", "lantern_fest.png", "2026-02-13 19:30", "苏州·平江路"),
+                    img("img_028", "snow_garden.png", "2026-02-16 09:00", "苏州·拙政园"),
+                    img("img_029", "noodle_shop.png", "2026-02-19 12:15", "苏州·观前街"),
+                    img("img_030", "canal_bridge.png", "2026-02-22 16:00", "苏州·山塘街"),
+                    img("img_031", "sunset_tower.png", "2026-02-25 17:20", "苏州·虎丘"),
+                    img("img_032", "market_stall.png", "2026-02-28 10:45", "苏州·双塔")
+                )
+            ),
+            NasImageMonthGroup(
+                label = "2026年1月",
+                images = listOf(
+                    img("img_033", "new_year.png", "2026-01-01 00:05", "上海·外滩"),
+                    img("img_034", "hot_pot.png", "2026-01-04 19:00", "上海·打浦路"),
+                    img("img_035", "gym_selfie.png", "2026-01-07 07:30", "上海·静安"),
+                    img("img_036", "coding_desk.png", "2026-01-10 22:00", "上海·漕河泾"),
+                    img("img_037", "foggy_morning.png", "2026-01-13 08:15", "上海·世博园"),
+                    img("img_038", "pet_dog.png", "2026-01-16 14:00", "上海·共青森林"),
+                    img("img_039", "mall_lights.png", "2026-01-19 20:30", "上海·环球港"),
+                    img("img_040", "vinyl_record.png", "2026-01-22 16:45", "上海·衡山路")
+                )
+            ),
+            NasImageMonthGroup(
+                label = "2025年12月",
+                images = listOf(
+                    img("img_041", "christmas_tree.png", "2025-12-01 18:00", "上海·恒隆"),
+                    img("img_042", "winter_run.png", "2025-12-04 06:50", "上海·世纪公园"),
+                    img("img_043", "year_end_party.png", "2025-12-08 21:30", "上海·THE BUND"),
+                    img("img_044", "gift_wrap.png", "2025-12-12 13:00", "上海·淮海路"),
+                    img("img_045", "frozen_lake.png", "2025-12-16 10:00", "上海·顾村公园"),
+                    img("img_046", "coffee_art.png", "2025-12-20 15:20", "上海·巨鹿路"),
+                    img("img_047", "city_skyline.png", "2025-12-24 19:00", "上海·陆家嘴"),
+                    img("img_048", "countdown.png", "2025-12-31 23:55", "上海·人民广场")
                 )
             )
         )
@@ -437,12 +367,17 @@ fun NasScreen(onBack: () -> Unit) {
         return
     }
 
-    Scaffold(containerColor = Color(0xFFF5F5F7)) { padding ->
-        Column(
+    val isCurrentSelectionMode = when (selectedCategory) {
+        NasCategory.Photos -> isPhotoSelectionMode
+        NasCategory.Recordings -> isAudioSelectionMode
+        NasCategory.Documents -> isDocumentSelectionMode
+    }
+
+    Scaffold(containerColor = Color.Black) { padding ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
                 .pointerInput(::handleNasBack, swipeStartEdgePx, swipeBackThresholdPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(pass = PointerEventPass.Initial)
@@ -472,146 +407,59 @@ fun NasScreen(onBack: () -> Unit) {
                     }
                 }
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            // ── 内容区：全屏可滚动，图片可滚到 tab 栏后面 ──
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
             ) {
-                NasCircularIconButton(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回",
-                    onClick = ::handleNasBack,
-                    modifier = Modifier.size(40.dp)
-                )
-
-                Text(
-                    text = "NAS",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFF111111),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.size(40.dp))
+                when (selectedCategory) {
+                    NasCategory.Photos -> NasPhotosContent(
+                        imageMonths = imageMonths,
+                        selectionMode = isPhotoSelectionMode,
+                        selectedImageIds = selectedPhotoIds,
+                        onImageClick = { image -> selectedImage = image },
+                        onImageLongClick = { image -> previewImage = image },
+                        onImageSelectionToggle = { image -> togglePhotoSelection(image) }
+                    )
+                    NasCategory.Recordings -> NasRecordingsContent(
+                        audios = audios,
+                        selectionMode = isAudioSelectionMode,
+                        selectedAudioIds = selectedAudioIds,
+                        onAudioClick = { audio -> selectedAudio = audio },
+                        onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
+                    )
+                    NasCategory.Documents -> NasDocumentsContent(
+                        documents = documents,
+                        selectionMode = isDocumentSelectionMode,
+                        selectedDocumentIds = selectedDocumentIds,
+                        onDocumentClick = { document -> selectedDocument = document },
+                        onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) }
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = Color.Transparent
+            // ── 顶部：悬浮 toolbar ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopStart)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp, bottom = 16.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp, vertical = 16.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val isCurrentSelectionMode = when (selectedCategory) {
-                        NasCategory.Photos -> isPhotoSelectionMode
-                        NasCategory.Recordings -> isAudioSelectionMode
-                        NasCategory.Documents -> isDocumentSelectionMode
-                    }
+                    NasTopBackButton(onClick = {
+                        if (isCurrentSelectionMode) exitAllSelectionModes() else handleNasBack()
+                    })
 
                     if (isCurrentSelectionMode) {
-                        NasPhotoSelectionRow(
-                            selectedCount = when (selectedCategory) {
-                                NasCategory.Photos -> selectedPhotoIds.size
-                                NasCategory.Recordings -> selectedAudioIds.size
-                                NasCategory.Documents -> selectedDocumentIds.size
-                            },
-                            onSelectAllClick = {
-                                when (selectedCategory) {
-                                    NasCategory.Photos -> {
-                                        selectedPhotoIds.clear()
-                                        selectedPhotoIds.addAll(allPhotoIds)
-                                    }
-
-                                    NasCategory.Recordings -> {
-                                        selectedAudioIds.clear()
-                                        selectedAudioIds.addAll(allAudioIds)
-                                    }
-
-                                    NasCategory.Documents -> {
-                                        selectedDocumentIds.clear()
-                                        selectedDocumentIds.addAll(allDocumentIds)
-                                    }
-                                }
-                            },
-                            onCancelClick = { exitAllSelectionModes() }
-                        )
-                    } else {
-                        NasCategoryAndAddRow(
-                            selected = selectedCategory,
-                            onSelect = {
-                                selectedCategory = it
-                                exitAllSelectionModes()
-                            },
-                            onSelectionClick = {
-                                when (selectedCategory) {
-                                    NasCategory.Photos -> {
-                                        exitAllSelectionModes()
-                                        isPhotoSelectionMode = true
-                                        selectedPhotoIds.clear()
-                                    }
-
-                                    NasCategory.Recordings -> {
-                                        exitAllSelectionModes()
-                                        isAudioSelectionMode = true
-                                        selectedAudioIds.clear()
-                                    }
-
-                                    NasCategory.Documents -> {
-                                        exitAllSelectionModes()
-                                        isDocumentSelectionMode = true
-                                        selectedDocumentIds.clear()
-                                    }
-                                }
-                            },
-                            onAddClick = {
-                                when (selectedCategory) {
-                                    NasCategory.Photos -> mediaController.openGallery()
-                                    NasCategory.Recordings -> mediaController.openAudioPicker()
-                                    NasCategory.Documents -> mediaController.openFilePicker()
-                                }
-                            }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    androidx.compose.foundation.layout.Box(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        when (selectedCategory) {
-                            NasCategory.Photos -> NasPhotosContent(
-                                imageMonths = imageMonths,
-                                selectionMode = isPhotoSelectionMode,
-                                selectedImageIds = selectedPhotoIds,
-                                onImageClick = { image -> selectedImage = image },
-                                onImageLongClick = { image -> previewImage = image },
-                                onImageSelectionToggle = { image -> togglePhotoSelection(image) }
-                            )
-                            NasCategory.Recordings -> NasRecordingsContent(
-                                audios = audios,
-                                selectionMode = isAudioSelectionMode,
-                                selectedAudioIds = selectedAudioIds,
-                                onAudioClick = { audio -> selectedAudio = audio },
-                                onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
-                            )
-                            NasCategory.Documents -> NasDocumentsContent(
-                                documents = documents,
-                                selectionMode = isDocumentSelectionMode,
-                                selectedDocumentIds = selectedDocumentIds,
-                                onDocumentClick = { document -> selectedDocument = document },
-                                onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    if (isCurrentSelectionMode) {
-                        NasPhotoSelectionBottomBar(
-                            onShareClick = {
+                        NasGlassTextButton(
+                            text = "上传脑花",
+                            onClick = {
                                 val count = when (selectedCategory) {
                                     NasCategory.Photos -> selectedPhotoIds.size
                                     NasCategory.Recordings -> selectedAudioIds.size
@@ -619,7 +467,11 @@ fun NasScreen(onBack: () -> Unit) {
                                 }
                                 println("发送朋友: ${count}项")
                             },
-                            onDownloadClick = {
+                            modifier = Modifier.weight(1f)
+                        )
+                        NasGlassTextButton(
+                            text = "下载",
+                            onClick = {
                                 val count = when (selectedCategory) {
                                     NasCategory.Photos -> selectedPhotoIds.size
                                     NasCategory.Recordings -> selectedAudioIds.size
@@ -627,7 +479,11 @@ fun NasScreen(onBack: () -> Unit) {
                                 }
                                 println("下载资源: ${count}项")
                             },
-                            onDeleteClick = {
+                            modifier = Modifier.weight(1f)
+                        )
+                        NasGlassTextButton(
+                            text = "删除",
+                            onClick = {
                                 val count = when (selectedCategory) {
                                     NasCategory.Photos -> selectedPhotoIds.size
                                     NasCategory.Recordings -> selectedAudioIds.size
@@ -635,11 +491,69 @@ fun NasScreen(onBack: () -> Unit) {
                                 }
                                 println("删除资源: ${count}项")
                             },
-                            onSearchClick = {}
+                            modifier = Modifier.weight(1f)
                         )
                     } else {
-                        NasSearchBar(onClick = {})
+                        NasGlassCircleButton(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = "搜索",
+                            onClick = {}
+                        )
+
+                        NasTopCategoryRow(
+                            selected = selectedCategory,
+                            onSelect = {
+                                selectedCategory = it
+                                exitAllSelectionModes()
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
+                }
+            }
+
+            // ── 底部：悬浮操作栏 ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 12.dp)
+            ) {
+                if (isCurrentSelectionMode) {
+                    NasGlassTextButton(
+                        text = "取消选择",
+                        onClick = { exitAllSelectionModes() }
+                    )
+                } else {
+                    NasBottomQuickActions(
+                        onSelectionClick = {
+                            when (selectedCategory) {
+                                NasCategory.Photos -> {
+                                    exitAllSelectionModes()
+                                    isPhotoSelectionMode = true
+                                    selectedPhotoIds.clear()
+                                }
+                                NasCategory.Recordings -> {
+                                    exitAllSelectionModes()
+                                    isAudioSelectionMode = true
+                                    selectedAudioIds.clear()
+                                }
+                                NasCategory.Documents -> {
+                                    exitAllSelectionModes()
+                                    isDocumentSelectionMode = true
+                                    selectedDocumentIds.clear()
+                                }
+                            }
+                        },
+                        onAddClick = {
+                            when (selectedCategory) {
+                                NasCategory.Photos -> mediaController.openGallery()
+                                NasCategory.Recordings -> mediaController.openAudioPicker()
+                                NasCategory.Documents -> mediaController.openFilePicker()
+                            }
+                        }
+                    )
                 }
             }
         }

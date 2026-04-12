@@ -7,11 +7,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Search
@@ -33,25 +37,85 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.cephalon.lucyApp.components.LocalDesignScale
 import org.jetbrains.compose.resources.painterResource
 
 internal val NasButtonBackgroundColor = Color(0xFFF1F1F3)
 internal val NasButtonBorderColor = Color(0xFFD2D2D7)
+private val NasGlassButtonBorder = Color(0x28FFFFFF)
+private val NasGlassButtonBg = Color(0x2AFFFFFF)
+private val NasGlassSelectedBorder = Color(0xFFFFFFFF)
+private val NasPressedTextColor = Color(0xFF1F2535)
+private val NasGlassPressedOverlay = Brush.verticalGradient(
+    colors = listOf(Color(0x2EFFFFFF), Color(0x2EFFFFFF))
+)
+private val NasGlassPressedGlow = Brush.radialGradient(
+    colors = listOf(Color(0xFFFFFFFF), Color(0x99FFFFFF)),
+    center = androidx.compose.ui.geometry.Offset(0.5f, 0f),
+    radius = 1200f
+)
 
 internal enum class NasCategory(val title: String) {
     Photos("照片"),
     Recordings("音频"),
     Documents("文档")
+}
+
+@Composable
+internal fun NasTopCategoryRow(
+    selected: NasCategory,
+    onSelect: (NasCategory) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NasCategory.values().forEach { category ->
+            NasTopTabButton(
+                title = category.title,
+                selected = selected == category,
+                onClick = { onSelect(category) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun NasBottomQuickActions(
+    onSelectionClick: () -> Unit,
+    onAddClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NasGlassTextButton(text = "选择", onClick = onSelectionClick)
+        NasGlassCircleButton(
+            imageVector = Icons.Outlined.Add,
+            contentDescription = "新增",
+            onClick = onAddClick,
+            modifier = Modifier.size(44.dp)
+        )
+    }
 }
 
 internal data class NasImageMonthGroup(
@@ -108,7 +172,7 @@ internal fun NasCategoryAndAddRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             NasCategory.values().forEach { category ->
-                NasCategoryChip(
+                NasTopTabButton(
                     title = category.title,
                     selected = selected == category,
                     onClick = { onSelect(category) }
@@ -172,45 +236,77 @@ internal fun NasImageActionPopup(
     onDelete: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(0.8f),
-            shape = RoundedCornerShape(18.dp),
-            color = Color.White
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Image(
-                    painter = painterResource(Res.drawable.img_demo),
-                    contentDescription = image.name,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1.25f)
-                        .clip(RoundedCornerShape(14.dp)),
-                    contentScale = ContentScale.Crop
-                )
+            // 图片预览盒子: 236×315, aspect-ratio 233/311, border-radius 2
+            Image(
+                painter = painterResource(Res.drawable.img_demo),
+                contentDescription = image.name,
+                modifier = Modifier
+                    .size(width = 236.dp, height = 315.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                contentScale = ContentScale.Crop
+            )
 
+            // 操作按钮盒子: 240×89, border-radius 16, 半透明玻璃背景
+            Surface(
+                modifier = Modifier.size(width = 240.dp, height = 89.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0x1A000000),
+                border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 41.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    NasActionTextButton(
-                        text = "发送朋友",
-                        onClick = onShare
+                    NasPopupActionButton(
+                        text = "发送脑花",
+                        onClick = onShare,
+                        modifier = Modifier.weight(1f)
                     )
-                    NasActionTextButton(
+                    NasPopupActionButton(
                         text = "下载",
-                        onClick = onDownload
+                        onClick = onDownload,
+                        modifier = Modifier.weight(1f)
                     )
-                    NasActionTextButton(
+                    NasPopupActionButton(
                         text = "删除",
                         onClick = onDelete,
-                        textColor = Color(0xFFFF3B30)
+                        textColor = Color(0xFFFF3B30),
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NasPopupActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    textColor: Color = Color.White
+) {
+    Column(
+        modifier = modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // icon 先不写
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            color = textColor,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -291,23 +387,24 @@ internal fun NasPhotosContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(top = 56.dp, bottom = 64.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         imageMonths.forEach { monthGroup ->
             Text(
                 text = monthGroup.label,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF222222)
+                color = Color.White
             )
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                monthGroup.images.chunked(3).forEach { rowImages ->
+                monthGroup.images.chunked(4).forEach { rowImages ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         rowImages.forEach { image ->
                             NasImageThumbnail(
@@ -329,7 +426,7 @@ internal fun NasPhotosContent(
                                 }
                             )
                         }
-                        repeat(3 - rowImages.size) {
+                        repeat(4 - rowImages.size) {
                             Spacer(
                                 modifier = Modifier
                                     .weight(1f)
@@ -355,7 +452,8 @@ internal fun NasRecordingsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(top = 56.dp, bottom = 64.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         audios.forEach { audio ->
@@ -387,7 +485,8 @@ internal fun NasDocumentsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(top = 56.dp, bottom = 64.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         documents.forEach { document ->
@@ -409,29 +508,151 @@ internal fun NasDocumentsContent(
 }
 
 @Composable
-private fun NasCategoryChip(
+internal fun NasTopTabButton(
     title: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val chipShape = RoundedCornerShape(999.dp)
+    val ds = LocalDesignScale.current
+    val shape = RoundedCornerShape(100.dp)
+    val border = if (selected) NasGlassSelectedBorder else NasGlassButtonBorder
+    val backgroundBrush = if (selected) NasGlassPressedOverlay else Brush.verticalGradient(
+        colors = listOf(NasGlassButtonBg, NasGlassButtonBg)
+    )
 
     Surface(
-        shape = chipShape,
-        color = if (selected) Color.Black else NasButtonBackgroundColor,
-        border = null
+        modifier = modifier
+            .defaultMinSize(minHeight = ds.sh(32.dp))
+            .shadow(
+                elevation = if (selected) 12.dp else 0.dp,
+                shape = shape,
+                clip = false
+            )
+            .clip(shape)
+            .background(
+                backgroundBrush
+            )
+            .then(
+                if (selected) {
+                    Modifier.background(NasGlassPressedGlow)
+                } else {
+                    Modifier
+                }
+            )
+            .clip(shape)
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, border)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = title,
+                modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(9.dp)),
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = if (selected) NasPressedTextColor else Color.White
+            )
+        }
+    }
+}
+
+@Composable
+internal fun NasGlassCircleButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = CircleShape
+
+    Surface(
+        modifier = modifier.size(40.dp),
+        shape = shape,
+        color = NasGlassButtonBg,
+        border = BorderStroke(1.dp, NasGlassButtonBorder)
     ) {
         Box(
             modifier = Modifier
-                .clip(chipShape)
+                .fillMaxSize()
+                .clip(shape)
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                tint = Color.White
+            )
+        }
+    }
+}
+
+@Composable
+internal fun NasTopBackButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    NasGlassCircleButton(
+        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+        contentDescription = "返回",
+        onClick = onClick,
+        modifier = modifier
+    )
+}
+
+@Composable
+internal fun NasGlassTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val ds = LocalDesignScale.current
+    val shape = RoundedCornerShape(100.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val border = if (isPressed) NasGlassSelectedBorder else NasGlassButtonBorder
+    val backgroundBrush = if (isPressed) NasGlassPressedOverlay else Brush.verticalGradient(
+        colors = listOf(NasGlassButtonBg, NasGlassButtonBg)
+    )
+
+    Surface(
+        modifier = modifier
+            .defaultMinSize(minHeight = ds.sh(32.dp))
+            .clip(shape)
+            .background(backgroundBrush)
+            .then(
+                if (isPressed) {
+                    Modifier.background(NasGlassPressedGlow)
+                } else {
+                    Modifier
+                }
+            ),
+        shape = shape,
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, border)
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(shape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
             Text(
-                text = title,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = if (selected) Color.White else Color(0xFF1F1F1F)
+                text = text,
+                modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(9.dp)),
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = if (isPressed) NasPressedTextColor else Color.White
             )
         }
     }
@@ -508,12 +729,10 @@ internal fun NasImageThumbnail(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null
 ) {
-    val cardShape = RoundedCornerShape(12.dp)
-
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .clip(cardShape)
+            .clip(RoundedCornerShape(2.dp))
             .background(Color(0xFFF4F4F5))
             .then(
                 if (onClick != null || onLongClick != null) {
@@ -537,28 +756,26 @@ internal fun NasImageThumbnail(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0x26000000))
+                    .background(Color(0x99000000))
             )
         }
 
-        if (showSelectionIndicator) {
+        if (showSelectionIndicator && isSelected) {
             Surface(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .size(20.dp),
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+                    .size(18.dp),
                 shape = CircleShape,
-                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.96f)
+                color = Color(0xFF2192EF)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "已选择",
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "已选择",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
                 }
             }
         }
