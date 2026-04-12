@@ -52,6 +52,8 @@ interface PlatformMediaAccessController {
     fun stopAudioPlayback()
 
     fun refreshRecentImages()
+
+    suspend fun readUriToBytes(uri: String): ByteArray?
 }
 
 @Composable

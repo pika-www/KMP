@@ -29,6 +29,7 @@ import lucy.im.sdk.LucyImAppClient
 import lucy.im.sdk.LucyImAppConfig
 import lucy.im.sdk.OnlineDevice
 import lucy.im.sdk.OnlineNpcDeviceHandle
+import lucy.im.sdk.blob.BlobPutResult
 import lucy.im.sdk.collectDevices
 
 class SdkSessionManager(
@@ -263,6 +264,35 @@ class SdkSessionManager(
             }
             appLogD(TAG, "发送失败 cdi=$cdi error=${error.message ?: "unknown"}")
         }
+    }
+
+    suspend fun uploadImage(imageBytes: ByteArray, fileName: String): Result<BlobPutResult> {
+        appLogD(TAG, "开始上传图片 fileName=$fileName size=${imageBytes.size}")
+        return runCatching {
+            platformUploadBlob(imageBytes, fileName)
+        }.onSuccess { result ->
+            appLogD(TAG, "图片上传成功 blobRef=${result.blobRef} fileHash=${result.fileHash}")
+        }.onFailure { error ->
+            appLogD(TAG, "图片上传失败: ${error.message ?: "unknown"}")
+        }
+    }
+
+    suspend fun publishTextWithImageToNpc(
+        cdi: String,
+        text: String,
+        blobRef: String,
+        contentType: String,
+        size: Long,
+        fileName: String,
+    ): Result<String> {
+        val messageId = generateMessageId19()
+        val escapedText = text.trim().escapeForJson()
+        val escapedBlobRef = blobRef.escapeForJson()
+        val escapedFileName = fileName.escapeForJson()
+        val payload =
+            """${'{'}"version":2,"messageId":"$messageId","text":"$escapedText","media":{"transport":"iroh-blob","blob_ref":"$escapedBlobRef","kind":"image","contentType":"$contentType","size":$size,"fileName":"$escapedFileName"},"timestamp":${currentTimeMillis()}}"""
+        appLogD(TAG, "发送图片消息 cdi=$cdi fileName=$fileName")
+        return publishToNpc(cdi = cdi, payload = payload).map { messageId }
     }
 
     suspend fun publishTextToNpc(cdi: String, text: String): Result<String> {

@@ -72,9 +72,17 @@ import platform.UIKit.UIImageJPEGRepresentation
 import platform.darwin.NSObject
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.suspendCancellableCoroutine
+import platform.Photos.PHImageManager
+import platform.Photos.PHImageRequestOptions
+import platform.posix.memcpy
+import kotlin.coroutines.resume
 import platform.Speech.SFSpeechRecognizer
 import platform.Speech.SFSpeechURLRecognitionRequest
 import org.jetbrains.compose.resources.ExperimentalResourceApi
+import platform.Foundation.dataWithContentsOfURL
 
 private object IOSPickerDelegateStore {
     private val delegates = mutableListOf<Any>()
@@ -139,7 +147,8 @@ private class IOSPlatformMediaAccessController(
     private val onSeekAudioPlaybackTo: (Long) -> Unit,
     private val onSkipAudioPlaybackBy: (Long) -> Unit,
     private val onStopAudioPlayback: () -> Unit,
-    private val onRefreshRecentImages: () -> Unit
+    private val onRefreshRecentImages: () -> Unit,
+    private val onReadUriToBytes: suspend (String) -> ByteArray?,
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
 
@@ -169,6 +178,8 @@ private class IOSPlatformMediaAccessController(
     override fun stopAudioPlayback() = onStopAudioPlayback()
 
     override fun refreshRecentImages() = onRefreshRecentImages()
+
+    override suspend fun readUriToBytes(uri: String): ByteArray? = onReadUriToBytes(uri)
 }
 
 @OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
@@ -582,6 +593,14 @@ actual fun rememberPlatformMediaAccessController(
             onStopAudioPlayback = {
                 stopAudioPlayback()
             },
+            onReadUriToBytes = readUri@{ uri ->
+                if (uri.startsWith("ios-phasset://")) {
+                    val assetId = uri.removePrefix("ios-phasset://")
+                    readPHAssetImageData(assetId)
+                } else {
+                    readFileUriToBytes(uri)
+                }
+            },
             onRefreshRecentImages = {
                 when (photoLibraryAuthorizationStatus()) {
                     PHAuthorizationStatusAuthorized,
@@ -967,6 +986,48 @@ private class DocumentPickerDelegate(
             }
         } else {
             onEvent("已完成文件选择，但未读取到结果。")
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun readFileUriToBytes(uri: String): ByteArray? {
+    val nsUrl = when {
+        uri.startsWith("file://") -> NSURL.URLWithString(uri)
+        uri.startsWith("/") -> NSURL.fileURLWithPath(uri)
+        uri.contains("://") -> NSURL.URLWithString(uri)
+        else -> NSURL.fileURLWithPath(uri)
+    } ?: return null
+    val data = NSData.dataWithContentsOfURL(nsUrl) ?: return null
+    return nsDataToByteArray(data)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private suspend fun readPHAssetImageData(localIdentifier: String): ByteArray? {
+    val fetchResult = PHAsset.fetchAssetsWithLocalIdentifiers(listOf(localIdentifier), null)
+    val asset = fetchResult.firstObject as? PHAsset ?: return null
+    return suspendCancellableCoroutine { cont ->
+        val options = PHImageRequestOptions().apply {
+            networkAccessAllowed = true
+            synchronous = false
+        }
+        PHImageManager.defaultManager().requestImageDataAndOrientationForAsset(
+            asset,
+            options = options
+        ) { data, _, _, _ ->
+            val bytes = data?.let { nsDataToByteArray(it) }
+            cont.resume(bytes)
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun nsDataToByteArray(data: NSData): ByteArray {
+    val length = data.length.toInt()
+    if (length == 0) return ByteArray(0)
+    return ByteArray(length).apply {
+        usePinned { pinned ->
+            memcpy(pinned.addressOf(0), data.bytes, data.length)
         }
     }
 }

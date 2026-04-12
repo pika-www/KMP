@@ -72,6 +72,7 @@ import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachmentType
 import com.cephalon.lucyApp.screens.agentmodel.ImagePreviewState
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
+import com.cephalon.lucyApp.screens.agentmodel.displayName
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelAttachmentPanel
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelSearchScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelComposer
@@ -85,6 +86,20 @@ import com.cephalon.lucyApp.sdk.SdkSessionManager
 import org.koin.compose.koinInject
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
+
+private fun inferImageContentType(fileName: String): String {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "heic", "heif" -> "image/heic"
+        "bmp" -> "image/bmp"
+        "svg" -> "image/svg+xml"
+        else -> "image/jpeg"
+    }
+}
 
 @Composable
 fun AgentModelScreen(
@@ -358,9 +373,10 @@ fun AgentModelScreen(
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
             }
 
+            val imageAttachment = attachments.firstOrNull { it.type == DraftAttachmentType.Image }
             val outgoingText =
                 text.ifBlank {
-                    "请基于我发送的附件内容，提炼重点并给出下一步建议。"
+                    if (imageAttachment != null) "看看这张图" else "请基于我发送的附件内容，提炼重点并给出下一步建议。"
                 }
             val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
             typedAssistantReply = ""
@@ -379,19 +395,53 @@ fun AgentModelScreen(
                     return@launch
                 }
 
-                activeStreamingConversationId = targetConversationId
-                sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)
-                    .onFailure { error ->
-                        if (activeStreamingConversationId == targetConversationId) {
-                            activeStreamingConversationId = null
-                        }
-                        typedAssistantReply = ""
+                val sendResult = if (imageAttachment != null) {
+                    val imageBytes = mediaAccessController.readUriToBytes(imageAttachment.uri)
+                    if (imageBytes == null) {
                         removeAssistantPlaceholderInConversation(targetConversationId)
                         appendMessageToConversation(
                             targetConversationId,
-                            ChatItem.System("发送失败：${error.message ?: "unknown"}")
+                            ChatItem.System("读取图片失败，无法发送")
                         )
+                        return@launch
                     }
+                    val fileName = imageAttachment.displayName()
+                    val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
+                    if (uploadResult.isFailure) {
+                        removeAssistantPlaceholderInConversation(targetConversationId)
+                        appendMessageToConversation(
+                            targetConversationId,
+                            ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
+                        )
+                        return@launch
+                    }
+                    val putResult = uploadResult.getOrThrow()
+                    val contentType = inferImageContentType(fileName)
+                    activeStreamingConversationId = targetConversationId
+                    sdkSessionManager.publishTextWithImageToNpc(
+                        cdi = targetCdi,
+                        text = outgoingText,
+                        blobRef = putResult.blobRef,
+                        contentType = contentType,
+                        size = imageBytes.size.toLong(),
+                        fileName = fileName,
+                    )
+                } else {
+                    activeStreamingConversationId = targetConversationId
+                    sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)
+                }
+
+                sendResult.onFailure { error ->
+                    if (activeStreamingConversationId == targetConversationId) {
+                        activeStreamingConversationId = null
+                    }
+                    typedAssistantReply = ""
+                    removeAssistantPlaceholderInConversation(targetConversationId)
+                    appendMessageToConversation(
+                        targetConversationId,
+                        ChatItem.System("发送失败：${error.message ?: "unknown"}")
+                    )
+                }
             }
 
             inputText = ""

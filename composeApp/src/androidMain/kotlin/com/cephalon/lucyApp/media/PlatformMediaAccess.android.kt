@@ -39,6 +39,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private class AndroidPlatformMediaAccessController(
@@ -62,7 +63,8 @@ private class AndroidPlatformMediaAccessController(
     private val onSeekAudioPlaybackTo: (Long) -> Unit,
     private val onSkipAudioPlaybackBy: (Long) -> Unit,
     private val onStopAudioPlayback: () -> Unit,
-    private val onRefreshRecentImages: () -> Unit
+    private val onRefreshRecentImages: () -> Unit,
+    private val onReadUriToBytes: suspend (String) -> ByteArray?,
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
 
@@ -92,6 +94,8 @@ private class AndroidPlatformMediaAccessController(
     override fun stopAudioPlayback() = onStopAudioPlayback()
 
     override fun refreshRecentImages() = onRefreshRecentImages()
+
+    override suspend fun readUriToBytes(uri: String): ByteArray? = onReadUriToBytes(uri)
 }
 
 @Composable
@@ -732,6 +736,13 @@ actual fun rememberPlatformMediaAccessController(
             },
             onStopAudioPlayback = {
                 stopAudioPlayback()
+            },
+            onReadUriToBytes = readUri@{ uri ->
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readBytes() }
+                    }.getOrNull()
+                }
             },
             onRefreshRecentImages = refresh@{
                 val activity = context.findActivity()

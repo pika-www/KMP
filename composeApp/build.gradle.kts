@@ -15,13 +15,27 @@ kotlin {
     androidTarget()
 
     // ✅ iOS
+    val blobRoot = rootProject.projectDir.resolve("sdk/lucy-im-sdk-kotlin/lucy-blob").absolutePath
+
     val iosTargets = listOf(
         iosArm64(),
         iosSimulatorArm64()
     )
 
-    iosTargets.forEach {
-        it.binaries.framework {
+    iosArm64 {
+        binaries.all {
+            linkerOpts("-L$blobRoot/target/aarch64-apple-ios/release", "-llucy_blob_core")
+        }
+        binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
+    iosSimulatorArm64 {
+        binaries.all {
+            linkerOpts("-L$blobRoot/target/aarch64-apple-ios-sim/release", "-llucy_blob_core")
+        }
+        binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
         }
