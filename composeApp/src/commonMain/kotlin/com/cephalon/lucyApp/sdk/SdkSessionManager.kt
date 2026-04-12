@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,6 +52,8 @@ class SdkSessionManager(
     private var consumerJob: Job? = null
     private var deviceObserver: OnlineNpcDeviceHandle? = null
     private var deviceObserverJob: Job? = null
+    private var observerRestartJob: Job? = null
+    private var reconnectJob: Job? = null
 
     private val _connectionState = MutableStateFlow(SdkConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SdkConnectionState> = _connectionState.asStateFlow()
@@ -127,6 +130,11 @@ class SdkSessionManager(
     suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
         return connectMutex.withLock {
             if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
+                if (!areObserversActive()) {
+                    appLogD(TAG, "检测到连接存在但监听未激活，重建监听")
+                    _connectionLog.value = "连接正常，正在恢复监听..."
+                    restartObservers(session = session!!, reason = "主动恢复监听")
+                }
                 return@withLock Result.success(Unit)
             }
 
@@ -152,8 +160,15 @@ class SdkSessionManager(
                 appLogD(TAG, _connectionLog.value)
                 startObservers(newSession)
             }.onFailure { error ->
-                _connectionState.value = SdkConnectionState.ERROR
-                _connectionLog.value = "连接失败：${error.message ?: "unknown"}"
+                if (isAuthorizationError(error)) {
+                    tokenStore.clear()
+                    resetSessionResources()
+                    _connectionState.value = SdkConnectionState.DISCONNECTED
+                    _connectionLog.value = "连接失败：鉴权失效，请重新登录"
+                } else {
+                    _connectionState.value = SdkConnectionState.ERROR
+                    _connectionLog.value = "连接失败：${error.message ?: "unknown"}"
+                }
                 _consumerLog.value = "监听启动失败"
                 _deviceLog.value = "设备监听启动失败"
                 appLogD(TAG, _connectionLog.value)
@@ -222,6 +237,10 @@ class SdkSessionManager(
     }
 
     private fun startObservers(newSession: ConnectedSession) {
+        observerRestartJob?.cancel()
+        observerRestartJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
         _receivedMessages.value = emptyList()
 
         val newObserver = newSession.startOnlineNpcDeviceObserver(scope = scope)
@@ -298,15 +317,20 @@ class SdkSessionManager(
 
         consumerJob?.invokeOnCompletion { throwable ->
             if (throwable == null || throwable is CancellationException) return@invokeOnCompletion
-            _connectionState.value = SdkConnectionState.ERROR
-            _consumerLog.value = "监听异常：${throwable.message ?: "unknown"}"
-            appLogD(TAG, _consumerLog.value)
+            handleObserverFailure(
+                throwable = throwable,
+                logLabel = "监听",
+                logUpdater = { _consumerLog.value = it },
+            )
         }
 
         deviceObserverJob?.invokeOnCompletion { throwable ->
             if (throwable == null || throwable is CancellationException) return@invokeOnCompletion
-            _deviceLog.value = "设备监听异常：${throwable.message ?: "unknown"}"
-            appLogD(TAG, _deviceLog.value)
+            handleObserverFailure(
+                throwable = throwable,
+                logLabel = "设备监听",
+                logUpdater = { _deviceLog.value = it },
+            )
         }
 
         _consumerLog.value = "监听已启动"
@@ -316,6 +340,10 @@ class SdkSessionManager(
     }
 
     private fun resetSessionResources() {
+        observerRestartJob?.cancel()
+        observerRestartJob = null
+        reconnectJob?.cancel()
+        reconnectJob = null
         consumerJob?.cancel()
         deviceObserverJob?.cancel()
         deviceObserver?.stop()
@@ -335,6 +363,112 @@ class SdkSessionManager(
         _currentRequestMessageId.value = null
         _assistantReplyText.value = ""
         _assistantReplyStreaming.value = false
+    }
+
+    private fun handleObserverFailure(
+        throwable: Throwable,
+        logLabel: String,
+        logUpdater: (String) -> Unit,
+    ) {
+        val message = throwable.message ?: "unknown"
+        if (isAuthorizationError(throwable)) {
+            scope.launch {
+                connectMutex.withLock {
+                    tokenStore.clear()
+                    resetSessionResources()
+                    _connectionState.value = SdkConnectionState.DISCONNECTED
+                    _connectionLog.value = "鉴权失效，请重新登录"
+                    logUpdater("${logLabel}异常：$message")
+                    appLogD(TAG, _connectionLog.value)
+                    appLogD(TAG, if (logLabel == "监听") _consumerLog.value else _deviceLog.value)
+                }
+            }
+            return
+        }
+
+        logUpdater("${logLabel}异常：$message")
+        appLogD(TAG, if (logLabel == "监听") _consumerLog.value else _deviceLog.value)
+
+        if (isConnectionClosedError(throwable)) {
+            appLogD(TAG, "${logLabel}检测到连接已关闭，准备重连")
+            scheduleReconnect("${logLabel}连接已关闭")
+            return
+        }
+
+        if (isSubscribeTimeoutError(throwable)) {
+            appLogD(TAG, "${logLabel}订阅超时，准备重建监听")
+            scheduleObserverRestart(logLabel)
+            return
+        }
+
+        _connectionState.value = SdkConnectionState.ERROR
+    }
+
+    private fun isAuthorizationError(error: Throwable): Boolean {
+        val message = error.message?.lowercase() ?: return false
+        return message.contains("authorization violation") ||
+            message.contains("auth violation") ||
+            message.contains("permission denied")
+    }
+
+    private fun isSubscribeTimeoutError(error: Throwable): Boolean {
+        val message = error.message?.lowercase() ?: return false
+        return message.contains("subscribe") && message.contains("timed out")
+    }
+
+    private fun isConnectionClosedError(error: Throwable): Boolean {
+        val message = error.message?.lowercase() ?: return false
+        return message.contains("no connection open") ||
+            message.contains("connection closed") ||
+            message.contains("cannot send with no connection open")
+    }
+
+    private fun areObserversActive(): Boolean {
+        return consumerJob?.isActive == true && deviceObserverJob?.isActive == true
+    }
+
+    private fun scheduleObserverRestart(logLabel: String) {
+        if (observerRestartJob?.isActive == true) return
+        observerRestartJob =
+            scope.launch {
+                delay(OBSERVER_RESTART_DELAY_MS)
+                connectMutex.withLock {
+                    val activeSession = session
+                    if (activeSession == null || _connectionState.value != SdkConnectionState.CONNECTED) {
+                        appLogD(TAG, "${logLabel}重建监听跳过：当前无可用连接")
+                        return@withLock
+                    }
+                    restartObservers(session = activeSession, reason = "${logLabel}订阅超时")
+                }
+            }
+    }
+
+    private fun scheduleReconnect(reason: String) {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob =
+            scope.launch {
+                delay(RECONNECT_DELAY_MS)
+                connectMutex.withLock {
+                    _connectionState.value = SdkConnectionState.DISCONNECTED
+                    _connectionLog.value = "$reason，正在重连..."
+                    appLogD(TAG, _connectionLog.value)
+                    resetSessionResources()
+                }
+                ensureConnectedIfTokenValid()
+            }
+    }
+
+    private fun restartObservers(session: ConnectedSession, reason: String) {
+        appLogD(TAG, "$reason，开始重建监听")
+        consumerJob?.cancel()
+        deviceObserverJob?.cancel()
+        deviceObserver?.stop()
+        consumerJob = null
+        deviceObserverJob = null
+        deviceObserver = null
+        _consumerLog.value = "监听重建中..."
+        _deviceLog.value = "设备监听重建中..."
+        startObservers(session)
     }
 
     private fun handleMachineEvent(event: NpcMachineEvent?) {
@@ -441,6 +575,8 @@ class SdkSessionManager(
 
     companion object {
         private const val TAG = "SdkSessionManager"
+        private const val OBSERVER_RESTART_DELAY_MS = 800L
+        private const val RECONNECT_DELAY_MS = 800L
         const val DEFAULT_TARGET_CDI = "2042541809425543168"
     }
 }

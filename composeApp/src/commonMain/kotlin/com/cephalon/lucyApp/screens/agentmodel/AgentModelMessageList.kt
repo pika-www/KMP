@@ -70,8 +70,9 @@ internal fun AgentModelMessageList(
         items(items = messages) { item ->
             when (item) {
                 is ChatItem.Assistant -> {
+                    val isThinkingPlaceholder = item.text == STREAMING_PLACEHOLDER_TEXT
                     val displayText =
-                        if (item.text == STREAMING_PLACEHOLDER_TEXT) {
+                        if (isThinkingPlaceholder) {
                             rememberThinkingStatusText()
                         } else {
                             item.text
@@ -81,6 +82,8 @@ internal fun AgentModelMessageList(
                         background = Color.White,
                         textColor = Color(0xFF111111),
                         alignEnd = false,
+                        border = if (isThinkingPlaceholder) null else BorderStroke(1.dp, Color(0xFFE8E8E8)),
+                        isMarkdown = !isThinkingPlaceholder,
                         onClick = onTapMessageArea
                     )
                 }
