@@ -90,6 +90,7 @@ private const val TYPEWRITER_DELAY_MS = 20L
 fun AgentModelScreen(
     onBack: () -> Unit,
     onNavigateToNas: () -> Unit = {},
+    onNavigateToHome: () -> Unit = {},
     onLogout: () -> Unit = {},
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
@@ -153,7 +154,7 @@ fun AgentModelScreen(
         updateConversation(conversationId) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
             val lastItem = updatedMessages.lastOrNull()
-            if (lastItem is ChatItem.Assistant && lastItem.text != STREAMING_PLACEHOLDER_TEXT) {
+            if (lastItem is ChatItem.Assistant) {
                 updatedMessages[updatedMessages.lastIndex] = ChatItem.Assistant(text)
             } else {
                 updatedMessages.add(ChatItem.Assistant(text))
@@ -410,6 +411,7 @@ fun AgentModelScreen(
                             val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
                             if (up != null) {
                                 focusManager.clearFocus()
+                                attachmentsExpanded = false
                             }
                         }
                     }
@@ -441,149 +443,72 @@ fun AgentModelScreen(
                         )
                         val cardShape = RoundedCornerShape(ds.sm(16.dp))
 
-                        if (emptyViewState == 0) {
-                            // ── 欢迎页 ──
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(horizontal = ds.sw(20.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "探索您的精力上线",
-                                        color = Color(0xFF1F2535),
-                                        fontSize = ds.sp(28f),
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Spacer(modifier = Modifier.height(ds.sh(33.dp)))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .shadow(8.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
-                                            .clip(cardShape)
-                                            .background(glassBrush)
-                                            .border(1.dp, Color.White, cardShape)
-                                            .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp)),
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            // 文字区域可点击进入技能页
-                                            Row(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) { emptyViewState = 1 },
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = "探索脑花的能力",
-                                                    color = Color(0xFF1F2535),
-                                                    fontSize = ds.sp(16f),
-                                                    fontWeight = FontWeight.Normal
-                                                )
-                                            }
-                                            // 关闭按钮
-                                            Icon(
-                                                painter = painterResource(Res.drawable.ic_close_circle),
-                                                contentDescription = "Close",
-                                                tint = Color.Unspecified,
-                                                modifier = Modifier
-                                                    .size(ds.sm(24.dp))
-                                                    .clickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) { emptyViewState = 2 }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // ── 技能卡片页 ──
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(horizontal = ds.sw(20.dp))
-                                    .verticalScroll(rememberScrollState()),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
+                        // ── 欢迎页 ──
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = ds.sw(20.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "探索您的精力上线",
+                                    color = Color(0xFF1F2535),
+                                    fontSize = ds.sp(28f),
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(ds.sh(33.dp)))
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .shadow(8.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
                                         .clip(cardShape)
                                         .background(glassBrush)
-                                        .border(0.5.dp, Color.White, cardShape)
-                                        .padding(ds.sw(24.dp)),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(ds.sh(16.dp))
+                                        .border(1.dp, Color.White, cardShape)
+                                        .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp)),
                                 ) {
-                                    // 标题 + 小字
-                                    Column(
+                                    Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalAlignment = Alignment.Start
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(
-                                            text = "Hi，我是脑花",
-                                            color = Color(0xFF12192B),
-                                            fontSize = ds.sp(20f),
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-                                        Text(
-                                            text = "试试输入以下 Skill 来帮助完成工作细节",
-                                            color = Color(0xFF595E6B),
-                                            fontSize = ds.sp(14f),
-                                            fontWeight = FontWeight.Normal
-                                        )
-                                    }
-                                    // 技能按钮列表
-                                    val skillItems = listOf(
-                                        Res.drawable.ic_skill_image to "脑花找图片，模糊的信息也能找",
-                                        Res.drawable.ic_skill_voice to "脑花翻录音 记得一句就能翻出来",
-                                        Res.drawable.ic_skill_document to "脑花调文档 文件名忘了也能调",
-                                        Res.drawable.ic_skill_chat to "脑花搞内容 从想法到发出不断更",
-                                        Res.drawable.ic_skill_knowledge to "脑花帮解答 知识库检索专属答案",
-                                    )
-                                    skillItems.forEach { (iconRes, text) ->
+                                        // 文字区域可点击 → 以对话形式展示技能列表
                                         Row(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(ds.sh(44.dp))
-                                                .border(
-                                                    width = 0.5.dp,
-                                                    color = Color(0xFF1F2535).copy(alpha = 0.20f),
-                                                    shape = RoundedCornerShape(99.dp)
-                                                )
-                                                .clip(RoundedCornerShape(99.dp))
-                                                .background(Color.White)
-                                                .clickable { /* TODO: skill action */ }
-                                                .padding(horizontal = ds.sw(16.dp)),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
+                                                .weight(1f)
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    appendMessageToConversation(
+                                                        selectedConversationId,
+                                                        ChatItem.SkillSuggestions
+                                                    )
+                                                    emptyViewState = 2
+                                                },
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                painter = painterResource(iconRes),
-                                                contentDescription = null,
-                                                tint = Color.Unspecified,
-                                                modifier = Modifier.size(ds.sm(20.dp))
-                                            )
                                             Text(
-                                                text = text,
-                                                color = Color(0xFF12192B),
-                                                fontSize = ds.sp(14f),
+                                                text = "探索脑花的能力",
+                                                color = Color(0xFF1F2535),
+                                                fontSize = ds.sp(16f),
                                                 fontWeight = FontWeight.Normal
                                             )
                                         }
+                                        // 关闭按钮
+                                        Icon(
+                                            painter = painterResource(Res.drawable.ic_close_circle),
+                                            contentDescription = "Close",
+                                            tint = Color.Unspecified,
+                                            modifier = Modifier
+                                                .size(ds.sm(24.dp))
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) { emptyViewState = 2 }
+                                        )
                                     }
                                 }
                             }
@@ -598,6 +523,10 @@ fun AgentModelScreen(
                             onTapMessageArea = {
                                 focusManager.clearFocus()
                                 attachmentsExpanded = false
+                            },
+                            onSkillClick = { skillText ->
+                                inputText = skillText
+                                sendMessage()
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -671,6 +600,7 @@ fun AgentModelScreen(
                     isVisible = showProfilePage,
                     onDismiss = { showProfilePage = false },
                     onNavigateToNas = onNavigateToNas,
+                    onNavigateToHome = onNavigateToHome,
                     onLogout = onLogout,
                     modifier = Modifier.fillMaxSize()
                 )

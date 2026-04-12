@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -52,11 +53,11 @@ internal fun AgentModelTopBar(
 
     val pillShape = RoundedCornerShape(100.dp)
 
-    // 玻璃质感渐变背景
+    // 毛玻璃质感背景
     val glassBrush = Brush.radialGradient(
         colors = listOf(
-            Color(0xFFDFDFDF).copy(alpha = 0.10f),
-            Color.White
+            Color.White.copy(alpha = 0.65f),
+            Color.White.copy(alpha = 0.85f)
         )
     )
 
@@ -104,23 +105,23 @@ internal fun AgentModelTopBar(
             }
         }
 
-        // ── 右侧：脑花图标 ──
+        // ── 右侧：脑花图标（圆形）──
         Box(
             modifier = Modifier
                 .shadow(
                     elevation = 8.dp,
-                    shape = pillShape,
+                    shape = CircleShape,
                     ambientColor = Color.Black.copy(alpha = 0.15f),
                     spotColor = Color.Black.copy(alpha = 0.20f)
                 )
-                .clip(pillShape)
+                .clip(CircleShape)
                 .background(glassBrush)
-                .border(1.dp, Color.White, pillShape)
+                .border(1.dp, Color.White, CircleShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onOpenProfile() }
-                .padding(horizontal = ds.sw(9.dp), vertical = ds.sh(6.dp)),
+                .padding(ds.sm(7.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(

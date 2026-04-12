@@ -1,6 +1,8 @@
 package com.cephalon.lucyApp.navigation
 
 interface HomeComponent {
+    val showBack: Boolean
+    fun onBack()
     fun onLogout()
     fun onOpenSdkTest()
     fun onOpenWsTest()

@@ -111,13 +111,14 @@ fun App() {
 
                     is RootComponent.Child.Home -> {
                         HomeScreen(
+                            showBack = instance.component.showBack,
+                            onBack = instance.component::onBack,
                             onLogout = instance.component::onLogout,
                             onOpenSdkTest = instance.component::onOpenSdkTest,
                             onOpenWsTest = instance.component::onOpenWsTest,
                             onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
                             onOpenAgentModel = instance.component::onOpenAgentModel,
                             onOpenScanBindChannel = instance.component::onOpenScanBindChannel,
-
                         )
                     }
 
@@ -144,6 +145,7 @@ fun App() {
                         AgentModelScreen(
                             onBack = instance.component::onBack,
                             onNavigateToNas = instance.component::onNavigateToNas,
+                            onNavigateToHome = instance.component::onNavigateToHome,
                             onLogout = instance.component::onLogout
                         )
                     }

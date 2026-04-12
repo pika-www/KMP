@@ -46,6 +46,16 @@ import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import kotlinx.coroutines.delay
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import org.jetbrains.compose.resources.painterResource
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_skill_image
+import androidios.composeapp.generated.resources.ic_skill_voice
+import androidios.composeapp.generated.resources.ic_skill_document
+import androidios.composeapp.generated.resources.ic_skill_chat
+import androidios.composeapp.generated.resources.ic_skill_knowledge
+import com.cephalon.lucyApp.components.LocalDesignScale
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
 
@@ -57,14 +67,16 @@ internal fun AgentModelMessageList(
     onImageClick: (ImagePreviewState) -> Unit,
     onFileClick: (PickedFile) -> Unit,
     onTapMessageArea: () -> Unit,
+    onSkillClick: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val ds = LocalDesignScale.current
     LazyColumn(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
     ) {
         item {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
         }
 
         items(items = messages) { item ->
@@ -91,7 +103,7 @@ internal fun AgentModelMessageList(
                 is ChatItem.User -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         Surface(
-                            shape = RoundedCornerShape(99.dp),
+                            shape = RoundedCornerShape(ds.sm(99.dp)),
                             color = Color.White,
                             border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
                             modifier = Modifier
@@ -102,10 +114,10 @@ internal fun AgentModelMessageList(
                             Text(
                                 text = item.text,
                                 color = Color(0xFF1F2535),
-                                fontSize = 14.sp,
+                                fontSize = ds.sp(14f),
                                 fontWeight = FontWeight.Normal,
-                                lineHeight = 20.sp,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                lineHeight = ds.sp(20f),
+                                modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(8.dp))
                             )
                         }
                     }
@@ -342,11 +354,19 @@ internal fun AgentModelMessageList(
                         }
                     }
                 }
+
+                is ChatItem.SkillSuggestions -> {
+                    BubbleContainer(alignEnd = false) { _ ->
+                        SkillSuggestionsBubble(
+                            onSkillClick = onSkillClick
+                        )
+                    }
+                }
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
         }
     }
 }
@@ -366,6 +386,74 @@ private fun rememberThinkingStatusText(): String {
         else -> "..."
     }
     return "思考中$dots"
+}
+
+@Composable
+private fun SkillSuggestionsBubble(
+    onSkillClick: (String) -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val skillItems = listOf(
+        Res.drawable.ic_skill_image to "脑花找图片，模糊的信息也能找",
+        Res.drawable.ic_skill_voice to "脑花翻录音 记得一句就能翻出来",
+        Res.drawable.ic_skill_document to "脑花调文档 文件名忘了也能调",
+        Res.drawable.ic_skill_chat to "脑花搞内容 从想法到发出不断更",
+        Res.drawable.ic_skill_knowledge to "脑花帮解答 知识库检索专属答案",
+    )
+
+    Card(
+        shape = RoundedCornerShape(ds.sm(16.dp)),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.10f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(ds.sm(16.dp)),
+            verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
+        ) {
+            Text(
+                text = "Hi，我是脑花",
+                fontSize = ds.sp(18f),
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF12192B)
+            )
+            Text(
+                text = "试试输入以下 Skill 来帮助完成工作细节",
+                fontSize = ds.sp(12f),
+                color = Color(0xFF595E6B)
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+
+            skillItems.forEach { (iconRes, text) ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ds.sh(44.dp))
+                        .clip(RoundedCornerShape(ds.sm(99.dp)))
+                        .background(Color(0xFFF5F5F7))
+                        .clickable { onSkillClick(text) }
+                        .padding(horizontal = ds.sw(16.dp)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
+                ) {
+                    Icon(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(ds.sm(20.dp))
+                    )
+                    Text(
+                        text = text,
+                        color = Color(0xFF12192B),
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.components.LocalDesignScale
 
 @Composable
 internal fun Bubble(
@@ -38,9 +39,10 @@ internal fun Bubble(
     isMarkdown: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
+    val ds = LocalDesignScale.current
     BubbleContainer(alignEnd = alignEnd) { bubbleMaxWidth ->
         Card(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(ds.sm(16.dp)),
             colors = CardDefaults.cardColors(containerColor = background),
             border = border,
             modifier = Modifier
@@ -52,14 +54,14 @@ internal fun Bubble(
                 MarkdownBubbleText(
                     markdown = text,
                     textColor = textColor,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                    modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
                 )
             } else {
                 Text(
                     text = text,
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = ds.sp(14f),
                     color = textColor,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                    modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
                 )
             }
         }
@@ -72,22 +74,21 @@ private fun MarkdownBubbleText(
     textColor: Color,
     modifier: Modifier = Modifier,
 ) {
+    val ds = LocalDesignScale.current
     val blocks = markdown.split("```")
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))) {
         blocks.forEachIndexed { index, block ->
             if (index % 2 == 1) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(ds.sm(10.dp)),
                     color = Color(0xFF1F1F1F)
                 ) {
                     Text(
                         text = block.trim('\n'),
                         color = Color(0xFFEAEAEA),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            fontSize = 13.sp
-                        ),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                        fontSize = ds.sp(13f),
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(8.dp))
                     )
                 }
             } else {
@@ -98,28 +99,32 @@ private fun MarkdownBubbleText(
                         line.startsWith("### ") -> MarkdownLine(
                             line.removePrefix("### "),
                             textColor,
-                            MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            ds.sp(16f),
+                            FontWeight.SemiBold
                         )
 
                         line.startsWith("## ") -> MarkdownLine(
                             line.removePrefix("## "),
                             textColor,
-                            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                            ds.sp(18f),
+                            FontWeight.SemiBold
                         )
 
                         line.startsWith("# ") -> MarkdownLine(
                             line.removePrefix("# "),
                             textColor,
-                            MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                            ds.sp(20f),
+                            FontWeight.Bold
                         )
 
                         line.startsWith("- ") || line.startsWith("* ") -> MarkdownLine(
                             "• ${line.drop(2)}",
                             textColor,
-                            MaterialTheme.typography.bodyMedium
+                            ds.sp(14f),
+                            FontWeight.Normal
                         )
 
-                        else -> MarkdownLine(line, textColor, MaterialTheme.typography.bodyMedium)
+                        else -> MarkdownLine(line, textColor, ds.sp(14f), FontWeight.Normal)
                     }
                 }
             }
@@ -131,11 +136,13 @@ private fun MarkdownBubbleText(
 private fun MarkdownLine(
     line: String,
     textColor: Color,
-    style: androidx.compose.ui.text.TextStyle,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontWeight: FontWeight,
 ) {
     Text(
         text = markdownInlineAnnotatedString(line, textColor),
-        style = style,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
         color = textColor
     )
 }

@@ -76,9 +76,9 @@ class RootComponentImpl(
         source = navigation,
         serializer = Config.serializer(),
         initialConfiguration = if (authRepository.hasValidToken()) {
-            if (authRepository.isConnectionFlagCached()) Config.AgentModel else Config.Home
+            if (authRepository.isConnectionFlagCached()) Config.AgentModel else Config.Home()
         } else if (isOnboardingSeen()) {
-            Config.Login
+            Config.Home()
         } else {
             Config.BrainBoxGuide(source = BrainBoxGuideSource.Initial)
         },
@@ -102,7 +102,7 @@ class RootComponentImpl(
                             if (connected) {
                                 navigation.replaceAll(Config.AgentModel)
                             } else {
-                                navigation.replaceAll(Config.Home)
+                                navigation.replaceAll(Config.Home())
                             }
                         }
                     }
@@ -121,7 +121,7 @@ class RootComponentImpl(
 //                }
 //            )
 
-            Config.Home -> RootComponent.Child.Home(
+            is Config.Home -> RootComponent.Child.Home(
                 component = object : HomeComponent {
                     override fun onLogout() {
                         balanceWsManager.stop()
@@ -156,6 +156,12 @@ class RootComponentImpl(
 
                     override fun onOpenNas() {
                         safePush(Config.Nas)
+                    }
+
+                    override val showBack: Boolean get() = config.showBack
+
+                    override fun onBack() {
+                        navigation.replaceAll(Config.AgentModel)
                     }
                 }
             )
@@ -203,10 +209,13 @@ class RootComponentImpl(
             Config.AgentModel -> RootComponent.Child.AgentModel(
                 component = object : AgentModelComponent {
                     override fun onBack() {
-                        navigation.replaceAll(Config.Home)
+                        navigation.replaceAll(Config.Home())
                     }
                     override fun onNavigateToNas() {
                         safePush(Config.Nas)
+                    }
+                    override fun onNavigateToHome() {
+                        navigation.replaceAll(Config.Home(showBack = true))
                     }
                     override fun onLogout() {
                         balanceWsManager.stop()
@@ -250,7 +259,7 @@ class RootComponentImpl(
 //        data object ForgotPassword : Config
 
         @Serializable
-        data object Home : Config
+        data class Home(val showBack: Boolean = false) : Config
 
         @Serializable
         data class BrainBoxGuide(val source: BrainBoxGuideSource) : Config

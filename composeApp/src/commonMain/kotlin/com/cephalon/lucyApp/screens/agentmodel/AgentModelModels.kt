@@ -26,6 +26,7 @@ internal sealed class ChatItem {
     data class UserAttachments(val text: String?, val attachments: List<DraftAttachment>) : ChatItem()
     data class System(val text: String) : ChatItem()
     data class RecordingItem(val id: String, val name: String, val path: String) : ChatItem()
+    data object SkillSuggestions : ChatItem()
 }
 
 internal data class ConversationItem(
@@ -59,6 +60,7 @@ private fun ChatItem.searchableText(): String {
         }
         is ChatItem.System -> text
         is ChatItem.RecordingItem -> "$name $path"
+        is ChatItem.SkillSuggestions -> "探索脑花的能力"
     }
 }
 

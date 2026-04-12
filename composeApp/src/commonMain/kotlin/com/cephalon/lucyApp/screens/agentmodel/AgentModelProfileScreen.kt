@@ -93,6 +93,7 @@ internal fun AgentModelProfileScreen(
     isVisible: Boolean,
     onDismiss: () -> Unit,
     onNavigateToNas: () -> Unit = {},
+    onNavigateToHome: () -> Unit = {},
     onLogout: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -104,6 +105,7 @@ internal fun AgentModelProfileScreen(
     var currentPage by remember { mutableStateOf(ProfilePage.Settings) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var wifiConfigDevice by remember { mutableStateOf<com.cephalon.lucyApp.api.LucyDevice?>(null) }
     var showFeedbackSuccessDialog by remember { mutableStateOf(false) }
     var cacheSizeBytes by remember { mutableStateOf(getAppCacheSize()) }
 
@@ -352,7 +354,11 @@ internal fun AgentModelProfileScreen(
                                 .padding(horizontal = 18.dp)
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            MyDevicesContent(authRepository = authRepository)
+                            MyDevicesContent(
+                                authRepository = authRepository,
+                                onAddNewDevice = onNavigateToHome,
+                                onConfigWifi = { wifiConfigDevice = it }
+                            )
                         }
                     }
                 }
@@ -450,6 +456,12 @@ internal fun AgentModelProfileScreen(
                 )
             }
         }
+
+        WifiConfigSheet(
+            isVisible = wifiConfigDevice != null,
+            device = wifiConfigDevice,
+            onDismiss = { wifiConfigDevice = null }
+        )
     } // Box
 }
 
@@ -1709,7 +1721,11 @@ private fun LogoutConfirmDialog(
 /* ───────── My Devices page ───────── */
 
 @Composable
-private fun MyDevicesContent(authRepository: AuthRepository) {
+private fun MyDevicesContent(
+    authRepository: AuthRepository,
+    onAddNewDevice: () -> Unit = {},
+    onConfigWifi: (com.cephalon.lucyApp.api.LucyDevice) -> Unit = {},
+) {
     var devices by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -1740,14 +1756,22 @@ private fun MyDevicesContent(authRepository: AuthRepository) {
 
     devices.forEachIndexed { index, device ->
         if (index > 0) Spacer(modifier = Modifier.height(16.dp))
-        DeviceCard(device = device)
+        DeviceCard(
+            device = device,
+            onAddNewDevice = onAddNewDevice,
+            onConfigWifi = { onConfigWifi(device) }
+        )
     }
 
     Spacer(modifier = Modifier.height(20.dp))
 }
 
 @Composable
-private fun DeviceCard(device: com.cephalon.lucyApp.api.LucyDevice) {
+private fun DeviceCard(
+    device: com.cephalon.lucyApp.api.LucyDevice,
+    onAddNewDevice: () -> Unit = {},
+    onConfigWifi: () -> Unit = {},
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -1857,14 +1881,14 @@ private fun DeviceCard(device: com.cephalon.lucyApp.api.LucyDevice) {
                 DeviceActionButton(
                     text = "添加新设备",
                     modifier = Modifier.weight(1f),
-                    onClick = { /* TODO: 添加新设备 */ }
+                    onClick = onAddNewDevice
                 )
             }
 
             DeviceActionButton(
                 text = "配置WIFI",
                 modifier = Modifier.fillMaxWidth(),
-                onClick = { /* TODO: 配置WIFI */ }
+                onClick = onConfigWifi
             )
         }
     }

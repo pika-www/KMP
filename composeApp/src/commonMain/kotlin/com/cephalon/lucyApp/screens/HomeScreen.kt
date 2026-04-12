@@ -35,6 +35,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.logo
@@ -80,6 +84,8 @@ private val accessCards = listOf(
 
 @Composable
 fun HomeScreen(
+    showBack: Boolean = false,
+    onBack: () -> Unit = {},
     onLogout: () -> Unit,
     onOpenSdkTest: () -> Unit,
     onOpenWsTest: () -> Unit,
@@ -101,6 +107,7 @@ fun HomeScreen(
         val ds = LocalDesignScale.current
         val currentPage = pagerState.currentPage
 
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -320,6 +327,23 @@ fun HomeScreen(
             )
 
             Spacer(modifier = Modifier.weight(1f))
+        }
+
+        if (showBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(start = ds.sw(4.dp), top = ds.sh(4.dp))
+                    .align(Alignment.TopStart)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    tint = Color(0xFF1F2535)
+                )
+            }
+        }
         }
     }
 }
