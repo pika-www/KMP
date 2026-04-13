@@ -410,7 +410,7 @@ fun AgentModelScreen(
             val imageAttachment = attachments.firstOrNull { it.type == DraftAttachmentType.Image }
             val outgoingText =
                 text.ifBlank {
-                    if (imageAttachment != null) "看看这张图" else "请基于我发送的附件内容，提炼重点并给出下一步建议。"
+                    if (imageAttachment != null) "" else ""
                 }
             val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
             appendMessageToConversation(
