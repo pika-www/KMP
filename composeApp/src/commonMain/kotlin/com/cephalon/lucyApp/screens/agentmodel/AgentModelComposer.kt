@@ -106,6 +106,19 @@ internal fun AgentModelComposer(
                 .border(1.dp, Color.White, boxShape)
                 .padding(ds.sm(12.dp))
         ) {
+            if (draftAttachments.isNotEmpty()) {
+                DraftAttachmentPreviewRow(
+                    attachments = draftAttachments,
+                    onRemoveAttachment = onRemoveDraftAttachment,
+                    onImageClick = onImageClick,
+                    onFileClick = onFileClick,
+                    playingRecordingId = playingRecordingId,
+                    onToggleRecordingPlayback = onToggleRecordingPlayback,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+            }
+
             // ── 输入框（无边框）──
             BasicTextField(
                 value = inputText,
@@ -137,19 +150,6 @@ internal fun AgentModelComposer(
                     }
                 }
             )
-
-            if (draftAttachments.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                DraftAttachmentPreviewRow(
-                    attachments = draftAttachments,
-                    onRemoveAttachment = onRemoveDraftAttachment,
-                    onImageClick = onImageClick,
-                    onFileClick = onFileClick,
-                    playingRecordingId = playingRecordingId,
-                    onToggleRecordingPlayback = onToggleRecordingPlayback,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
@@ -381,11 +381,11 @@ private fun DraftAttachmentPreviewRow(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(4.dp)
+                        .padding(top = 4.dp, end = 4.dp)
                         .size(20.dp)
                         .clickable { onRemoveAttachment(attachment) },
                     shape = RoundedCornerShape(999.dp),
-                    color = Color(0xB3000000)
+                    color = Color.White.copy(alpha = 0.40f)
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(

@@ -569,9 +569,8 @@ fun AgentModelScreen(
                         awaitEachGesture {
                             awaitFirstDown(pass = PointerEventPass.Initial)
                             val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                            if (up != null) {
+                            if (up != null && !attachmentsExpanded) {
                                 focusManager.clearFocus()
-                                attachmentsExpanded = false
                             }
                         }
                     }
@@ -754,35 +753,32 @@ fun AgentModelScreen(
                         onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) }
                     )
 
-                    if (attachmentsExpanded) {
-                        AgentModelAttachmentPanel(
-                            recentImages = mediaAccessController.recentImages,
-                            onOpenCamera = {
-                                appendMessageToConversation(selectedConversationId, ChatItem.System("打开相机"))
-                                mediaAccessController.openCamera()
-                            },
-                            onOpenGallery = {
-                                appendMessageToConversation(selectedConversationId, ChatItem.System("选择图片"))
-                                mediaAccessController.openGallery()
-                            },
-                            onOpenFilePicker = {
-                                appendMessageToConversation(selectedConversationId, ChatItem.System("选择系统文件"))
-                                mediaAccessController.openFilePicker()
-                            },
-                            onImageClick = { previewState = it },
-                            onRecentImageSelect = { uri ->
+                
+                }
+
+                if (attachmentsExpanded) {
+                    AgentModelAttachmentPanel(
+                        recentImages = mediaAccessController.recentImages,
+                        onOpenCamera = {
+                            mediaAccessController.openCamera()
+                            attachmentsExpanded = false
+                        },
+                        onOpenFilePicker = {
+                            mediaAccessController.openFilePicker()
+                            attachmentsExpanded = false
+                        },
+                        onImagesSelected = { uris ->
+                            uris.forEach { uri ->
                                 if (uri.isNotBlank() && draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }) {
                                     draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
                                     startImageUpload(uri)
                                 }
-                                attachmentsExpanded = false
-                            },
-                            onClearLogs = {
-                                logs.clear()
-                                appendMessageToConversation(selectedConversationId, ChatItem.System("已清空记录"))
                             }
-                        )
-                    }
+                            attachmentsExpanded = false
+                        },
+                        onDismiss = { attachmentsExpanded = false },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 AgentModelProfileScreen(

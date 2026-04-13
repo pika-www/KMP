@@ -127,9 +127,10 @@ internal fun AgentModelMessageList(
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         val imageCellSize = ((bubbleMaxWidth - 28.dp - 8.dp) / 2).coerceAtMost(132.dp)
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
+                        Surface(
+                            shape = RoundedCornerShape(ds.sm(16.dp)),
+                            color = Color.White,
+                            border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
                             modifier = Modifier
                                 .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
@@ -137,15 +138,17 @@ internal fun AgentModelMessageList(
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp)),
+                                verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
                             ) {
                                 val messageText = item.text
                                 if (!messageText.isNullOrBlank()) {
                                     Text(
                                         text = messageText,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.White
+                                        fontSize = ds.sp(14f),
+                                        fontWeight = FontWeight.Normal,
+                                        lineHeight = ds.sp(20f),
+                                        color = Color(0xFF1F2535)
                                     )
                                 }
 
@@ -156,11 +159,11 @@ internal fun AgentModelMessageList(
                                 if (images.isNotEmpty()) {
                                     val imageUris = images.map { it.uri }
                                     Column(
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
                                     ) {
                                         images.chunked(2).forEachIndexed { rowIndex, rowImages ->
                                             Row(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
                                             ) {
                                                 ImageAttachmentCell(
                                                     attachment = rowImages.getOrNull(0),
@@ -193,33 +196,33 @@ internal fun AgentModelMessageList(
                                     }
                                 }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
                                     files.forEach { attachment ->
                                         Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFF2B2B2B),
-                                            border = BorderStroke(1.dp, Color(0xFF3A3A3A)),
+                                            shape = RoundedCornerShape(ds.sm(12.dp)),
+                                            color = Color(0xFFF5F5F5),
+                                            border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
                                             modifier = Modifier.clickable { onFileClick(attachment.asPickedFile()) }
                                         ) {
                                             Column(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
+                                                verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
                                             ) {
                                                 Surface(
                                                     shape = RoundedCornerShape(999.dp),
-                                                    color = Color.White.copy(alpha = 0.12f)
+                                                    color = Color(0xFF111111)
                                                 ) {
                                                     Text(
                                                         text = attachment.fileExtensionLabel(),
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = Color.White,
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                        modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
                                                     )
                                                 }
                                                 Text(
                                                     text = attachment.displayName(),
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Color.White,
+                                                    color = Color(0xFF111111),
                                                     maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -230,19 +233,19 @@ internal fun AgentModelMessageList(
                                     audios.forEach { attachment ->
                                         val recording = attachment.asAudioRecording()
                                         Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = Color(0xFF2B2B2B),
-                                            border = BorderStroke(1.dp, Color(0xFF3A3A3A))
+                                            shape = RoundedCornerShape(ds.sm(12.dp)),
+                                            color = Color(0xFFF5F5F5),
+                                            border = BorderStroke(1.dp, Color(0xFFE7E7E7))
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                                modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
                                             ) {
                                                 Surface(
                                                     shape = RoundedCornerShape(999.dp),
-                                                    color = Color.White.copy(alpha = 0.12f),
-                                                    modifier = Modifier.size(32.dp)
+                                                    color = Color(0xFF111111),
+                                                    modifier = Modifier.size(ds.sm(32.dp))
                                                 ) {
                                                     Box(
                                                         modifier = Modifier
@@ -262,12 +265,12 @@ internal fun AgentModelMessageList(
                                                     Text(
                                                         text = "语音",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = Color(0xFFBBBBBB)
+                                                        color = Color(0xFF8A8A8A)
                                                     )
                                                     Text(
                                                         text = recording.name,
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = Color.White,
+                                                        color = Color(0xFF111111),
                                                         maxLines = 2,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
