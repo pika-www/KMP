@@ -232,17 +232,24 @@ actual fun rememberPlatformMediaAccessController(
             null
         }?.also { recognizer ->
             recognizer.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onReadyForSpeech(params: Bundle?) {
+                    android.util.Log.d("VoiceInput", "Google onReadyForSpeech")
+                }
 
-                override fun onBeginningOfSpeech() = Unit
+                override fun onBeginningOfSpeech() {
+                    android.util.Log.d("VoiceInput", "Google onBeginningOfSpeech")
+                }
 
                 override fun onRmsChanged(rmsdB: Float) = Unit
 
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-                override fun onEndOfSpeech() = Unit
+                override fun onEndOfSpeech() {
+                    android.util.Log.d("VoiceInput", "Google onEndOfSpeech")
+                }
 
                 override fun onError(error: Int) {
+                    android.util.Log.e("VoiceInput", "Google onError code=$error")
                     when (voiceSessionAction) {
                         AndroidVoiceSessionAction.Cancelling -> resetVoiceSession()
                         AndroidVoiceSessionAction.Finishing -> {
@@ -265,6 +272,7 @@ actual fun rememberPlatformMediaAccessController(
 
                 override fun onResults(results: Bundle?) {
                     val resultText = extractSpeechText(results).ifBlank { latestVoiceText }.trim()
+                    android.util.Log.d("VoiceInput", "Google onResults: '$resultText'")
                     when (voiceSessionAction) {
                         AndroidVoiceSessionAction.Finishing -> dispatchVoiceResult(resultText)
                         AndroidVoiceSessionAction.Active -> {
@@ -281,7 +289,9 @@ actual fun rememberPlatformMediaAccessController(
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
-                    latestVoiceText = extractSpeechText(partialResults)
+                    val text = extractSpeechText(partialResults)
+                    android.util.Log.d("VoiceInput", "Google onPartialResults: '$text'")
+                    latestVoiceText = text
                 }
 
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -369,29 +379,16 @@ actual fun rememberPlatformMediaAccessController(
         voiceSessionAction = AndroidVoiceSessionAction.Active
         isRecording = true
 
-        val googleRecognizer = ensureSpeechRecognizer()
-        android.util.Log.d("VoiceInput", "beginVoiceSession: google=${googleRecognizer != null}, vosk=${voskModel != null}")
-        if (googleRecognizer != null) {
-            configureVoiceInputRoute()
-            val recordingResult = startAndroidRecording(context)
-            mediaRecorder = recordingResult.recorder
-            currentRecordingFile = recordingResult.file
-            if (recordingResult.recorder == null) {
-                restoreVoiceInputRoute()
-                resetVoiceSession()
-                currentOnEvent.value(recordingResult.message)
-                return
-            }
-            try {
-                googleRecognizer.startListening(buildSpeechRecognizerIntent())
-            } catch (_: Throwable) { }
-        } else if (voskModel != null) {
+        android.util.Log.d("VoiceInput", "beginVoiceSession: vosk=${voskModel != null}")
+        if (voskModel != null) {
+            android.util.Log.d("VoiceInput", "beginVoiceSession: 使用 VOSK 离线识别")
             if (!startVoskRecognition()) {
                 resetVoiceSession()
                 currentOnEvent.value("语音识别启动失败。")
                 return
             }
         } else {
+            android.util.Log.d("VoiceInput", "beginVoiceSession: VOSK 模型未就绪，仅录音")
             configureVoiceInputRoute()
             val recordingResult = startAndroidRecording(context)
             mediaRecorder = recordingResult.recorder
@@ -836,17 +833,8 @@ actual fun rememberPlatformMediaAccessController(
                 latestVoiceRecording = null
                 voiceResultCallback = onResult
                 voiceSessionAction = AndroidVoiceSessionAction.Finishing
-                val googleRecognizer = speechRecognizer
                 val vosk = voskService
-                if (googleRecognizer != null) {
-                    try {
-                        googleRecognizer.stopListening()
-                        currentOnEvent.value("正在进行语音转文字。")
-                    } catch (error: Throwable) {
-                        currentOnEvent.value("语音转文字失败: ${error.message.orEmpty()}")
-                        dispatchVoiceResult(latestVoiceText.trim())
-                    }
-                } else if (vosk != null) {
+                if (vosk != null) {
                     currentOnEvent.value("正在进行语音转文字。")
                     if (!stopVoskRecognition()) {
                         dispatchVoiceResult(latestVoiceText.trim())
@@ -1185,6 +1173,7 @@ private fun copyAssetDir(assets: AssetManager, srcDir: String, targetDir: File) 
 private fun downloadVoskModel(context: Context, targetDir: File) {
     val zipFile = File(context.cacheDir, "vosk-model-cn.zip")
     try {
+        android.util.Log.d("VoiceInput", "开始下载 VOSK 模型...")
         val connection = URL("https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip").openConnection()
         connection.connectTimeout = 15_000
         connection.readTimeout = 120_000
@@ -1193,6 +1182,7 @@ private fun downloadVoskModel(context: Context, targetDir: File) {
                 input.copyTo(output)
             }
         }
+        android.util.Log.d("VoiceInput", "VOSK 模型下载完成, 文件大小=${zipFile.length()} bytes, 开始解压...")
         targetDir.mkdirs()
         ZipInputStream(zipFile.inputStream()).use { zip ->
             var entry = zip.nextEntry
