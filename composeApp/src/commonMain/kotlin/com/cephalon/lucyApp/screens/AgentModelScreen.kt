@@ -73,6 +73,8 @@ import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachmentType
 import com.cephalon.lucyApp.screens.agentmodel.ImagePreviewState
+import com.cephalon.lucyApp.screens.agentmodel.ImageUploadState
+import com.cephalon.lucyApp.screens.agentmodel.uriDisplayName
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
 import com.cephalon.lucyApp.screens.agentmodel.displayName
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelAttachmentPanel
@@ -278,6 +280,38 @@ fun AgentModelScreen(
     var isVoiceBusy by remember { mutableStateOf(false) }
     var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
     val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
+    val imageUploadStates = remember { mutableStateMapOf<String, ImageUploadState>() }
+
+    fun startImageUpload(uri: String, displayName: String? = null) {
+        if (imageUploadStates[uri] is ImageUploadState.Success) return
+        imageUploadStates[uri] = ImageUploadState.Uploading
+        coroutineScope.launch {
+            val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
+            if (connectResult.isFailure) {
+                imageUploadStates[uri] = ImageUploadState.Failed("连接失败")
+                return@launch
+            }
+            val imageBytes = mediaAccessController.readUriToBytes(uri)
+            if (imageBytes == null) {
+                imageUploadStates[uri] = ImageUploadState.Failed("读取图片失败")
+                return@launch
+            }
+            val fileName = displayName?.trim()?.takeIf { it.isNotBlank() }
+                ?: uriDisplayName(uri).ifBlank { "image.jpg" }
+            val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
+            uploadResult.onSuccess { putResult ->
+                imageUploadStates[uri] = ImageUploadState.Success(
+                    blobRef = putResult.blobRef,
+                    contentType = inferImageContentType(fileName),
+                    size = imageBytes.size.toLong(),
+                    fileName = fileName,
+                )
+            }
+            uploadResult.onFailure { error ->
+                imageUploadStates[uri] = ImageUploadState.Failed(error.message ?: "上传失败")
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         sdkSessionManager.connectIfTokenValid()
@@ -353,6 +387,7 @@ fun AgentModelScreen(
                         draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }
                     ) {
                         draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
+                        startImageUpload(uri)
                     }
                 }
             if (size > lastPickedImagesSize) {
@@ -429,35 +464,54 @@ fun AgentModelScreen(
                 }
 
                 val sendResult = if (imageAttachment != null) {
-                    val imageBytes = mediaAccessController.readUriToBytes(imageAttachment.uri)
-                    if (imageBytes == null) {
-                        removeAssistantPlaceholderInConversation(targetConversationId)
-                        appendMessageToConversation(
-                            targetConversationId,
-                            ChatItem.System("读取图片失败，无法发送")
-                        )
-                        return@launch
+                    // 等待预上传完成
+                    var uploadState = imageUploadStates[imageAttachment.uri]
+                    while (uploadState is ImageUploadState.Uploading) {
+                        delay(100)
+                        uploadState = imageUploadStates[imageAttachment.uri]
                     }
-                    val fileName = imageAttachment.displayName()
-                    val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
-                    if (uploadResult.isFailure) {
-                        removeAssistantPlaceholderInConversation(targetConversationId)
-                        appendMessageToConversation(
-                            targetConversationId,
-                            ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
+
+                    if (uploadState is ImageUploadState.Success) {
+                        sdkSessionManager.publishTextWithImageToNpc(
+                            cdi = targetCdi,
+                            text = outgoingText,
+                            blobRef = uploadState.blobRef,
+                            contentType = uploadState.contentType,
+                            size = uploadState.size,
+                            fileName = uploadState.fileName,
                         )
-                        return@launch
+                    } else {
+                        // 预上传失败或未开始，回退到发送时上传
+                        val imageBytes = mediaAccessController.readUriToBytes(imageAttachment.uri)
+                        if (imageBytes == null) {
+                            removeAssistantPlaceholderInConversation(targetConversationId)
+                            appendMessageToConversation(
+                                targetConversationId,
+                                ChatItem.System("读取图片失败，无法发送")
+                            )
+                            return@launch
+                        }
+                        val fileName = imageAttachment.displayName()
+                        val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
+                        if (uploadResult.isFailure) {
+                            removeAssistantPlaceholderInConversation(targetConversationId)
+                            appendMessageToConversation(
+                                targetConversationId,
+                                ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
+                            )
+                            return@launch
+                        }
+                        val putResult = uploadResult.getOrThrow()
+                        val contentType = inferImageContentType(fileName)
+                        sdkSessionManager.publishTextWithImageToNpc(
+                            cdi = targetCdi,
+                            text = outgoingText,
+                            blobRef = putResult.blobRef,
+                            contentType = contentType,
+                            size = imageBytes.size.toLong(),
+                            fileName = fileName,
+                        )
                     }
-                    val putResult = uploadResult.getOrThrow()
-                    val contentType = inferImageContentType(fileName)
-                    sdkSessionManager.publishTextWithImageToNpc(
-                        cdi = targetCdi,
-                        text = outgoingText,
-                        blobRef = putResult.blobRef,
-                        contentType = contentType,
-                        size = imageBytes.size.toLong(),
-                        fileName = fileName,
-                    )
                 } else {
                     sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)
                 }
@@ -491,6 +545,11 @@ fun AgentModelScreen(
 
             inputText = ""
             attachmentsExpanded = false
+            attachments.forEach { att ->
+                if (att.type == DraftAttachmentType.Image) {
+                    imageUploadStates.remove(att.uri)
+                }
+            }
         }
     }
 
@@ -660,7 +719,12 @@ fun AgentModelScreen(
                             if (attachmentsExpanded) attachmentsExpanded = false
                         },
                         draftAttachments = draftAttachments,
-                        onRemoveDraftAttachment = { draftAttachments.remove(it) },
+                        onRemoveDraftAttachment = { att ->
+                            draftAttachments.remove(att)
+                            if (att.type == DraftAttachmentType.Image) {
+                                imageUploadStates.remove(att.uri)
+                            }
+                        },
                         onImageClick = { previewState = it },
                         onFileClick = { mediaAccessController.openFilePreview(it.asPickedFile()) },
                         playingRecordingId = mediaAccessController.playingRecordingId,
@@ -709,6 +773,7 @@ fun AgentModelScreen(
                             onRecentImageSelect = { uri ->
                                 if (uri.isNotBlank() && draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }) {
                                     draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
+                                    startImageUpload(uri)
                                 }
                                 attachmentsExpanded = false
                             },

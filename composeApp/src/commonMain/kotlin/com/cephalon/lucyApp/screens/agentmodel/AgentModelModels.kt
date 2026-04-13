@@ -3,6 +3,17 @@ package com.cephalon.lucyApp.screens.agentmodel
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 
+internal sealed class ImageUploadState {
+    data object Uploading : ImageUploadState()
+    data class Success(
+        val blobRef: String,
+        val contentType: String,
+        val size: Long,
+        val fileName: String,
+    ) : ImageUploadState()
+    data class Failed(val error: String) : ImageUploadState()
+}
+
 internal enum class DraftAttachmentType {
     Image,
     File,
