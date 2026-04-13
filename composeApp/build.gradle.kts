@@ -103,6 +103,7 @@ kotlin {
                 implementation("androidx.camera:camera-lifecycle:1.3.3")
                 implementation("androidx.camera:camera-view:1.3.3")
                 implementation("com.google.mlkit:barcode-scanning:17.2.0")
+                implementation("com.alphacephei:vosk-android:0.3.47")
             }
         }
 

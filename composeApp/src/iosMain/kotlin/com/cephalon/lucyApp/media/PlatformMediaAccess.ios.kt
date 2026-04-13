@@ -83,6 +83,7 @@ import platform.Speech.SFSpeechRecognizer
 import platform.Speech.SFSpeechURLRecognitionRequest
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import platform.Foundation.dataWithContentsOfURL
+import platform.Speech.SFSpeechRecognizerAuthorizationStatus
 
 private object IOSPickerDelegateStore {
     private val delegates = mutableListOf<Any>()
@@ -202,7 +203,7 @@ actual fun rememberPlatformMediaAccessController(
     fun requestSpeechAuthorization(onResult: (Boolean) -> Unit) {
         SFSpeechRecognizer.requestAuthorization { status ->
             dispatch_async(dispatch_get_main_queue()) {
-                onResult(status.toString().contains("Authorized", ignoreCase = true))
+                onResult(status == SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusAuthorized)
             }
         }
     }

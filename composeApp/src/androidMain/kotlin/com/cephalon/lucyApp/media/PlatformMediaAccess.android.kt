@@ -41,6 +41,13 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import android.content.res.AssetManager
+import org.vosk.Model as VoskModel
+import org.vosk.Recognizer as VoskRecognizer
+import org.vosk.android.SpeechService as VoskSpeechService
+import org.vosk.android.RecognitionListener as VoskRecognitionListener
+import java.util.zip.ZipInputStream
+import java.net.URL
 
 private class AndroidPlatformMediaAccessController(
     override val isRecording: Boolean,
@@ -123,6 +130,10 @@ actual fun rememberPlatformMediaAccessController(
     var previousAudioMode by remember { mutableStateOf(AudioManager.MODE_NORMAL) }
     var previousSpeakerphoneOn by remember { mutableStateOf(false) }
     var bluetoothScoStarted by remember { mutableStateOf(false) }
+    var speechRecognizerRetryCount by remember { mutableStateOf(0) }
+    var voskModel by remember { mutableStateOf<VoskModel?>(null) }
+    var voskService by remember { mutableStateOf<VoskSpeechService?>(null) }
+    var voskAccumulatedText by remember { mutableStateOf("") }
 
     fun configureVoiceInputRoute() {
         audioManager ?: return
@@ -186,6 +197,7 @@ actual fun rememberPlatformMediaAccessController(
     fun resetVoiceSession() {
         isRecording = false
         latestVoiceText = ""
+        voskAccumulatedText = ""
         voiceResultCallback = null
         latestVoiceRecording = null
         voiceSessionAction = AndroidVoiceSessionAction.Idle
@@ -211,11 +223,14 @@ actual fun rememberPlatformMediaAccessController(
 
     fun ensureSpeechRecognizer(): SpeechRecognizer? {
         speechRecognizer?.let { return it }
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            currentOnEvent.value("当前设备不支持语音转文字。")
-            return null
-        }
-        return SpeechRecognizer.createSpeechRecognizer(context).also { recognizer ->
+        val available = SpeechRecognizer.isRecognitionAvailable(context)
+        android.util.Log.d("VoiceInput", "Google SpeechRecognizer available=$available")
+        if (!available) return null
+        return try {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        } catch (e: Throwable) {
+            null
+        }?.also { recognizer ->
             recognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = Unit
 
@@ -235,9 +250,14 @@ actual fun rememberPlatformMediaAccessController(
                             dispatchVoiceResult(fallbackText)
                         }
                         AndroidVoiceSessionAction.Active -> {
-                            discardCurrentRecording()
-                            resetVoiceSession()
-                            currentOnEvent.value("语音输入中断，请重试。")
+                            speechRecognizerRetryCount++
+                            if (speechRecognizerRetryCount <= 5) {
+                                try {
+                                    speechRecognizer?.startListening(buildSpeechRecognizerIntent())
+                                } catch (_: Throwable) {
+                                    currentOnEvent.value("语音识别暂时中断，录音继续中。")
+                                }
+                            }
                         }
                         AndroidVoiceSessionAction.Idle -> Unit
                     }
@@ -245,10 +265,18 @@ actual fun rememberPlatformMediaAccessController(
 
                 override fun onResults(results: Bundle?) {
                     val resultText = extractSpeechText(results).ifBlank { latestVoiceText }.trim()
-                    if (voiceSessionAction == AndroidVoiceSessionAction.Finishing) {
-                        dispatchVoiceResult(resultText)
-                    } else {
-                        resetVoiceSession()
+                    when (voiceSessionAction) {
+                        AndroidVoiceSessionAction.Finishing -> dispatchVoiceResult(resultText)
+                        AndroidVoiceSessionAction.Active -> {
+                            speechRecognizerRetryCount = 0
+                            if (resultText.isNotBlank()) latestVoiceText = resultText
+                            try {
+                                speechRecognizer?.startListening(buildSpeechRecognizerIntent())
+                            } catch (_: Throwable) {
+                                currentOnEvent.value("语音识别暂时中断，录音继续中。")
+                            }
+                        }
+                        else -> resetVoiceSession()
                     }
                 }
 
@@ -260,6 +288,122 @@ actual fun rememberPlatformMediaAccessController(
             })
             speechRecognizer = recognizer
         }
+    }
+
+    fun startVoskRecognition(): Boolean {
+        val model = voskModel ?: run {
+            android.util.Log.w("VoiceInput", "startVoskRecognition: model is null")
+            return false
+        }
+        android.util.Log.d("VoiceInput", "startVoskRecognition: creating recognizer...")
+        return try {
+            val rec = VoskRecognizer(model, 16000.0f)
+            val service = VoskSpeechService(rec, 16000.0f)
+            voskAccumulatedText = ""
+            service.startListening(object : VoskRecognitionListener {
+                override fun onPartialResult(hypothesis: String?) {
+                    val text = parseVoskJson(hypothesis, "partial")
+                    if (text.isNotBlank()) {
+                        latestVoiceText = if (voskAccumulatedText.isBlank()) text
+                            else "$voskAccumulatedText $text"
+                    }
+                }
+                override fun onResult(hypothesis: String?) {
+                    val text = parseVoskJson(hypothesis, "text")
+                    if (text.isNotBlank()) {
+                        voskAccumulatedText = if (voskAccumulatedText.isBlank()) text
+                            else "$voskAccumulatedText $text"
+                        latestVoiceText = voskAccumulatedText
+                    }
+                }
+                override fun onFinalResult(hypothesis: String?) {
+                    val text = parseVoskJson(hypothesis, "text")
+                    if (text.isNotBlank()) {
+                        voskAccumulatedText = if (voskAccumulatedText.isBlank()) text
+                            else "$voskAccumulatedText $text"
+                        latestVoiceText = voskAccumulatedText
+                    }
+                    if (voiceSessionAction == AndroidVoiceSessionAction.Finishing) {
+                        dispatchVoiceResult(latestVoiceText.trim())
+                    }
+                }
+                override fun onError(exception: Exception?) {
+                    if (voiceSessionAction == AndroidVoiceSessionAction.Finishing) {
+                        dispatchVoiceResult(latestVoiceText.trim())
+                    }
+                }
+                override fun onTimeout() {
+                    if (voiceSessionAction == AndroidVoiceSessionAction.Finishing) {
+                        dispatchVoiceResult(latestVoiceText.trim())
+                    }
+                }
+            })
+            voskService = service
+            android.util.Log.d("VoiceInput", "startVoskRecognition: started successfully")
+            true
+        } catch (e: Throwable) {
+            android.util.Log.e("VoiceInput", "startVoskRecognition failed", e)
+            currentOnEvent.value("VOSK语音识别启动失败: ${e.message.orEmpty()}")
+            false
+        }
+    }
+
+    fun stopVoskRecognition(): Boolean {
+        val service = voskService
+        voskService = null
+        if (service == null) return false
+        return try { service.stop() } catch (_: Throwable) { false }
+    }
+
+    fun cancelVoskRecognition() {
+        try { voskService?.cancel() } catch (_: Throwable) {}
+        voskService = null
+    }
+
+    fun beginVoiceSession() {
+        latestVoiceText = ""
+        latestVoiceRecording = null
+        voiceResultCallback = null
+        speechRecognizerRetryCount = 0
+        voskAccumulatedText = ""
+        voiceSessionAction = AndroidVoiceSessionAction.Active
+        isRecording = true
+
+        val googleRecognizer = ensureSpeechRecognizer()
+        android.util.Log.d("VoiceInput", "beginVoiceSession: google=${googleRecognizer != null}, vosk=${voskModel != null}")
+        if (googleRecognizer != null) {
+            configureVoiceInputRoute()
+            val recordingResult = startAndroidRecording(context)
+            mediaRecorder = recordingResult.recorder
+            currentRecordingFile = recordingResult.file
+            if (recordingResult.recorder == null) {
+                restoreVoiceInputRoute()
+                resetVoiceSession()
+                currentOnEvent.value(recordingResult.message)
+                return
+            }
+            try {
+                googleRecognizer.startListening(buildSpeechRecognizerIntent())
+            } catch (_: Throwable) { }
+        } else if (voskModel != null) {
+            if (!startVoskRecognition()) {
+                resetVoiceSession()
+                currentOnEvent.value("语音识别启动失败。")
+                return
+            }
+        } else {
+            configureVoiceInputRoute()
+            val recordingResult = startAndroidRecording(context)
+            mediaRecorder = recordingResult.recorder
+            currentRecordingFile = recordingResult.file
+            if (recordingResult.recorder == null) {
+                restoreVoiceInputRoute()
+                resetVoiceSession()
+                currentOnEvent.value(recordingResult.message)
+                return
+            }
+        }
+        currentOnEvent.value("语音输入已开始。")
     }
 
     fun resetAudioPlaybackState() {
@@ -367,6 +511,8 @@ actual fun rememberPlatformMediaAccessController(
             restoreVoiceInputRoute()
             stopAndroidRecording(mediaRecorder)
             mediaRecorder = null
+            cancelVoskRecognition()
+            try { voskModel?.close() } catch (_: Throwable) {}
             stopAudioPlayback()
         }
     }
@@ -377,6 +523,39 @@ actual fun rememberPlatformMediaAccessController(
             if (audioPlaybackState.sourceId == null) break
             updateAudioPlaybackSnapshot(player)
             delay(250L)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val model = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val modelDir = File(context.filesDir, "vosk-model-cn")
+                if (!modelDir.exists() || modelDir.listFiles().isNullOrEmpty()) {
+                    val assetFiles = try { context.assets.list("vosk-model-cn") } catch (_: Throwable) { null }
+                    if (!assetFiles.isNullOrEmpty()) {
+                        copyAssetDir(context.assets, "vosk-model-cn", modelDir)
+                    } else {
+                        downloadVoskModel(context, modelDir)
+                    }
+                }
+                if (modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true) {
+                    android.util.Log.d("VoiceInput", "Loading VOSK model from ${modelDir.absolutePath}")
+                    VoskModel(modelDir.absolutePath)
+                } else {
+                    android.util.Log.w("VoiceInput", "VOSK model dir missing or empty: ${modelDir.absolutePath}")
+                    null
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("VoiceInput", "VOSK model load error", e)
+                null
+            }
+        }
+        voskModel = model
+        android.util.Log.d("VoiceInput", "VOSK model loaded=${model != null}")
+        if (model != null) {
+            currentOnEvent.value("VOSK语音模型已加载，可用于离线语音识别。")
+        } else {
+            currentOnEvent.value("VOSK语音模型未就绪，语音转文字可能不可用。")
         }
     }
 
@@ -476,30 +655,12 @@ actual fun rememberPlatformMediaAccessController(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            val recognizer = ensureSpeechRecognizer()
-            if (recognizer != null) {
-                try {
-                    configureVoiceInputRoute()
-                    val recordingResult = startAndroidRecording(context)
-                    mediaRecorder = recordingResult.recorder
-                    currentRecordingFile = recordingResult.file
-                    if (recordingResult.recorder == null) {
-                        restoreVoiceInputRoute()
-                        currentOnEvent.value(recordingResult.message)
-                    } else {
-                        latestVoiceText = ""
-                        latestVoiceRecording = null
-                        voiceResultCallback = null
-                        voiceSessionAction = AndroidVoiceSessionAction.Active
-                        isRecording = true
-                        recognizer.startListening(buildSpeechRecognizerIntent())
-                        currentOnEvent.value("语音输入已开始。")
-                    }
-                } catch (error: Throwable) {
-                    discardCurrentRecording()
-                    resetVoiceSession()
-                    currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
-                }
+            try {
+                beginVoiceSession()
+            } catch (error: Throwable) {
+                discardCurrentRecording()
+                resetVoiceSession()
+                currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
             }
         } else {
             currentOnEvent.value("麦克风权限被拒绝，无法开始语音输入。")
@@ -656,30 +817,12 @@ actual fun rememberPlatformMediaAccessController(
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
                 if (granted) {
-                    val recognizer = ensureSpeechRecognizer()
-                    if (recognizer != null) {
-                        try {
-                            configureVoiceInputRoute()
-                            val recordingResult = startAndroidRecording(context)
-                            mediaRecorder = recordingResult.recorder
-                            currentRecordingFile = recordingResult.file
-                            if (recordingResult.recorder == null) {
-                                restoreVoiceInputRoute()
-                                currentOnEvent.value(recordingResult.message)
-                            } else {
-                                latestVoiceText = ""
-                                latestVoiceRecording = null
-                                voiceResultCallback = null
-                                voiceSessionAction = AndroidVoiceSessionAction.Active
-                                isRecording = true
-                                recognizer.startListening(buildSpeechRecognizerIntent())
-                                currentOnEvent.value("语音输入已开始。")
-                            }
-                        } catch (error: Throwable) {
-                            discardCurrentRecording()
-                            resetVoiceSession()
-                            currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
-                        }
+                    try {
+                        beginVoiceSession()
+                    } catch (error: Throwable) {
+                        discardCurrentRecording()
+                        resetVoiceSession()
+                        currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
                     }
                 } else {
                     currentOnEvent.value("正在申请麦克风权限。")
@@ -693,11 +836,22 @@ actual fun rememberPlatformMediaAccessController(
                 latestVoiceRecording = null
                 voiceResultCallback = onResult
                 voiceSessionAction = AndroidVoiceSessionAction.Finishing
-                try {
-                    speechRecognizer?.stopListening()
+                val googleRecognizer = speechRecognizer
+                val vosk = voskService
+                if (googleRecognizer != null) {
+                    try {
+                        googleRecognizer.stopListening()
+                        currentOnEvent.value("正在进行语音转文字。")
+                    } catch (error: Throwable) {
+                        currentOnEvent.value("语音转文字失败: ${error.message.orEmpty()}")
+                        dispatchVoiceResult(latestVoiceText.trim())
+                    }
+                } else if (vosk != null) {
                     currentOnEvent.value("正在进行语音转文字。")
-                } catch (error: Throwable) {
-                    currentOnEvent.value("语音转文字失败: ${error.message.orEmpty()}")
+                    if (!stopVoskRecognition()) {
+                        dispatchVoiceResult(latestVoiceText.trim())
+                    }
+                } else {
                     dispatchVoiceResult(latestVoiceText.trim())
                 }
             },
@@ -712,6 +866,7 @@ actual fun rememberPlatformMediaAccessController(
                     speechRecognizer?.cancel()
                 } catch (_: Throwable) {
                 }
+                cancelVoskRecognition()
                 resetVoiceSession()
                 currentOnEvent.value("已取消语音输入")
             },
@@ -822,6 +977,9 @@ private fun buildSpeechRecognizerIntent(): Intent {
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 60_000L)
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 30_000L)
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 60_000L)
     }
 }
 
@@ -931,7 +1089,7 @@ private fun startAndroidRecording(context: Context): AndroidRecordingResult {
         }
 
         recorder.apply {
-            setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            setAudioSource(MediaRecorder.AudioSource.MIC)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setAudioEncodingBitRate(128000)
@@ -1003,4 +1161,70 @@ private fun Context.findActivity(): ComponentActivity? {
         current = current.baseContext
     }
     return current as? ComponentActivity
+}
+
+private fun copyAssetDir(assets: AssetManager, srcDir: String, targetDir: File) {
+    val files = assets.list(srcDir) ?: return
+    targetDir.mkdirs()
+    for (file in files) {
+        val srcPath = "$srcDir/$file"
+        val target = File(targetDir, file)
+        val subFiles = assets.list(srcPath)
+        if (subFiles != null && subFiles.isNotEmpty()) {
+            copyAssetDir(assets, srcPath, target)
+        } else {
+            assets.open(srcPath).use { input ->
+                target.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        }
+    }
+}
+
+private fun downloadVoskModel(context: Context, targetDir: File) {
+    val zipFile = File(context.cacheDir, "vosk-model-cn.zip")
+    try {
+        val connection = URL("https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip").openConnection()
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 120_000
+        connection.getInputStream().use { input ->
+            zipFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        targetDir.mkdirs()
+        ZipInputStream(zipFile.inputStream()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                val name = entry.name
+                val slashIndex = name.indexOf('/')
+                val relativeName = if (slashIndex >= 0) name.substring(slashIndex + 1) else name
+                if (relativeName.isNotEmpty()) {
+                    val file = File(targetDir, relativeName)
+                    if (entry.isDirectory) {
+                        file.mkdirs()
+                    } else {
+                        file.parentFile?.mkdirs()
+                        file.outputStream().use { out ->
+                            zip.copyTo(out)
+                        }
+                    }
+                }
+                entry = zip.nextEntry
+            }
+        }
+    } finally {
+        zipFile.delete()
+    }
+}
+
+private fun parseVoskJson(json: String?, key: String): String {
+    if (json.isNullOrBlank()) return ""
+    return try {
+        val pattern = """"$key"\s*:\s*"((?:[^"\\]|\\.)*)""""
+        pattern.toRegex().find(json)?.groupValues?.getOrNull(1) ?: ""
+    } catch (_: Throwable) {
+        ""
+    }
 }
