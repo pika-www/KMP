@@ -63,6 +63,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var verifyCode by remember { mutableStateOf("") }
+    var registerPhone by remember { mutableStateOf("") }
     val toastState = rememberToastState()
     var isLoading by remember { mutableStateOf(false) }
 
@@ -77,52 +78,160 @@ fun LoginScreen(
     var sheetTitle by remember { mutableStateOf("Welcome to Lucy") }
 
 
-    // 3. 登录逻辑封装：接通拦截器与接口请求
+    // 3. 登录逻辑封装
     val performLogin: () -> Unit = {
-        if (username.isBlank() || password.isBlank()) {
-            toastState.show("请输入用户名和密码")
-        } else {
-            keyboardController?.hide()
-            isLoading = true
+        keyboardController?.hide()
 
-            scope.launch {
-                val rawAccount = AuthInput.normalizeAccount(username)
-                val normalizedEmail = rawAccount.takeIf {
-                    Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matches(it)
-                }
-                val normalizedPhone = rawAccount
-                    .replace(" ", "")
-                    .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
-                    .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
-                    .takeIf { Regex("^1\\d{10}$").matches(it) }
-
-                val isEmail = normalizedEmail != null
-                val account = normalizedEmail ?: normalizedPhone
-                if (account == null) {
+        if (!preferEmailLogin && sheetPage == SheetPage.Login) {
+            // ===== 验证码登录 =====
+            val phone = username.trim()
+            if (phone.length != 11 || !Regex("^1\\d{10}$").matches(phone)) {
+                toastState.show("请输入正确的11位手机号")
+            } else if (verifyCode.isBlank()) {
+                toastState.show("请输入验证码")
+            } else if (needsRegister && (password.isBlank() || confirmPassword.isBlank())) {
+                toastState.show("请设置密码")
+            } else if (needsRegister && password != confirmPassword) {
+                toastState.show("两次密码不一致")
+            } else {
+                isLoading = true
+                scope.launch {
+                    val request = if (needsRegister) {
+                        LoginRequest(
+                            phone = phone,
+                            code = verifyCode,
+                            pwd = password,
+                            confirmPwd = confirmPassword,
+                            trackId = "kmp",
+                            appType = "platform",
+                            way = "phone_code"
+                        )
+                    } else {
+                        LoginRequest(
+                            phone = phone,
+                            code = verifyCode,
+                            trackId = "kmp",
+                            appType = "platform",
+                            way = "phone_code"
+                        )
+                    }
+                    val response = authRepository.login(request)
                     isLoading = false
-                    toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
-                    return@launch
+                    if (response.code == 20000 && response.data != null) {
+                        authRepository.getUserInfo()
+                        loginSheetVisible = false
+                        onLoginSuccess()
+                    } else {
+                        toastState.show(response.msg)
+                    }
                 }
+            }
+        } else if (sheetPage == SheetPage.Register) {
+            // ===== 注册 =====
+            if (username.isBlank() || password.isBlank() || confirmPassword.isBlank() || verifyCode.isBlank()) {
+                toastState.show("请填写所有必填项")
+            } else if (password != confirmPassword) {
+                toastState.show("两次密码不一致")
+            } else if (isAccountEmail && (registerPhone.length != 11 || !Regex("^1\\d{10}$").matches(registerPhone))) {
+                toastState.show("请输入正确的11位手机号")
+            } else {
+                isLoading = true
+                scope.launch {
+                    val rawAccount = AuthInput.normalizeAccount(username)
+                    val normalizedEmail = rawAccount.takeIf {
+                        Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matches(it)
+                    }
+                    val normalizedPhone = rawAccount
+                        .replace(" ", "")
+                        .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
+                        .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
+                        .takeIf { Regex("^1\\d{10}$").matches(it) }
+                    val isEmail = normalizedEmail != null
+                    val account = normalizedEmail ?: normalizedPhone
+                    if (account == null) {
+                        isLoading = false
+                        toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
+                        return@launch
+                    }
+                    val request = LoginRequest(
+                        phone = if (isEmail) registerPhone else account,
+                        email = if (isEmail) account else null,
+                        pwd = password,
+                        confirmPwd = confirmPassword,
+                        code = verifyCode,
+                        trackId = "kmp",
+                        appType = "platform",
+                        way = if (isEmail) "email_pwd" else "phone_pwd"
+                    )
+                    val response = authRepository.login(request)
+                    isLoading = false
+                    if (response.code == 20000 && response.data != null) {
+                        authRepository.getUserInfo()
+                        loginSheetVisible = false
+                        onLoginSuccess()
+                    } else {
+                        toastState.show(response.msg)
+                    }
+                }
+            }
+        } else {
+            // ===== 密码登录 =====
+            if (username.isBlank() || password.isBlank()) {
+                toastState.show("请输入用户名和密码")
+            } else if (needsRegister && isAccountEmail && (registerPhone.length != 11 || !Regex("^1\\d{10}$").matches(registerPhone))) {
+                toastState.show("请输入正确的11位手机号")
+            } else {
+                isLoading = true
+                scope.launch {
+                    val rawAccount = AuthInput.normalizeAccount(username)
+                    val normalizedEmail = rawAccount.takeIf {
+                        Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matches(it)
+                    }
+                    val normalizedPhone = rawAccount
+                        .replace(" ", "")
+                        .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
+                        .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
+                        .takeIf { Regex("^1\\d{10}$").matches(it) }
+                    val isEmail = normalizedEmail != null
+                    val account = normalizedEmail ?: normalizedPhone
+                    if (account == null) {
+                        isLoading = false
+                        toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
+                        return@launch
+                    }
 
-                val request = LoginRequest(
-                    phone = if (isEmail) null else account,
-                    email = if (isEmail) account else null,
-                    pwd = password,
-                    confirmPwd = password,
-                    trackId = "kmp",
-                    appType = "platform",
-                    way = if (isEmail) "email_pwd" else "phone_pwd"
-                )
+                    val request = if (needsRegister) {
+                        // 密码登录发现未注册 → 注册
+                        LoginRequest(
+                            phone = if (isEmail) registerPhone else account,
+                            email = if (isEmail) account else null,
+                            pwd = password,
+                            confirmPwd = confirmPassword,
+                            code = verifyCode,
+                            trackId = "kmp",
+                            appType = "platform",
+                            way = if (isEmail) "email_pwd" else "phone_pwd"
+                        )
+                    } else {
+                        LoginRequest(
+                            phone = if (isEmail) null else account,
+                            email = if (isEmail) account else null,
+                            pwd = password,
+                            trackId = "kmp",
+                            appType = "platform",
+                            way = if (isEmail) "email_pwd" else "phone_pwd"
+                        )
+                    }
 
-                val response = authRepository.login(request)
-                isLoading = false
-
-                if (response.code == 20000 && response.data != null) {
-                    authRepository.getUserInfo()
-                    loginSheetVisible = false
-                    onLoginSuccess()
-                } else {
-                    toastState.show(response.msg)
+                    val response = authRepository.login(request)
+                    isLoading = false
+                    if (response.code == 20000 && response.data != null) {
+                        authRepository.getUserInfo()
+                        loginSheetVisible = false
+                        onLoginSuccess()
+                    } else {
+                        toastState.show(response.msg)
+                    }
                 }
             }
         }
@@ -133,6 +242,7 @@ fun LoginScreen(
         password = ""
         confirmPassword = ""
         verifyCode = ""
+        registerPhone = ""
         isLoading = false
         needsRegister = false
         isAccountEmail = false
@@ -362,9 +472,20 @@ fun LoginScreen(
                 label = "LoginSheetPage"
             ) { page ->
                 val ds = LocalDesignScale.current
-                val canSubmit = username.isNotBlank() && password.isNotBlank() && !isLoading &&
-                    (!needsRegister || (confirmPassword.isNotBlank() && (preferEmailLogin || verifyCode.isNotBlank()))) &&
-                    (preferEmailLogin || !needsRegister || verifyCode.isNotBlank())
+                val canSubmit = when {
+                    // 验证码登录：手机号 + 验证码 (+未注册时需密码)
+                    !preferEmailLogin && page == SheetPage.Login ->
+                        username.isNotBlank() && verifyCode.isNotBlank() && !isLoading &&
+                        (!needsRegister || (password.isNotBlank() && confirmPassword.isNotBlank()))
+                    // 注册页：账号 + 验证码 + 密码 + 确认密码 (+邮箱时需手机号)
+                    page == SheetPage.Register ->
+                        username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() &&
+                        verifyCode.isNotBlank() && (!isAccountEmail || registerPhone.isNotBlank()) && !isLoading
+                    // 密码登录：账号 + 密码 (+未注册时需确认密码和验证码)
+                    else ->
+                        username.isNotBlank() && password.isNotBlank() && !isLoading &&
+                        (!needsRegister || (confirmPassword.isNotBlank() && verifyCode.isNotBlank()))
+                }
 
                 when (page) {
                     SheetPage.Login -> {
@@ -390,26 +511,42 @@ fun LoginScreen(
                             onForgotClick = { sheetPage = SheetPage.Forgot },
                             onSubmit = performLogin,
                             onSendCode = { startTimer ->
-                                if (normalizedAccount.isBlank()) {
-                                    toastState.show("请先输入正确的手机号或邮箱")
-                                    return@LoginSheetContent
-                                }
-                                scope.launch {
-                                    isLoading = true
-                                    val response = if (isAccountEmail) {
-                                        authRepository.getCode(email = normalizedAccount, actionType = "login", appType = "lucy")
-                                    } else {
-                                        authRepository.getCode(phone = normalizedAccount, actionType = "login", appType = "lucy")
+                                if (!preferEmailLogin) {
+                                    // 验证码登录：直接用 username 作为手机号
+                                    val phone = username.trim()
+                                    if (phone.length != 11 || !Regex("^1\\d{10}$").matches(phone)) {
+                                        toastState.show("请先输入正确的11位手机号")
+                                        return@LoginSheetContent
                                     }
-                                    isLoading = false
-                                    if (response.code == 20000) {
-                                        startTimer()
-                                    } else {
-                                        toastState.show(response.msg)
+                                    val actionType = if (needsRegister) "register" else "login"
+                                    scope.launch {
+                                        isLoading = true
+                                        val response = authRepository.getCode(phone = phone, actionType = actionType, appType = "lucy")
+                                        isLoading = false
+                                        if (response.code == 20000) startTimer() else toastState.show(response.msg)
+                                    }
+                                } else {
+                                    // 密码登录模式（未注册时需要验证码）
+                                    if (normalizedAccount.isBlank()) {
+                                        toastState.show("请先输入正确的手机号或邮箱")
+                                        return@LoginSheetContent
+                                    }
+                                    val pwdActionType = if (needsRegister) "register" else "login"
+                                    scope.launch {
+                                        isLoading = true
+                                        val response = if (isAccountEmail) {
+                                            authRepository.getCode(email = normalizedAccount, actionType = pwdActionType, appType = "lucy")
+                                        } else {
+                                            authRepository.getCode(phone = normalizedAccount, actionType = pwdActionType, appType = "lucy")
+                                        }
+                                        isLoading = false
+                                        if (response.code == 20000) startTimer() else toastState.show(response.msg)
                                     }
                                 }
                             },
-                            toastState = toastState
+                            toastState = toastState,
+                            registerPhone = registerPhone,
+                            onRegisterPhoneChange = { registerPhone = it },
                         )
                     }
 
@@ -448,13 +585,16 @@ fun LoginScreen(
                             verifyCode = verifyCode,
                             onVerifyCodeChange = { verifyCode = it },
                             isLoading = isLoading,
-                            canSubmit = username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() && verifyCode.isNotBlank() && !isLoading,
+                            canSubmit = username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() &&
+                                verifyCode.isNotBlank() && (!isAccountEmail || registerPhone.isNotBlank()) && !isLoading,
                             normalizedAccount = normalizedAccount,
                             isAccountEmail = isAccountEmail,
                             onBackClick = { loginSheetVisible = false },
                             onFocusLostValidate = validateAccount,
                             onForgotClick = null,
                             onSubmit = performLogin,
+                            registerPhone = registerPhone,
+                            onRegisterPhoneChange = { registerPhone = it },
                             onSendCode = { startTimer ->
                                 if (normalizedAccount.isBlank()) {
                                     toastState.show("请先输入正确的手机号或邮箱")
@@ -468,11 +608,7 @@ fun LoginScreen(
                                         authRepository.getCode(phone = normalizedAccount, actionType = "register", appType = "lucy")
                                     }
                                     isLoading = false
-                                    if (response.code == 20000) {
-                                        startTimer()
-                                    } else {
-                                        toastState.show(response.msg)
-                                    }
+                                    if (response.code == 20000) startTimer() else toastState.show(response.msg)
                                 }
                             },
                             toastState = toastState

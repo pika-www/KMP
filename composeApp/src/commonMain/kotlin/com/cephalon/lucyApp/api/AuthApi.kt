@@ -1,5 +1,6 @@
 package com.cephalon.lucyApp.api
 
+import com.cephalon.lucyApp.auth.SessionExpiredNotifier
 import com.cephalon.lucyApp.network.NetworkPaths
 import com.cephalon.lucyApp.network.NetworkUrlFactory
 import io.ktor.client.HttpClient
@@ -28,9 +29,10 @@ class AuthApi(
      */
     suspend inline fun <reified R> get(path: String, params: Map<String, String> = emptyMap()): BaseResponse<R> {
         return try {
-            client.get(urlFactory.http("$prefix$path")) {
+            val resp: BaseResponse<R> = client.get(urlFactory.http("$prefix$path")) {
                 params.forEach { (key, value) -> parameter(key, value) }
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
         }
@@ -41,9 +43,10 @@ class AuthApi(
      */
     suspend inline fun <reified R> getAbsolute(path: String, params: Map<String, String> = emptyMap()): BaseResponse<R> {
         return try {
-            client.get(urlFactory.http(path)) {
+            val resp: BaseResponse<R> = client.get(urlFactory.http(path)) {
                 params.forEach { (key, value) -> parameter(key, value) }
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
         }
@@ -54,11 +57,12 @@ class AuthApi(
      */
     suspend inline fun <reified R> getWithListParams(path: String, params: Map<String, List<String>> = emptyMap()): BaseResponse<R> {
         return try {
-            client.get(urlFactory.http("$prefix$path")) {
+            val resp: BaseResponse<R> = client.get(urlFactory.http("$prefix$path")) {
                 params.forEach { (key, values) ->
                     values.forEach { value -> parameter(key, value) }
                 }
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
         }
@@ -69,10 +73,11 @@ class AuthApi(
      */
     suspend inline fun <reified T, reified R> post(path: String, body: T): BaseResponse<R> {
         return try {
-            client.post(urlFactory.http("$prefix$path")) {
+            val resp: BaseResponse<R> = client.post(urlFactory.http("$prefix$path")) {
                 contentType(ContentType.Application.Json)
                 setBody(body)
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
         }
@@ -83,10 +88,11 @@ class AuthApi(
      */
     suspend inline fun <reified T, reified R> put(path: String, body: T): BaseResponse<R> {
         return try {
-            client.put(urlFactory.http("$prefix$path")) {
+            val resp: BaseResponse<R> = client.put(urlFactory.http("$prefix$path")) {
                 contentType(ContentType.Application.Json)
                 setBody(body)
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
         }
@@ -97,9 +103,10 @@ class AuthApi(
      */
     suspend inline fun <reified R> put(path: String): BaseResponse<R> {
         return try {
-            client.put(urlFactory.http("$prefix$path")) {
+            val resp: BaseResponse<R> = client.put(urlFactory.http("$prefix$path")) {
                 contentType(ContentType.Application.Json)
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
         }
@@ -110,11 +117,20 @@ class AuthApi(
      */
     suspend inline fun <reified R> delete(path: String, params: Map<String, String> = emptyMap()): BaseResponse<R> {
         return try {
-            client.delete(urlFactory.http("$prefix$path")) {
+            val resp: BaseResponse<R> = client.delete(urlFactory.http("$prefix$path")) {
                 params.forEach { (key, value) -> parameter(key, value) }
             }.body()
+            resp.also { checkSessionExpired(it) }
         } catch (e: Exception) {
             BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
+        }
+    }
+
+    @PublishedApi
+    internal fun <R> checkSessionExpired(response: BaseResponse<R>) {
+        if (response.code == 40000) {
+            println("AuthApi: 接口返回 40000（未登录），触发会话过期")
+            SessionExpiredNotifier.fire()
         }
     }
 }

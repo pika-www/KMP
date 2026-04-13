@@ -311,3 +311,29 @@ fun PasswordInput(
         )
     )
 }
+
+@Composable
+fun PhoneOnlyInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    label: String = "请输入手机号",
+    imeAction: ImeAction = ImeAction.Next,
+) {
+    CustomTextField(
+        value = value,
+        onValueChange = { newValue ->
+            val digitsOnly = newValue.filter { it.isDigit() }
+            if (digitsOnly.length <= 11) onValueChange(digitsOnly)
+        },
+        label = label,
+        leadingIcon = Icons.Default.Person,
+        enabled = enabled,
+        modifier = modifier,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Phone,
+            imeAction = imeAction
+        )
+    )
+}

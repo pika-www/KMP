@@ -25,6 +25,10 @@ kotlin {
     iosArm64 {
         binaries.all {
             linkerOpts("-L$blobRoot/target/aarch64-apple-ios/release", "-llucy_blob_core")
+            linkerOpts("-framework", "Network")
+            linkerOpts("-framework", "Security")
+            linkerOpts("-framework", "CoreFoundation")
+            linkerOpts("-framework", "SystemConfiguration")
         }
         binaries.framework {
             baseName = "ComposeApp"
@@ -34,6 +38,10 @@ kotlin {
     iosSimulatorArm64 {
         binaries.all {
             linkerOpts("-L$blobRoot/target/aarch64-apple-ios-sim/release", "-llucy_blob_core")
+            linkerOpts("-framework", "Network")
+            linkerOpts("-framework", "Security")
+            linkerOpts("-framework", "CoreFoundation")
+            linkerOpts("-framework", "SystemConfiguration")
         }
         binaries.framework {
             baseName = "ComposeApp"

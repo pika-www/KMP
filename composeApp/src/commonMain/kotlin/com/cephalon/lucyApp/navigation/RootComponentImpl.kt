@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.navigation
 
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.auth.SessionExpiredNotifier
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.arkivanov.decompose.ComponentContext
@@ -70,6 +71,17 @@ class RootComponentImpl(
                 }
             }
         }
+
+        // 监听接口返回 40000（未登录），自动退出到登录页
+        scope.launch {
+            SessionExpiredNotifier.expired.collect {
+                println("RootComponent: 收到会话过期通知，执行退出")
+                balanceWsManager.stopAndClear()
+                sdkSessionManager.disconnect()
+                authRepository.logout()
+                navigation.replaceAll(Config.Login)
+            }
+        }
     }
 
     override val stack: Value<ChildStack<*, RootComponent.Child>> = childStack(
@@ -124,7 +136,7 @@ class RootComponentImpl(
             is Config.Home -> RootComponent.Child.Home(
                 component = object : HomeComponent {
                     override fun onLogout() {
-                        balanceWsManager.stop()
+                        balanceWsManager.stopAndClear()
                         sdkSessionManager.disconnect()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)
@@ -143,9 +155,18 @@ class RootComponentImpl(
                     }
 
                     override fun onOpenAgentModel() {
-                        // 设置连接标记后跳转对话页
+                        // 调用 connect 接口 → SDK 初始化绑定设备 → 跳转对话页
                         scope.launch {
-                            authRepository.setConnectionFlag()
+                            println("RootComponent: 点击端脑云用户，开始调用 connectLucyApp()")
+                            val connectResult = authRepository.connectLucyApp()
+                            println("RootComponent: connectLucyApp 返回: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
+                            if (connectResult.isFailure) {
+                                println("RootComponent: 端脑云接入失败，不跳转")
+                                return@launch
+                            }
+                            println("RootComponent: 接入成功，开始 SDK connectAfterLogin()")
+                            sdkSessionManager.connectAfterLogin()
+                            println("RootComponent: SDK 初始化完成，跳转 AgentModel")
                             navigation.replaceAll(Config.AgentModel)
                         }
                     }
@@ -218,7 +239,7 @@ class RootComponentImpl(
                         navigation.replaceAll(Config.Home(showBack = true))
                     }
                     override fun onLogout() {
-                        balanceWsManager.stop()
+                        balanceWsManager.stopAndClear()
                         sdkSessionManager.disconnect()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)

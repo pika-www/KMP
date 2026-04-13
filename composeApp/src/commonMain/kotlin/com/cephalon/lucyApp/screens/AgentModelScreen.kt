@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -266,7 +267,7 @@ fun AgentModelScreen(
         logs.add(0, message)
     }
 
-    var inputText by remember { mutableStateOf("") }
+    var inputText by remember { mutableStateOf(TextFieldValue("")) }
     var attachmentsExpanded by remember { mutableStateOf(false) }
     var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
     var showProfilePage by remember { mutableStateOf(false) }
@@ -328,6 +329,9 @@ fun AgentModelScreen(
                     val text = state?.text ?: ""
                     val streaming = state?.streaming ?: false
 
+                    if (streaming && !streamingStarted) {
+                        println("AgentModel: 流式输出开始 msgId=$msgId, convId=$convId")
+                    }
                     if (streaming) streamingStarted = true
 
                     if (text.isNotBlank()) {
@@ -346,10 +350,13 @@ fun AgentModelScreen(
                         }
                     }
 
-                    if (!streaming && streamingStarted) {
+                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本）
+                    val finished = !streaming && (streamingStarted || text.isNotBlank())
+                    if (finished) {
                         if (text.isNotBlank() && displayedText != text) {
                             upsertStreamingAssistantMessageInConversation(convId, msgId, text)
                         }
+                        println("AgentModel: 流式输出结束 msgId=$msgId, convId=$convId, textLen=${text.length}, wasStreaming=$streamingStarted")
                         removeAssistantPlaceholderInConversation(convId, msgId)
                         saveConversationsToCache()
                         activeStreamingRequests.remove(msgId)
@@ -424,7 +431,7 @@ fun AgentModelScreen(
     }
 
     val sendMessage = {
-        val text = inputText.trim()
+        val text = inputText.text.trim()
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
@@ -543,7 +550,7 @@ fun AgentModelScreen(
                 }
             }
 
-            inputText = ""
+            inputText = TextFieldValue("")
             attachmentsExpanded = false
             attachments.forEach { att ->
                 if (att.type == DraftAttachmentType.Image) {
@@ -686,7 +693,7 @@ fun AgentModelScreen(
                                     attachmentsExpanded = false
                                 },
                                 onSkillClick = { skillText ->
-                                    inputText = skillText
+                                    inputText = TextFieldValue(skillText)
                                     sendMessage()
                                 },
                                 streamingStatusText = streamingStatusText,
@@ -801,10 +808,10 @@ fun AgentModelScreen(
                                 isVoiceBusy = false
                                 val trimmedText = result.transcribedText.trim()
                                 if (trimmedText.isNotBlank()) {
-                                    inputText = if (inputText.isBlank()) {
-                                        trimmedText
+                                    inputText = if (inputText.text.isBlank()) {
+                                        TextFieldValue(trimmedText)
                                     } else {
-                                        "${inputText.trim()} $trimmedText".trim()
+                                        TextFieldValue("${inputText.text.trim()} $trimmedText".trim())
                                     }
                                 }
                             }

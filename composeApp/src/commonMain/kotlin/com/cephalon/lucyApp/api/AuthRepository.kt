@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.api
 
 import com.cephalon.lucyApp.auth.AuthTokenStore
+import com.cephalon.lucyApp.logging.appLogD
 import com.cephalon.lucyApp.time.todayDateString
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -141,6 +142,33 @@ class AuthRepository(
         }
     }
 
+    // ---- Lucy App 连接 ----
+
+    private val connectPath = "/channels/lucy-app/connect"
+
+    /**
+     * 端脑云用户接入：GET /channels/lucy-app/connect
+     * 成功后写入本地连接标记
+     */
+    suspend fun connectLucyApp(): Result<Unit> {
+        appLogD("AuthRepository", "connectLucyApp: 开始请求 $connectPath")
+        return try {
+            val resp = authApi.get<Map<String, String>>(connectPath)
+            appLogD("AuthRepository", "connectLucyApp: code=${resp.code}, msg=${resp.msg}, data=${resp.data}")
+            if (resp.code == 20000) {
+                settings.putBoolean(KEY_CONNECTION_FLAG, true)
+                appLogD("AuthRepository", "connectLucyApp: 接入成功")
+                Result.success(Unit)
+            } else {
+                appLogD("AuthRepository", "connectLucyApp: 接入失败 code=${resp.code} msg=${resp.msg}")
+                Result.failure(Exception(resp.msg))
+            }
+        } catch (e: Exception) {
+            appLogD("AuthRepository", "connectLucyApp: 异常 ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     // ---- Lucy App 连接标记 ----
 
     private val connectionFlagPath = "/channels/lucy-app/current-user/connection-flag"
@@ -182,6 +210,7 @@ class AuthRepository(
     fun logout() {
         _userInfo.value = null
         settings.remove(KEY_CONNECTION_FLAG)
+        settings.remove(KEY_DAILY_REWARD_DATE)
         tokenStore.clear()
     }
 

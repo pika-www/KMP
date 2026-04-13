@@ -263,7 +263,7 @@ fun HomeScreen(
                                 ) {
                                     if (pagerState.currentPage == pageIndex) {
                                         when (pageIndex) {
-                                            0 -> onOpenWsTest()
+                                            0 -> onOpenAgentModel()
                                             1 -> onOpenAgentModel()
                                             2 -> onOpenScanBindChannel()
                                         }

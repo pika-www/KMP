@@ -17,6 +17,8 @@ data class LoginRequest(
     @SerialName("confirm_pwd")
     val confirmPwd: String? = null,
 
+    val code: String? = null,
+
     @SerialName("track_id")
     val trackId: String,
 

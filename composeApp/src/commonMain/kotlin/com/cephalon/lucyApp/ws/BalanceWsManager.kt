@@ -132,6 +132,15 @@ class BalanceWsManager(
     }
 
     /**
+     * 停止并清除所有内存状态（登出时调用）
+     */
+    fun stopAndClear() {
+        stop()
+        _balance.value = BalanceData()
+        _connectionState.value = ConnectionState.DISCONNECTED
+    }
+
+    /**
      * App 从后台回到前台
      */
     fun onForeground() {

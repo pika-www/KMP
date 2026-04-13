@@ -40,6 +40,13 @@ class AuthTokenStore(
         return currentTimeMillis() >= expMillis
     }
 
+    /** 返回 token 剩余有效时间（毫秒），若无 token 或已过期返回 0 */
+    fun getTokenRemainingMillis(): Long {
+        val token = getTokenOrNull() ?: return 0L
+        val expMillis = JwtUtils.getExpMillisOrNull(token) ?: return Long.MAX_VALUE
+        return (expMillis - currentTimeMillis()).coerceAtLeast(0L)
+    }
+
     fun getValidTokenOrNull(): String? {
         val token = getTokenOrNull() ?: return null
         if (isTokenExpired()) {

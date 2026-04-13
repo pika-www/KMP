@@ -6,6 +6,7 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,7 +63,11 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.account_bg
+import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.CloseAccountRequest
 import com.cephalon.lucyApp.api.RechargeRuleItem
@@ -159,78 +165,192 @@ internal fun AgentModelProfileScreen(
         ) { page ->
             when (page) {
                 ProfilePage.Settings -> {
-                    ProfilePageContainer {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        ProfileTopBar(
-                            showBack = false,
-                            onBack = null,
-                            onClose = onDismiss
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
+                    val userInfo by authRepository.userInfo.collectAsState()
+                    val displayName = userInfo?.nickname
+                        ?: userPhone.ifEmpty { userEmail.substringBefore('@').ifEmpty { "用户" } }
+                    val displayAccount = userEmail.ifEmpty { userPhone }
+                    val avatarInitials = displayName.take(2).uppercase()
 
+                    ProfilePageContainer {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = 18.dp, vertical = 0.dp),
-                            verticalArrangement = Arrangement.spacedBy(18.dp)
+                                .verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            ProfileHeaderCard(
-                                phone = userPhone,
-                                email = userEmail,
-                                onHeaderClick = { currentPage = ProfilePage.Account }
+                            Spacer(modifier = Modifier.height(20.dp))
+                            ProfileTopBar(
+                                title = "个人中心",
+                                showBack = false,
+                                onBack = null,
+                                onClose = onDismiss
                             )
 
-                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                Text(
-                                    text = "通用",
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = Color(0xFF111111)
-                                )
+                            Spacer(modifier = Modifier.height(46.dp))
 
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(28.dp),
+                            // ── 头像 80×80 ──
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.20f))
+                                    .then(
+                                        Modifier
+                                            .clip(CircleShape)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = avatarInitials,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = Color.White,
-                                    tonalElevation = 0.dp,
-                                    shadowElevation = 0.dp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // ── 名称 ──
+                            Text(
+                                text = displayName,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF12192B),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // ── 账号 ──
+                            if (displayAccount.isNotEmpty()) {
+                                Text(
+                                    text = displayAccount,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = Color(0xFF595E6B),
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 20.dp),
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(32.dp))
+
+                            // ── 操作卡片 ──
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.White,
+                                shadowElevation = 0.dp,
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 8.dp),
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        val menuItems = listOf(
-                                            "账号",
-                                            "我的设备",
-                                            "充值",
-                                            "我的NAS",
-                                            "清除缓存",
-                                            "意见反馈"
-                                        )
-                                        menuItems.forEachIndexed { index, title ->
-                                            ProfileMenuItem(
-                                                title = title,
-                                                subtitle = if (title == "清除缓存") formatCacheSize(cacheSizeBytes) else null,
-                                                onClick = {
-                                                    when (title) {
-                                                        "账号" -> currentPage = ProfilePage.Account
-                                                        "充值" -> currentPage = ProfilePage.Recharge
-                                                        "清除缓存" -> showClearCacheDialog = true
-                                                        "我的设备" -> currentPage = ProfilePage.MyDevices
-                                                        "我的NAS" -> onNavigateToNas()
-                                                        "意见反馈" -> currentPage = ProfilePage.Feedback
-                                                    }
-                                                }
-                                            )
-                                            if (index != menuItems.lastIndex) {
-                                                HorizontalDivider(color = Color(0xFFF0F0F0))
-                                            }
-                                        }
-                                    }
+                                    ProfileMenuItemNew(
+                                        icon = WalletIcon,
+                                        title = "充值账户",
+                                        onClick = { currentPage = ProfilePage.Recharge }
+                                    )
+                                    HorizontalDivider(color = Color(0xFFF5F5F5))
+                                    ProfileMenuItemNew(
+                                        icon = NasIcon,
+                                        title = "我的 NAS",
+                                        onClick = { onNavigateToNas() }
+                                    )
+                                    HorizontalDivider(color = Color(0xFFF5F5F5))
+                                    ProfileMenuItemNew(
+                                        icon = DevicesIcon,
+                                        title = "我的设备",
+                                        onClick = { currentPage = ProfilePage.MyDevices }
+                                    )
+                                    HorizontalDivider(color = Color(0xFFF5F5F5))
+                                    ProfileMenuItemNew(
+                                        icon = FeedbackIcon,
+                                        title = "意见反馈",
+                                        onClick = { currentPage = ProfilePage.Feedback }
+                                    )
+                                    HorizontalDivider(color = Color(0xFFF5F5F5))
+                                    ProfileMenuItemNew(
+                                        icon = ClearCacheIcon,
+                                        title = "清除缓存",
+                                        showArrow = false,
+                                        onClick = { showClearCacheDialog = true }
+                                    )
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // ── 删除账号 ──
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                    ) { currentPage = ProfilePage.DeleteAccount },
+                                shape = RoundedCornerShape(99.dp),
+                                color = Color.White,
+                                shadowElevation = 0.dp,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "删除账号",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        color = Color(0xFFE84026),
+                                        textAlign = TextAlign.Center,
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // ── 退出登录 ──
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                    ) { showLogoutDialog = true },
+                                shape = RoundedCornerShape(99.dp),
+                                color = Color.White,
+                                shadowElevation = 0.dp,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "退出登录",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        color = Color(0xFF1F2535),
+                                        textAlign = TextAlign.Center,
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(32.dp))
                         }
                     }
                 }
@@ -367,9 +487,9 @@ internal fun AgentModelProfileScreen(
                     ProfilePageContainer {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
-                            title = "账号",
+                            title = "删除账号",
                             showBack = true,
-                            onBack = { currentPage = ProfilePage.Account },
+                            onBack = { currentPage = ProfilePage.Settings },
                             onClose = onDismiss
                         )
                         Spacer(modifier = Modifier.height(20.dp))
@@ -387,7 +507,7 @@ internal fun AgentModelProfileScreen(
                                 onSuccess = {
                                     onLogout()
                                 },
-                                onCancel = { currentPage = ProfilePage.Account }
+                                onCancel = { currentPage = ProfilePage.Settings }
                             )
                         }
                     }
@@ -501,11 +621,19 @@ private fun ProfilePageContainer(
             }
             .background(Color(0xFFF5F5F7))
     ) {
+        Image(
+            painter = painterResource(Res.drawable.account_bg),
+            contentDescription = null,
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter),
+            contentScale = ContentScale.FillWidth,
+        )
         Column(modifier = Modifier.fillMaxWidth()) { content() }
     }
 }
 
-/* ───────── Top Bar (matches LoginScreen SheetTopBar) ───────── */
+/* ───────── Top Bar ───────── */
 
 @Composable
 private fun ProfileTopBar(
@@ -542,10 +670,13 @@ private fun ProfileTopBar(
         if (title != null) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF111111),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF12192B),
                 modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         } else {
             Spacer(modifier = Modifier.weight(1f))
@@ -553,10 +684,7 @@ private fun ProfileTopBar(
 
         IconButton(
             onClick = onClose,
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFE6E6E6))
+            modifier = Modifier.size(40.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
@@ -568,128 +696,50 @@ private fun ProfileTopBar(
     }
 }
 
-/* ───────── Settings page: header card ───────── */
+/* ───────── Menu item with icon + title + chevron ───────── */
 
 @Composable
-private fun ProfileHeaderCard(
-    phone: String,
-    email: String,
-    onHeaderClick: () -> Unit = {},
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        color = Color.White,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onHeaderClick() },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFFE6E6E6),
-                    modifier = Modifier.size(62.dp)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize())
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = if (phone.isNotEmpty()) phone else if (email.isNotEmpty()) email.substringBefore('@') else "用户",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFF111111)
-                    )
-                    if (email.isNotEmpty()) {
-                        Text(
-                            text = email,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF555555),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else if (phone.isNotEmpty()) {
-                        Text(
-                            text = phone,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF555555),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Text(
-                    text = ">",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color(0xFF666666)
-                )
-            }
-        }
-    }
-}
-
-/* ───────── Settings page: menu item row ───────── */
-
-@Composable
-private fun ProfileMenuItem(
+private fun ProfileMenuItemNew(
+    icon: ImageVector,
     title: String,
-    subtitle: String? = null,
+    showArrow: Boolean = true,
     onClick: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            ) { onClick() }
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFFE6E6E6),
-            modifier = Modifier.size(42.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFFE6E6E6))
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = Color.Unspecified,
+            modifier = Modifier.size(20.dp)
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
 
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = Color(0xFF111111),
-            modifier = Modifier.weight(1f)
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Normal,
+            color = Color(0xFF12192B),
+            modifier = Modifier.weight(1f),
         )
 
-        if (subtitle != null) {
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF999999)
+        if (showArrow) {
+            Icon(
+                imageVector = ChevronRightIcon,
+                contentDescription = "Arrow",
+                tint = Color.Unspecified,
+                modifier = Modifier.size(width = 12.dp, height = 24.dp)
             )
         }
-
-        Text(
-            text = ">",
-            style = MaterialTheme.typography.titleLarge,
-            color = Color(0xFF666666)
-        )
     }
 }
 
@@ -1618,41 +1668,70 @@ private fun ClearCacheConfirmDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 20.dp, vertical = 24.dp),
         ) {
             Text(
                 text = "清除缓存",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF111111)
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
 
+            Spacer(modifier = Modifier.height(4.dp))
+
             Text(
-                text = "缓存数据有助于加快加载速度，清除可能会导致内容重新加载\n当前缓存：$cacheSizeText",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF666666)
+                text = "缓存数据有助于加快加载速度，清除可能会导致内容重新加载",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF717580),
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) { onDismiss() }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text("取消", color = Color(0xFF666666))
+                    Text(
+                        text = "取消",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
                 }
 
-                TextButton(
-                    onClick = onConfirm,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.textButtonColors(
-                        containerColor = Color(0xFF111111)
-                    )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) { onConfirm() }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text("清除", color = Color.White)
+                    Text(
+                        text = "清除",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFFE84026),
+                    )
                 }
             }
         }
@@ -1677,41 +1756,70 @@ private fun LogoutConfirmDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 20.dp, vertical = 24.dp),
         ) {
             Text(
                 text = "退出登录",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF111111)
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = "确定要退出吗？退出登录不会丢失数据，您仍然可以再次登录此账号",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF666666)
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF717580),
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                OutlinedButton(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) { onDismiss() }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text("取消", color = Color(0xFF666666))
+                    Text(
+                        text = "取消",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
                 }
 
-                TextButton(
-                    onClick = onConfirm,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.textButtonColors(
-                        containerColor = Color(0xFF111111)
-                    )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) { onConfirm() }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text("确定", color = Color.White)
+                    Text(
+                        text = "退出",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFFE84026),
+                    )
                 }
             }
         }

@@ -55,6 +55,8 @@ class SdkSessionManager(
     private var deviceObserverJob: Job? = null
     private var observerRestartJob: Job? = null
     private var reconnectJob: Job? = null
+    private var tokenExpiryJob: Job? = null
+    private var authReconnectAttempts = 0
 
     private val _connectionState = MutableStateFlow(SdkConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SdkConnectionState> = _connectionState.asStateFlow()
@@ -198,10 +200,12 @@ class SdkSessionManager(
             }.onSuccess { newSession ->
                 resetSessionResources()
                 session = newSession
+                authReconnectAttempts = 0
                 _connectionState.value = SdkConnectionState.CONNECTED
                 _connectionLog.value = "连接成功，userId=${newSession.userId}"
                 appLogD(TAG, _connectionLog.value)
                 startObservers(newSession)
+                startTokenExpiryMonitor()
             }.onFailure { error ->
                 if (isAuthorizationError(error)) {
                     tokenStore.clear()
@@ -315,6 +319,54 @@ class SdkSessionManager(
         return publishToNpc(cdi = cdi, payload = payload).map { messageId }
     }
 
+    // ── Token 过期监控 ──
+
+    private fun startTokenExpiryMonitor() {
+        tokenExpiryJob?.cancel()
+        tokenExpiryJob = scope.launch {
+            while (true) {
+                val remaining = tokenStore.getTokenRemainingMillis()
+                appLogD(TAG, "[TokenMonitor] token 剩余有效时间: ${remaining / 1000}s (${remaining / 60000}min)")
+
+                if (remaining <= 0L) {
+                    appLogD(TAG, "[TokenMonitor] token 已过期，执行重连")
+                    reconnectWithFreshToken()
+                    break
+                }
+
+                // 提前 60s 重连，留出缓冲
+                val checkInterval = if (remaining <= TOKEN_REFRESH_BUFFER_MS) {
+                    appLogD(TAG, "[TokenMonitor] token 即将过期(${remaining / 1000}s)，执行重连")
+                    reconnectWithFreshToken()
+                    break
+                } else {
+                    // 下次检查时间 = 剩余时间 - 缓冲，但至少 30s 检查一次
+                    (remaining - TOKEN_REFRESH_BUFFER_MS).coerceIn(TOKEN_CHECK_MIN_INTERVAL_MS, TOKEN_CHECK_MAX_INTERVAL_MS)
+                }
+
+                delay(checkInterval)
+            }
+        }
+    }
+
+    private suspend fun reconnectWithFreshToken() {
+        connectMutex.withLock {
+            // 检查是否有新 token（可能已被刷新）
+            val token = tokenStore.getValidTokenOrNull()
+            if (token.isNullOrBlank()) {
+                appLogD(TAG, "[TokenMonitor] 无有效 token，断开连接")
+                resetSessionResources()
+                _connectionState.value = SdkConnectionState.DISCONNECTED
+                _connectionLog.value = "Token 过期，请重新登录"
+                return
+            }
+            // token 仍有效或已被刷新，重建连接
+            appLogD(TAG, "[TokenMonitor] 使用新 token 重连")
+            resetSessionResources()
+        }
+        ensureConnectedIfTokenValid()
+    }
+
     private fun startObservers(newSession: ConnectedSession) {
         observerRestartJob?.cancel()
         observerRestartJob = null
@@ -412,6 +464,8 @@ class SdkSessionManager(
     }
 
     private fun resetSessionResources() {
+        tokenExpiryJob?.cancel()
+        tokenExpiryJob = null
         observerRestartJob?.cancel()
         observerRestartJob = null
         reconnectJob?.cancel()
@@ -447,17 +501,27 @@ class SdkSessionManager(
     ) {
         val message = throwable.message ?: "unknown"
         if (isAuthorizationError(throwable)) {
-            scope.launch {
-                connectMutex.withLock {
-                    tokenStore.clear()
-                    resetSessionResources()
-                    _connectionState.value = SdkConnectionState.DISCONNECTED
-                    _connectionLog.value = "鉴权失效，请重新登录"
-                    logUpdater("${logLabel}异常：$message")
-                    appLogD(TAG, _connectionLog.value)
-                    appLogD(TAG, if (logLabel == "监听") _consumerLog.value else _deviceLog.value)
+            authReconnectAttempts++
+            if (authReconnectAttempts > MAX_AUTH_RECONNECT_ATTEMPTS) {
+                // 多次重连仍失败，app token 可能也已失效
+                appLogD(TAG, "${logLabel} NATS 鉴权重连已达上限($MAX_AUTH_RECONNECT_ATTEMPTS 次)，清除 token")
+                scope.launch {
+                    connectMutex.withLock {
+                        tokenStore.clear()
+                        resetSessionResources()
+                        authReconnectAttempts = 0
+                        _connectionState.value = SdkConnectionState.DISCONNECTED
+                        _connectionLog.value = "鉴权失效，请重新登录"
+                        logUpdater("${logLabel}：鉴权多次重连失败")
+                        appLogD(TAG, _connectionLog.value)
+                    }
                 }
+                return
             }
+            // NATS token 过期，用 app token 重新 connect() 换取新 NATS token
+            appLogD(TAG, "${logLabel} NATS 鉴权失败(token 可能过期)，尝试重连 (第${authReconnectAttempts}次)")
+            logUpdater("${logLabel}：NATS token 过期，正在重连...")
+            scheduleReconnect("${logLabel} NATS token 过期")
             return
         }
 
@@ -791,6 +855,10 @@ class SdkSessionManager(
         private const val OBSERVER_RESTART_DELAY_MS = 800L
         private const val RECONNECT_DELAY_MS = 800L
         private const val BACKGROUND_DISCONNECT_DELAY_MS = 3000L
+        private const val TOKEN_REFRESH_BUFFER_MS = 60_000L   // 过期前 60s 触发重连
+        private const val TOKEN_CHECK_MIN_INTERVAL_MS = 30_000L  // 最少 30s 检查一次
+        private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
+        private const val MAX_AUTH_RECONNECT_ATTEMPTS = 3       // NATS 鉴权重连最多尝试次数
         const val DEFAULT_TARGET_CDI = "2042541809425543168"
     }
 }

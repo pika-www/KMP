@@ -95,6 +95,8 @@ fun LoginSheetContent(
     onSendCode: (startTimer: () -> Unit) -> Unit,
     toastState: ToastState,
     isRegisterPage: Boolean = false,
+    registerPhone: String = "",
+    onRegisterPhoneChange: (String) -> Unit = {},
 ) {
     var hadFocus by remember { mutableStateOf(false) }
 
@@ -121,22 +123,85 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            // 账号输入（手机号/邮箱）
-            AccountInput(
-                value = username,
-                onValueChange = onUsernameChange,
-                enabled = !isLoading,
-                modifier = Modifier.onFocusChanged { focusState ->
-                    if (hadFocus && !focusState.isFocused) {
-                        onFocusLostValidate()
-                    }
-                    hadFocus = focusState.isFocused
-                },
-                onValidationError = { toastState.show(it) },
-            )
+            if (!preferEmailLogin && !isRegisterPage) {
+                // ===== 验证码登录模式：只输入手机号 + 验证码 =====
+                PhoneOnlyInput(
+                    value = username,
+                    onValueChange = onUsernameChange,
+                    enabled = !isLoading,
+                    modifier = Modifier.onFocusChanged { focusState ->
+                        if (hadFocus && !focusState.isFocused) {
+                            onFocusLostValidate()
+                        }
+                        hadFocus = focusState.isFocused
+                    },
+                )
 
-            if (isRegisterPage) {
-                // ===== 注册页 — 所有字段直接显示 =====
+                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                CodeInput(
+                    value = verifyCode,
+                    onValueChange = onVerifyCodeChange,
+                    enabled = !isLoading,
+                    onSendCode = onSendCode,
+                )
+
+                // 验证码登录 — 未注册时动画弹出密码+确认密码
+                AnimatedVisibility(
+                    visible = needsRegister,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    Column {
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                        PasswordInput(
+                            value = password,
+                            onValueChange = onPasswordChange,
+                            enabled = !isLoading,
+                            label = "设置密码",
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                        PasswordInput(
+                            value = confirmPassword,
+                            onValueChange = onConfirmPasswordChange,
+                            enabled = !isLoading,
+                            label = "再次输入密码",
+                        )
+                    }
+                }
+            } else if (isRegisterPage) {
+                // ===== 注册页 =====
+                // 账号输入（手机号/邮箱）
+                AccountInput(
+                    value = username,
+                    onValueChange = onUsernameChange,
+                    enabled = !isLoading,
+                    modifier = Modifier.onFocusChanged { focusState ->
+                        if (hadFocus && !focusState.isFocused) {
+                            onFocusLostValidate()
+                        }
+                        hadFocus = focusState.isFocused
+                    },
+                    onValidationError = { toastState.show(it) },
+                )
+
+                // 邮箱注册时，显示额外的手机号输入框
+                AnimatedVisibility(
+                    visible = isAccountEmail,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    Column {
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                        PhoneOnlyInput(
+                            value = registerPhone,
+                            onValueChange = onRegisterPhoneChange,
+                            enabled = !isLoading,
+                            label = "请输入手机号",
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                 CodeInput(
                     value = verifyCode,
@@ -158,8 +223,39 @@ fun LoginSheetContent(
                     enabled = !isLoading,
                     label = "再次输入密码",
                 )
-            } else if (preferEmailLogin) {
+            } else {
                 // ===== 密码登录模式 =====
+                // 邮箱未注册时，在账号上方显示手机号输入框
+                AnimatedVisibility(
+                    visible = needsRegister && isAccountEmail,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    Column {
+                        PhoneOnlyInput(
+                            value = registerPhone,
+                            onValueChange = onRegisterPhoneChange,
+                            enabled = !isLoading,
+                            label = "请输入手机号",
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                    }
+                }
+
+                // 账号输入（手机号/邮箱）
+                AccountInput(
+                    value = username,
+                    onValueChange = onUsernameChange,
+                    enabled = !isLoading,
+                    modifier = Modifier.onFocusChanged { focusState ->
+                        if (hadFocus && !focusState.isFocused) {
+                            onFocusLostValidate()
+                        }
+                        hadFocus = focusState.isFocused
+                    },
+                    onValidationError = { toastState.show(it) },
+                )
+
                 // 密码登录 — 未注册时动画弹出验证码（账号后面）
                 AnimatedVisibility(
                     visible = needsRegister,
@@ -222,43 +318,9 @@ fun LoginSheetContent(
                         )
                     }
                 }
-            } else {
-                // ===== 验证码登录模式 =====
-                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
-                CodeInput(
-                    value = verifyCode,
-                    onValueChange = onVerifyCodeChange,
-                    enabled = !isLoading,
-                    onSendCode = onSendCode,
-                )
-
-                // 验证码登录 — 未注册时动画弹出密码+确认密码
-                AnimatedVisibility(
-                    visible = needsRegister,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
-                ) {
-                    Column {
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                        PasswordInput(
-                            value = password,
-                            onValueChange = onPasswordChange,
-                            enabled = !isLoading,
-                            label = "设置密码",
-                        )
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                        PasswordInput(
-                            value = confirmPassword,
-                            onValueChange = onConfirmPasswordChange,
-                            enabled = !isLoading,
-                            label = "再次输入密码",
-                        )
-                    }
-                }
             }
 
-            Spacer(modifier = Modifier.weight(1f).defaultMinSize(minHeight = ds.sh(16.dp)))
+            Spacer(modifier = Modifier.weight(1f).defaultMinSize(minHeight = ds.sh(32.dp)))
 
             // 提交按钮
             Box(
