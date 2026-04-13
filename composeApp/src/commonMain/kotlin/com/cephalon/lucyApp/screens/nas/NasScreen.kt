@@ -142,26 +142,30 @@ fun NasScreen(onBack: () -> Unit) {
     }
 
     val audios = remember {
+        fun aud(id: String, name: String, time: String, duration: Int) = NasAudioItem(
+            id = id, name = name, type = "音频", format = "m4a",
+            sizeKB = 102, path = "drawable/demo.m4a",
+            time = time, durationSec = duration
+        )
         listOf(
-            NasAudioItem(
-                id = "aud_001",
-                name = "demo.m4a",
-                type = "音频",
-                format = "m4a",
-                sizeKB = 102,
-                path = "drawable/demo.m4a",
-                time = "2026-04-08 09:00",
-                durationSec = 60
+            NasAudioMonthGroup(
+                label = "八月",
+                audios = listOf(
+                    aud("aud_001", "2026.01.22. 16:40", "2026-08-01 16:40", 60),
+                    aud("aud_002", "我旅行的一天，我非常开心", "2026-08-03 10:15", 185),
+                    aud("aud_003", "2026.01.22. 16:40 粑粑啦啦", "2026-08-05 14:30", 90),
+                    aud("aud_004", "2026.01.22. 16:40", "2026-08-10 09:00", 120),
+                    aud("aud_005", "2026.01.22. 16:40 8882467", "2026-08-15 11:20", 75),
+                    aud("aud_006", "2026.01.22.16:40 8882467", "2026-08-20 16:40", 200)
+                )
             ),
-            NasAudioItem(
-                id = "aud_002",
-                name = "voice_note.m4a",
-                type = "音频",
-                format = "m4a",
-                sizeKB = 102,
-                path = "drawable/demo.m4a",
-                time = "2026-04-01 15:30",
-                durationSec = 185
+            NasAudioMonthGroup(
+                label = "七月",
+                audios = listOf(
+                    aud("aud_007", "2026.07.01. 08:30", "2026-07-01 08:30", 45),
+                    aud("aud_008", "语音备忘录", "2026-07-08 15:00", 130),
+                    aud("aud_009", "2026.07.15. 20:10", "2026-07-15 20:10", 60)
+                )
             )
         )
     }
@@ -175,7 +179,7 @@ fun NasScreen(onBack: () -> Unit) {
     }
 
     val allAudioIds = remember(audios) {
-        audios.map { audio -> audio.id }
+        audios.flatMap { group -> group.audios }.map { audio -> audio.id }
     }
 
     fun exitPhotoSelectionMode() {
@@ -240,66 +244,32 @@ fun NasScreen(onBack: () -> Unit) {
     PlatformBackHandler(onBack = ::handleNasBack)
 
     val documents = remember {
+        fun doc(id: String, name: String, format: String, time: String, sizeKB: Int) = NasDocumentItem(
+            id = id, name = name, type = "文档", format = format,
+            sizeKB = sizeKB, path = "drawable/$name", time = time
+        )
         listOf(
-            NasDocumentItem(
-                id = "doc_001",
-                name = "NAS.pdf",
-                type = "文档",
-                format = "pdf",
-                sizeKB = 256,
-                path = "drawable/NAS.pdf",
-                time = "2026-04-09 18:50"
+            NasDocumentMonthGroup(
+                label = "四月",
+                documents = listOf(
+                    doc("doc_001", "NAS.pdf", "pdf", "2026-04-09 18:50", 256),
+                    doc("doc_002", "demo-doc.pages", "pages", "2026-04-01 12:00", 88),
+                    doc("doc_004", "doc.doc", "doc", "2026-04-10 11:10", 28),
+                    doc("doc_005", "pptx.pptx", "pptx", "2026-04-10 11:11", 31),
+                    doc("doc_006", "xls.xls", "xls", "2026-04-10 11:12", 30)
+                )
             ),
-            NasDocumentItem(
-                id = "doc_002",
-                name = "demo-doc.pages",
-                type = "文档",
-                format = "pages",
-                sizeKB = 88,
-                path = "drawable/demo-doc.pages",
-                time = "2026-04-01 12:00"
-            ),
-            NasDocumentItem(
-                id = "doc_003",
-                name = "project_plan.pages",
-                type = "文档",
-                format = "pages",
-                sizeKB = 88,
-                path = "drawable/demo-doc.pages",
-                time = "2026-03-28 09:00"
-            ),
-            NasDocumentItem(
-                id = "doc_004",
-                name = "doc.doc",
-                type = "文档",
-                format = "doc",
-                sizeKB = 28,
-                path = "drawable/doc.doc",
-                time = "2026-04-10 11:10"
-            ),
-            NasDocumentItem(
-                id = "doc_005",
-                name = "pptx.pptx",
-                type = "文档",
-                format = "pptx",
-                sizeKB = 31,
-                path = "drawable/pptx.pptx",
-                time = "2026-04-10 11:11"
-            ),
-            NasDocumentItem(
-                id = "doc_006",
-                name = "xls.xls",
-                type = "文档",
-                format = "xls",
-                sizeKB = 30,
-                path = "drawable/xls.xls",
-                time = "2026-04-10 11:12"
+            NasDocumentMonthGroup(
+                label = "三月",
+                documents = listOf(
+                    doc("doc_003", "project_plan.pages", "pages", "2026-03-28 09:00", 88)
+                )
             )
         )
     }
 
     val allDocumentIds = remember(documents) {
-        documents.map { document -> document.id }
+        documents.flatMap { group -> group.documents }.map { document -> document.id }
     }
 
     // 如果选中了图片，显示详情页
@@ -427,14 +397,14 @@ fun NasScreen(onBack: () -> Unit) {
                         onImageSelectionToggle = { image -> togglePhotoSelection(image) }
                     )
                     NasCategory.Recordings -> NasRecordingsContent(
-                        audios = audios,
+                        audioMonths = audios,
                         selectionMode = isAudioSelectionMode,
                         selectedAudioIds = selectedAudioIds,
                         onAudioClick = { audio -> selectedAudio = audio },
                         onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
                     )
                     NasCategory.Documents -> NasDocumentsContent(
-                        documents = documents,
+                        documentMonths = documents,
                         selectionMode = isDocumentSelectionMode,
                         selectedDocumentIds = selectedDocumentIds,
                         onDocumentClick = { document -> selectedDocument = document },

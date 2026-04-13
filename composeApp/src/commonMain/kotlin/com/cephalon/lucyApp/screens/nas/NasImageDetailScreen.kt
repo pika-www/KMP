@@ -1,14 +1,18 @@
 package com.cephalon.lucyApp.screens.nas
 
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_delete
+import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.img_demo
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,18 +21,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,7 +41,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.components.LocalDesignScale
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
 
@@ -58,6 +60,7 @@ internal fun NasImageDetailScreen(
 ) {
     if (images.isEmpty()) return
 
+    val ds = LocalDesignScale.current
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
@@ -69,7 +72,7 @@ internal fun NasImageDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF4F4F5))
+            .background(Color.Black)
             .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
@@ -96,144 +99,143 @@ internal fun NasImageDetailScreen(
                 }
             }
     ) {
-        Column(
+        // 全屏图片翻页
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            pageSpacing = ds.sm(12.dp),
+            beyondViewportPageCount = 1
+        ) { page ->
+            Image(
+                painter = painterResource(Res.drawable.img_demo),
+                contentDescription = images[page].name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
+
+        // 顶部浮层：返回 | 时间地点 | 删除
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(12.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            NasDetailGlassCircleButton(
+                size = ds.sm(36.dp),
+                onClick = onBack
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    tint = Color.White,
+                    modifier = Modifier.size(ds.sm(16.dp))
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0x1AFFFFFF),
+                border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+            ) {
+                Text(
+                    text = buildString {
+                        append(currentImage.time)
+                        currentImage.location?.let { append("  $it") }
+                    },
+                    modifier = Modifier.padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = Color.White
+                )
+            }
+
+            NasDetailGlassCircleButton(
+                size = ds.sm(36.dp),
+                onClick = { onDelete(currentImage) }
+            ) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_delete),
+                    contentDescription = "删除",
+                    tint = Color.White,
+                    modifier = Modifier.size(ds.sm(16.dp))
+                )
+            }
+        }
+
+        // 底部浮层：发送脑花 | 下载
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(16.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Surface(
+                modifier = Modifier
+                    .width(ds.sm(140.dp))
+                    .height(ds.sm(49.dp))
+                    .clip(RoundedCornerShape(999.dp))
+                    .clickable { onShare(currentImage) },
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0x1AFFFFFF),
+                border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "发送脑花",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = ds.sp(18f),
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White
+                    )
+                }
+            }
+
+            NasDetailGlassCircleButton(
+                size = ds.sm(48.dp),
+                onClick = { onDownload(currentImage) }
+            ) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_download),
+                    contentDescription = "下载",
+                    tint = Color.White,
+                    modifier = Modifier.size(ds.sm(20.dp))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NasDetailGlassCircleButton(
+    size: Dp,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier.size(size),
+        shape = CircleShape,
+        color = Color(0x1AFFFFFF),
+        border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+    ) {
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+                .clip(CircleShape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
         ) {
-            // 顶部栏：返回按钮和时间地点信息
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // 返回按钮
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(Color.White, CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
-                        tint = Color(0xFF3A3A3A)
-                    )
-                }
-
-                // 时间、地点信息
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.White
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = currentImage.time,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                            color = Color(0xFF222222)
-                        )
-                        currentImage.location?.let { location ->
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = location,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF8E8E93)
-                            )
-                        }
-                    }
-                }
-
-                // 占位符，保持布局对称
-                Spacer(modifier = Modifier.width(40.dp))
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // 中间图片显示区域
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxWidth(),
-                    pageSpacing = 12.dp,
-                    beyondViewportPageCount = 1
-                ) { page ->
-                    Image(
-                        painter = painterResource(Res.drawable.img_demo),
-                        contentDescription = images[page].name,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 底部操作按钮
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = { onShare(currentImage) },
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color(0xFF222222)
-                    ),
-                    contentPadding = ButtonDefaults.ContentPadding
-                ) {
-                    Text(
-                        text = "发送朋友",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
-
-                Button(
-                    onClick = { onDownload(currentImage) },
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color(0xFF222222)
-                    ),
-                    contentPadding = ButtonDefaults.ContentPadding
-                ) {
-                    Text(
-                        text = "下载",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
-
-                Button(
-                    onClick = { onDelete(currentImage) },
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color(0xFFFF3B30)
-                    ),
-                    contentPadding = ButtonDefaults.ContentPadding
-                ) {
-                    Text(
-                        text = "删除",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
-            }
+            content()
         }
     }
 }

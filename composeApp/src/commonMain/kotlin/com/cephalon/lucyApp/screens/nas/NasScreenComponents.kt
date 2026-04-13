@@ -11,6 +11,7 @@ import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -55,7 +56,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cephalon.lucyApp.components.LocalDesignScale
 import org.jetbrains.compose.resources.DrawableResource
@@ -154,6 +157,11 @@ internal data class NasAudioItem(
     val durationSec: Int
 )
 
+internal data class NasAudioMonthGroup(
+    val label: String,
+    val audios: List<NasAudioItem>
+)
+
 internal data class NasDocumentItem(
     val id: String,
     val name: String,
@@ -162,6 +170,11 @@ internal data class NasDocumentItem(
     val sizeKB: Int,
     val path: String,
     val time: String
+)
+
+internal data class NasDocumentMonthGroup(
+    val label: String,
+    val documents: List<NasDocumentItem>
 )
 
 @Composable
@@ -452,32 +465,52 @@ internal fun NasPhotosContent(
 
 @Composable
 internal fun NasRecordingsContent(
-    audios: List<NasAudioItem>,
+    audioMonths: List<NasAudioMonthGroup>,
     selectionMode: Boolean = false,
     selectedAudioIds: Collection<String> = emptyList(),
     onAudioClick: (NasAudioItem) -> Unit = {},
     onAudioSelectionToggle: (NasAudioItem) -> Unit = {}
 ) {
+    val ds = LocalDesignScale.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(top = 56.dp, bottom = 64.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(top = ds.sm(56.dp), bottom = ds.sm(64.dp)),
+        verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
-        audios.forEach { audio ->
-            NasAudioCard(
-                audio = audio,
-                showSelectionIndicator = selectionMode,
-                isSelected = selectedAudioIds.contains(audio.id),
-                onClick = {
-                    if (selectionMode) {
-                        onAudioSelectionToggle(audio)
-                    } else {
-                        onAudioClick(audio)
+        audioMonths.forEach { monthGroup ->
+            Column(verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))) {
+                Text(
+                    text = monthGroup.label,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
+                    color = Color.White
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(0.5.dp, Color(0x0FFFFFFF), RoundedCornerShape(ds.sm(16.dp)))
+                        .clip(RoundedCornerShape(ds.sm(16.dp)))
+                        .background(Color(0x1AFFFFFF))
+                        .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(12.dp)),
+                    verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
+                ) {
+                    monthGroup.audios.forEach { audio ->
+                        NasAudioCard(
+                            audio = audio,
+                            showSelectionIndicator = selectionMode,
+                            isSelected = selectedAudioIds.contains(audio.id),
+                            onClick = {
+                                if (selectionMode) {
+                                    onAudioSelectionToggle(audio)
+                                } else {
+                                    onAudioClick(audio)
+                                }
+                            }
+                        )
                     }
                 }
-            )
+            }
         }
         Spacer(modifier = Modifier.height(6.dp))
     }
@@ -485,34 +518,54 @@ internal fun NasRecordingsContent(
 
 @Composable
 internal fun NasDocumentsContent(
-    documents: List<NasDocumentItem>,
+    documentMonths: List<NasDocumentMonthGroup>,
     selectionMode: Boolean = false,
     selectedDocumentIds: Collection<String> = emptyList(),
     onDocumentClick: (NasDocumentItem) -> Unit = {},
     onDocumentSelectionToggle: (NasDocumentItem) -> Unit = {}
 ) {
+    val ds = LocalDesignScale.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(top = 56.dp, bottom = 64.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(top = ds.sm(56.dp), bottom = ds.sm(64.dp)),
+        verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
-        documents.forEach { document ->
-            NasDocumentCard(
-                document = document,
-                showSelectionIndicator = selectionMode,
-                isSelected = selectedDocumentIds.contains(document.id),
-                onClick = {
-                    if (selectionMode) {
-                        onDocumentSelectionToggle(document)
-                    } else {
-                        onDocumentClick(document)
+        documentMonths.forEach { monthGroup ->
+            Column(verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))) {
+                Text(
+                    text = monthGroup.label,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
+                    color = Color.White
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(0.5.dp, Color(0x0FFFFFFF), RoundedCornerShape(ds.sm(16.dp)))
+                        .clip(RoundedCornerShape(ds.sm(16.dp)))
+                        .background(Color(0x1AFFFFFF))
+                        .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(12.dp)),
+                    verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
+                ) {
+                    monthGroup.documents.forEach { document ->
+                        NasDocumentCard(
+                            document = document,
+                            showSelectionIndicator = selectionMode,
+                            isSelected = selectedDocumentIds.contains(document.id),
+                            onClick = {
+                                if (selectionMode) {
+                                    onDocumentSelectionToggle(document)
+                                } else {
+                                    onDocumentClick(document)
+                                }
+                            }
+                        )
                     }
                 }
-            )
+            }
         }
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(ds.sm(6.dp)))
     }
 }
 
@@ -822,50 +875,60 @@ internal fun NasAudioCard(
     isSelected: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val cardShape = RoundedCornerShape(12.dp)
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = cardShape,
-        color = NasButtonBackgroundColor,
-        border = BorderStroke(1.dp, NasButtonBorderColor)
-    ) {
-        Row(
-            modifier = Modifier
-                .clip(cardShape)
-                .then(
-                    if (onClick != null) {
-                        Modifier.clickable(onClick = onClick)
-                    } else {
-                        Modifier
-                    }
-                )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "${audio.time} - ${formatAudioDuration(audio.durationSec)}",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = Color(0xFF222222)
+    val ds = LocalDesignScale.current
+    val pillShape = RoundedCornerShape(999.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(pillShape)
+            .background(Color(0x26FFFFFF))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
             )
-
-            if (showSelectionIndicator) {
-                Surface(
-                    modifier = Modifier.size(20.dp),
-                    shape = CircleShape,
-                    color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.96f)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = "已选择",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
+            .height(ds.sm(44.dp))
+            .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(8.dp)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painter = painterResource(Res.drawable.ic_audio),
+            contentDescription = null,
+            modifier = Modifier.size(ds.sm(20.dp)),
+            tint = Color.White
+        )
+        Spacer(modifier = Modifier.width(ds.sm(8.dp)))
+        Text(
+            text = audio.name,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                lineHeight = ds.sp(20f),
+                letterSpacing = ds.sp(0.56f)
+            ),
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (showSelectionIndicator) {
+            Spacer(modifier = Modifier.width(ds.sm(8.dp)))
+            Surface(
+                modifier = Modifier.size(ds.sm(16.dp)),
+                shape = CircleShape,
+                color = if (isSelected) Color(0xFF2192EF) else Color.Transparent,
+                border = if (isSelected) null else BorderStroke(1.dp, Color(0x99FFFFFF))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "已选择",
+                            tint = Color.White,
+                            modifier = Modifier.size(ds.sm(10.dp))
+                        )
                     }
                 }
             }
@@ -880,50 +943,60 @@ internal fun NasDocumentCard(
     isSelected: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val cardShape = RoundedCornerShape(12.dp)
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = cardShape,
-        color = NasButtonBackgroundColor,
-        border = BorderStroke(1.dp, NasButtonBorderColor)
-    ) {
-        Row(
-            modifier = Modifier
-                .clip(cardShape)
-                .then(
-                    if (onClick != null) {
-                        Modifier.clickable(onClick = onClick)
-                    } else {
-                        Modifier
-                    }
-                )
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = document.name,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF222222)
+    val ds = LocalDesignScale.current
+    val pillShape = RoundedCornerShape(999.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(pillShape)
+            .background(Color(0x26FFFFFF))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
             )
-
-            if (showSelectionIndicator) {
-                Surface(
-                    modifier = Modifier.size(20.dp),
-                    shape = CircleShape,
-                    color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.96f)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = "已选择",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
+            .height(ds.sm(44.dp))
+            .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(8.dp)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painter = painterResource(Res.drawable.ic_doc),
+            contentDescription = null,
+            modifier = Modifier.size(ds.sm(20.dp)),
+            tint = Color.White
+        )
+        Spacer(modifier = Modifier.width(ds.sm(8.dp)))
+        Text(
+            text = document.name,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                lineHeight = ds.sp(20f),
+                letterSpacing = ds.sp(0.56f)
+            ),
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (showSelectionIndicator) {
+            Spacer(modifier = Modifier.width(ds.sm(8.dp)))
+            Surface(
+                modifier = Modifier.size(ds.sm(16.dp)),
+                shape = CircleShape,
+                color = if (isSelected) Color(0xFF2192EF) else Color.Transparent,
+                border = if (isSelected) null else BorderStroke(1.dp, Color(0x99FFFFFF))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "已选择",
+                            tint = Color.White,
+                            modifier = Modifier.size(ds.sm(10.dp))
+                        )
                     }
                 }
             }
