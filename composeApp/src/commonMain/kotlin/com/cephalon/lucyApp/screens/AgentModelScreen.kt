@@ -565,11 +565,12 @@ fun AgentModelScreen(
                     .fillMaxSize()
                     .background(Color(0xFFF5F5F7))
                     .padding(padding)
-                    .pointerInput(Unit) {
+                    .pointerInput(attachmentsExpanded) {
+                        if (attachmentsExpanded) return@pointerInput
                         awaitEachGesture {
                             awaitFirstDown(pass = PointerEventPass.Initial)
                             val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                            if (up != null && !attachmentsExpanded) {
+                            if (up != null) {
                                 focusManager.clearFocus()
                             }
                         }
@@ -761,11 +762,9 @@ fun AgentModelScreen(
                         recentImages = mediaAccessController.recentImages,
                         onOpenCamera = {
                             mediaAccessController.openCamera()
-                            attachmentsExpanded = false
                         },
                         onOpenFilePicker = {
                             mediaAccessController.openFilePicker()
-                            attachmentsExpanded = false
                         },
                         onImagesSelected = { uris ->
                             uris.forEach { uri ->

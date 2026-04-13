@@ -426,8 +426,22 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("相册权限已授权，正在加载近期照片。")
             loadRecentImages()
         } else {
-            currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
-            recentImages.clear()
+            // Android 14+ 部分授权: 用户可能选择了"仅选择部分照片"
+            val partialGranted = if (Build.VERSION.SDK_INT >= 34) {
+                val activity = context.findActivity()
+                activity != null && androidx.core.content.ContextCompat.checkSelfPermission(
+                    activity,
+                    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            } else false
+
+            if (partialGranted) {
+                currentOnEvent.value("相册部分授权，正在加载可访问的照片。")
+                loadRecentImages()
+            } else {
+                currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
+                recentImages.clear()
+            }
         }
     }
 
@@ -592,9 +606,17 @@ actual fun rememberPlatformMediaAccessController(
                 if (activity == null) {
                     currentOnEvent.value("未找到 Activity，上下文异常，无法打开相机。")
                 } else {
-                    when (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        true -> takePicturePreviewLauncher.launch(null)
-                        false -> takePicturePreviewLauncher.launch(null)
+                    val cameraGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        activity,
+                        Manifest.permission.CAMERA
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    android.util.Log.d("MediaAccess", "[相机] CAMERA权限=$cameraGranted, activity=$activity")
+                    currentOnEvent.value("[相机] CAMERA权限=$cameraGranted")
+                    if (cameraGranted) {
+                        takePicturePreviewLauncher.launch(null)
+                    } else {
+                        currentOnEvent.value("正在申请相机权限。")
+                        requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                     }
                 }
             },
@@ -758,12 +780,23 @@ actual fun rememberPlatformMediaAccessController(
                     Manifest.permission.READ_EXTERNAL_STORAGE
                 }
 
-                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                val fullGranted = androidx.core.content.ContextCompat.checkSelfPermission(
                     activity,
                     permission
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-                if (granted) {
+                // Android 14+ 部分授权: READ_MEDIA_VISUAL_USER_SELECTED
+                val partialGranted = if (Build.VERSION.SDK_INT >= 34) {
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        activity,
+                        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                } else false
+
+                android.util.Log.d("MediaAccess", "[相册] SDK=${Build.VERSION.SDK_INT}, permission=$permission, fullGranted=$fullGranted, partialGranted=$partialGranted")
+                currentOnEvent.value("[相册] SDK=${Build.VERSION.SDK_INT}, 全量=$fullGranted, 部分=$partialGranted")
+
+                if (fullGranted || partialGranted) {
                     loadRecentImages()
                 } else {
                     currentOnEvent.value("正在申请相册权限，用于展示近期照片。")
@@ -966,6 +999,7 @@ private fun saveBitmapPreviewToCache(context: Context, bitmap: Bitmap): String? 
 private fun Context.findActivity(): ComponentActivity? {
     var current: Context = this
     while (current is ContextWrapper) {
+        if (current is ComponentActivity) return current
         current = current.baseContext
     }
     return current as? ComponentActivity

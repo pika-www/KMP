@@ -24,7 +24,13 @@ actual fun PlatformImageThumbnail(
     if (bitmap == null) {
         Box(modifier = modifier.background(Color(0xFFEDEDED)))
     } else {
-        Image(bitmap = bitmap, contentDescription = null, modifier = modifier)
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop,
+            alignment = androidx.compose.ui.Alignment.Center
+        )
     }
 }
 
