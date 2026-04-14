@@ -98,6 +98,7 @@ internal enum class NasUploadTaskType {
 internal enum class NasUploadTaskStatus {
     Waiting,
     Uploading,
+    Registering,
     Completed,
     Failed
 }
@@ -184,7 +185,11 @@ internal fun NasUploadProgressDialog(
 ) {
     Dialog(onDismissRequest = onDismiss) {
         val ds = LocalDesignScale.current
-        val activeCount = tasks.count { it.status == NasUploadTaskStatus.Uploading || it.status == NasUploadTaskStatus.Waiting }
+        val activeCount = tasks.count {
+            it.status == NasUploadTaskStatus.Uploading ||
+                it.status == NasUploadTaskStatus.Registering ||
+                it.status == NasUploadTaskStatus.Waiting
+        }
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(ds.sm(28.dp)),
@@ -1259,6 +1264,7 @@ private fun NasUploadTaskItem.progressForDisplay(): Float =
     when (status) {
         NasUploadTaskStatus.Waiting -> 0f
         NasUploadTaskStatus.Uploading -> progress.coerceIn(0f, 1f)
+        NasUploadTaskStatus.Registering -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Completed -> 1f
         NasUploadTaskStatus.Failed -> progress.coerceIn(0f, 1f)
     }
@@ -1267,6 +1273,7 @@ private fun NasUploadTaskItem.statusText(): String =
     when (status) {
         NasUploadTaskStatus.Waiting -> "等待上传"
         NasUploadTaskStatus.Uploading -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
+        NasUploadTaskStatus.Registering -> "登记中"
         NasUploadTaskStatus.Completed -> "已完成"
         NasUploadTaskStatus.Failed -> "上传失败"
     }

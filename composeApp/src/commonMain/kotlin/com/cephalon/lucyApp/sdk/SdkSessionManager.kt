@@ -4,6 +4,7 @@ import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.di.AppConfig
 import com.cephalon.lucyApp.logging.appLogD
 import com.cephalon.lucyApp.time.currentTimeMillis
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,9 +18,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -31,6 +34,50 @@ import lucy.im.sdk.OnlineDevice
 import lucy.im.sdk.OnlineNpcDeviceHandle
 import lucy.im.sdk.blob.BlobPutResult
 import lucy.im.sdk.collectDevices
+import lucy.im.sdk.filetransfer.ProgressFrame
+import lucy.im.sdk.filetransfer.SendFileOutcome
+import lucy.im.sdk.filetransfer.SendItem
+import lucy.im.sdk.filetransfer.SendOptions
+import lucy.im.sdk.filetransfer.TransferTarget
+
+enum class FileTransferDeviceKind {
+    Npc,
+    Nas,
+}
+
+data class TransferUploadItem(
+    val entryId: String,
+    val entryName: String,
+    val bytes: ByteArray,
+)
+
+data class NasRegisterBlobItem(
+    val blobRef: String,
+    val entryId: String? = null,
+    val fileName: String? = null,
+    val kind: String? = null,
+    val contentType: String? = null,
+)
+
+data class NasRegisterBlobResult(
+    val blobRef: String,
+    val ok: Boolean,
+    val id: String?,
+    val error: String?,
+)
+
+data class NasRegisterBlobsResponse(
+    val cmd: String,
+    val requestId: String?,
+    val ok: Boolean?,
+    val results: List<NasRegisterBlobResult>,
+)
+
+private data class PendingNasRegisterRequest(
+    val requestId: String,
+    val blobRefs: List<String>,
+    val waiter: CompletableDeferred<NasRegisterBlobsResponse>,
+)
 
 class SdkSessionManager(
     private val tokenStore: AuthTokenStore,
@@ -103,6 +150,9 @@ class SdkSessionManager(
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
+    private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
+    private val _activeFileTransferCount = MutableStateFlow(0)
+
     private var _latestRequestId: String? = null
 
     private val _isInBackground = MutableStateFlow(false)
@@ -131,9 +181,12 @@ class SdkSessionManager(
         _isInBackground.value = true
         if (session == null) return
 
-        if (_activeRequestIds.value.isNotEmpty()) {
+        if (hasActiveTransportWork()) {
             // 对话进行中（或已发送请求等待回复），不断开连接
-            appLogD(TAG, "应用进入后台，对话进行中(activeIds=${_activeRequestIds.value})，保持连接")
+            appLogD(
+                TAG,
+                "应用进入后台，存在进行中的连接工作(activeIds=${_activeRequestIds.value}, fileTransfers=${_activeFileTransferCount.value}, nasRegisters=${pendingNasRegisterRequests.value.size})，保持连接",
+            )
             return
         }
 
@@ -160,7 +213,7 @@ class SdkSessionManager(
         deferredDisconnectJob?.cancel()
         deferredDisconnectJob = scope.launch {
             delay(BACKGROUND_DISCONNECT_DELAY_MS)
-            if (_isInBackground.value && _activeRequestIds.value.isEmpty()) {
+            if (_isInBackground.value && !hasActiveTransportWork()) {
                 disconnectInBackground()
             }
         }
@@ -290,6 +343,136 @@ class SdkSessionManager(
         }
     }
 
+    suspend fun sendFilesToDevice(
+        targetCdi: String,
+        items: List<TransferUploadItem>,
+        deviceKind: FileTransferDeviceKind = FileTransferDeviceKind.Nas,
+        retryCount: Int = 3,
+        timeoutMs: Long = 60_000L,
+        onProgress: (ProgressFrame) -> Unit = {},
+    ): Result<SendFileOutcome> {
+        if (items.isEmpty()) {
+            return Result.failure(IllegalArgumentException("上传文件不能为空"))
+        }
+
+        ensureConnectedIfTokenValid()
+            .exceptionOrNull()
+            ?.let { error -> return Result.failure(error) }
+
+        val activeSession = session
+            ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        val resolvedTargetCdi = targetCdi.trim()
+        val target =
+            when (deviceKind) {
+                FileTransferDeviceKind.Npc -> TransferTarget.Npc(targetCdi = resolvedTargetCdi)
+                FileTransferDeviceKind.Nas -> TransferTarget.Nas(targetCdi = resolvedTargetCdi)
+            }
+
+        appLogD(
+            TAG,
+            "开始批量传输文件 target=${deviceKind.name} cdi=$resolvedTargetCdi count=${items.size}",
+        )
+
+        _activeFileTransferCount.update { it + 1 }
+
+        return runCatching {
+            activeSession
+                .blobTransfer(scope)
+                .sendfileToDevice(
+                    target = target,
+                    items = items.map { item ->
+                        SendItem(
+                            entryId = item.entryId,
+                            entryName = item.entryName,
+                            bytes = item.bytes,
+                        )
+                    },
+                    options = SendOptions(
+                        retryCount = retryCount,
+                        timeoutMs = timeoutMs,
+                        onProgress = onProgress,
+                    ),
+                )
+        }.onSuccess { outcome ->
+            appLogD(
+                TAG,
+                "批量传输成功 target=${deviceKind.name} cdi=$resolvedTargetCdi status=${outcome.done.status} items=${outcome.done.items.size}",
+            )
+        }.onFailure { error ->
+            appLogD(
+                TAG,
+                "批量传输失败 target=${deviceKind.name} cdi=$resolvedTargetCdi error=${error.message ?: "unknown"}",
+            )
+        }.also {
+            _activeFileTransferCount.update { current -> (current - 1).coerceAtLeast(0) }
+            if (_activeFileTransferCount.value == 0) {
+                scheduleBackgroundDisconnectIfNeeded()
+            }
+        }
+    }
+
+    suspend fun registerBlobsToNas(
+        targetCdi: String,
+        items: List<NasRegisterBlobItem>,
+        timeoutMs: Long = 60_000L,
+    ): Result<NasRegisterBlobsResponse> {
+        if (items.isEmpty()) {
+            return Result.failure(IllegalArgumentException("登记文件不能为空"))
+        }
+
+        ensureConnectedIfTokenValid()
+            .exceptionOrNull()
+            ?.let { error -> return Result.failure(error) }
+
+        val activeSession = session
+            ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        val requestId = generateMessageId19()
+        val rspSubject = "cephalon.im.user.${activeSession.userId}"
+        val waiter = CompletableDeferred<NasRegisterBlobsResponse>()
+        val resolvedTargetCdi = targetCdi.trim()
+        pendingNasRegisterRequests.update { current ->
+            current + (requestId to PendingNasRegisterRequest(requestId, items.map { it.blobRef }, waiter))
+        }
+        _activeFileTransferCount.update { it + 1 }
+
+        appLogD(
+            TAG,
+            "开始 NAS blob 登记 cdi=$resolvedTargetCdi requestId=$requestId count=${items.size}",
+        )
+
+        return runCatching {
+            activeSession.publishToNas(
+                cdi = resolvedTargetCdi,
+                payload = buildNasRegisterBlobsPayload(
+                    requestId = requestId,
+                    rspSubject = rspSubject,
+                    items = items,
+                ),
+            )
+            withTimeoutOrNull(timeoutMs) { waiter.await() }
+                ?: throw IllegalStateException("等待 NAS 登记响应超时")
+        }.onSuccess { response ->
+            appLogD(
+                TAG,
+                "NAS blob 登记成功 cdi=$resolvedTargetCdi requestId=$requestId ok=${response.ok} results=${response.results.size}",
+            )
+        }.onFailure { error ->
+            appLogD(
+                TAG,
+                "NAS blob 登记失败 cdi=$resolvedTargetCdi requestId=$requestId error=${error.message ?: "unknown"}",
+            )
+            waiter.cancel(error as? CancellationException)
+        }.also {
+            pendingNasRegisterRequests.update { current -> current - requestId }
+            _activeFileTransferCount.update { current -> (current - 1).coerceAtLeast(0) }
+            if (_activeFileTransferCount.value == 0) {
+                scheduleBackgroundDisconnectIfNeeded()
+            }
+        }
+    }
+
     suspend fun publishTextWithImageToNpc(
         cdi: String,
         text: String,
@@ -400,6 +583,29 @@ class SdkSessionManager(
                         "<binary payload ${messagePayload.size} bytes>",
                     )
                 appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject len=${messageText.length}")
+                val nasRegisterResponse = parseNasRegisterBlobsResponse(messageText)
+                if (nasRegisterResponse != null) {
+                    val matchedRequestId = findMatchingNasRegisterRequestId(nasRegisterResponse)
+                    if (matchedRequestId != null) {
+                        appLogD(
+                            TAG,
+                            "[Consumer] 接受 NAS 登记响应 requestId=$matchedRequestId ok=${nasRegisterResponse.ok} results=${nasRegisterResponse.results.size}",
+                        )
+                        _receivedMessages.update { current ->
+                            (listOf("subject=$subject\n$messageText") + current).take(100)
+                        }
+                        pendingNasRegisterRequests.value[matchedRequestId]?.waiter?.complete(nasRegisterResponse)
+                        pendingNasRegisterRequests.update { current -> current - matchedRequestId }
+                        _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
+                        appLogD(TAG, _consumerLog.value)
+                    } else {
+                        appLogD(
+                            TAG,
+                            "[Consumer] 收到未匹配的 NAS 登记响应 requestId=${nasRegisterResponse.requestId ?: "none"} results=${nasRegisterResponse.results.size}",
+                        )
+                    }
+                    return@startUserChannelConsumer
+                }
                 val machineEvent = parseMachineEvent(messageText)
                 if (machineEvent != null) {
                     appLogD(TAG, "[Consumer] 解析事件 type=${machineEvent.type}, text=${machineEvent.text?.take(80) ?: "null"}, sourceId=${machineEvent.sourceMessageId ?: "null"}")
@@ -487,6 +693,11 @@ class SdkSessionManager(
         _lastReplyMessageId.value = null
         _activeRequestIds.value = emptySet()
         _replyStateMap.value = emptyMap()
+        pendingNasRegisterRequests.value.values.forEach { pending ->
+            pending.waiter.cancel()
+        }
+        pendingNasRegisterRequests.value = emptyMap()
+        _activeFileTransferCount.value = 0
         _latestRequestId = null
         _assistantReplyText.value = ""
         _assistantReplyStreaming.value = false
@@ -850,6 +1061,71 @@ class SdkSessionManager(
         return root["source_message_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
     }
 
+    private fun hasActiveTransportWork(): Boolean {
+        return _activeRequestIds.value.isNotEmpty() ||
+            _activeFileTransferCount.value > 0 ||
+            pendingNasRegisterRequests.value.isNotEmpty()
+    }
+
+    private fun parseNasRegisterBlobsResponse(payload: String): NasRegisterBlobsResponse? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        val cmd = root["cmd"]?.jsonPrimitive?.contentOrNull ?: return null
+        if (cmd != "file_register_blobs_rsp") return null
+
+        val body =
+            runCatching { root["file_register_blobs_rsp"]?.jsonObject }.getOrNull()
+                ?: root
+
+        val results =
+            runCatching {
+                (body["results"] ?: root["results"])?.jsonArray
+            }.getOrNull()
+                ?.mapNotNull { item ->
+                    val resultObject = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
+                    val blobRef =
+                        resultObject["blobRef"]?.jsonPrimitive?.contentOrNull
+                            ?: resultObject["blob_ref"]?.jsonPrimitive?.contentOrNull
+                            ?: return@mapNotNull null
+                    NasRegisterBlobResult(
+                        blobRef = blobRef,
+                        ok = resultObject["ok"]?.jsonPrimitive?.booleanOrNull ?: false,
+                        id = resultObject["id"]?.jsonPrimitive?.contentOrNull,
+                        error = resultObject["error"]?.jsonPrimitive?.contentOrNull,
+                    )
+                }
+                ?: emptyList()
+
+        return NasRegisterBlobsResponse(
+            cmd = cmd,
+            requestId =
+                root["request_id"]?.jsonPrimitive?.contentOrNull
+                    ?: body["request_id"]?.jsonPrimitive?.contentOrNull,
+            ok = body["ok"]?.jsonPrimitive?.booleanOrNull ?: root["ok"]?.jsonPrimitive?.booleanOrNull,
+            results = results,
+        )
+    }
+
+    private fun findMatchingNasRegisterRequestId(response: NasRegisterBlobsResponse): String? {
+        response.requestId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { requestId ->
+                if (requestId in pendingNasRegisterRequests.value) {
+                    return requestId
+                }
+            }
+
+        val responseBlobRefs = response.results.map { it.blobRef }
+        if (responseBlobRefs.isNotEmpty()) {
+            pendingNasRegisterRequests.value.values.firstOrNull { pending ->
+                pending.blobRefs == responseBlobRefs
+            }?.let { pending ->
+                return pending.requestId
+            }
+        }
+
+        return pendingNasRegisterRequests.value.keys.singleOrNull()
+    }
+
     companion object {
         private const val TAG = "SdkSessionManager"
         private const val OBSERVER_RESTART_DELAY_MS = 800L
@@ -877,6 +1153,59 @@ private fun String.escapeForJson(): String {
     return this
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
+}
+
+private fun buildNasRegisterBlobsPayload(
+    requestId: String,
+    rspSubject: String,
+    items: List<NasRegisterBlobItem>,
+): String {
+    val encodedItems =
+        items.joinToString(",") { item ->
+            buildString {
+                append("{")
+                append("\"blobRef\":\"")
+                append(item.blobRef.escapeForJson())
+                append("\"")
+                item.entryId?.takeIf { it.isNotBlank() }?.let {
+                    append(",\"entry_id\":\"")
+                    append(it.escapeForJson())
+                    append("\"")
+                }
+                item.fileName?.takeIf { it.isNotBlank() }?.let {
+                    append(",\"fileName\":\"")
+                    append(it.escapeForJson())
+                    append("\"")
+                }
+                item.kind?.takeIf { it.isNotBlank() }?.let {
+                    append(",\"kind\":\"")
+                    append(it.escapeForJson())
+                    append("\"")
+                }
+                item.contentType?.takeIf { it.isNotBlank() }?.let {
+                    append(",\"contentType\":\"")
+                    append(it.escapeForJson())
+                    append("\"")
+                }
+                append("}")
+            }
+        }
+    return buildString {
+        append("{")
+        append("\"cmd\":\"file_register_blobs_req\",")
+        append("\"request_id\":\"")
+        append(requestId.escapeForJson())
+        append("\",")
+        append("\"rsp_subject\":\"")
+        append(rspSubject.escapeForJson())
+        append("\",")
+        append("\"file_register_blobs_req\":{")
+        append("\"items\":[")
+        append(encodedItems)
+        append("]")
+        append("}")
+        append("}")
+    }
 }
 
 private data class NpcMachineEvent(

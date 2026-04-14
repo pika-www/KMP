@@ -29,11 +29,15 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.Text
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,7 +48,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.time.currentTimeMillis
+import com.cephalon.lucyApp.sdk.NasRegisterBlobItem
+import com.cephalon.lucyApp.sdk.FileTransferDeviceKind
+import com.cephalon.lucyApp.sdk.SdkSessionManager
+import com.cephalon.lucyApp.sdk.TransferUploadItem
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import kotlin.math.abs
 
 @Composable
@@ -53,6 +64,9 @@ fun NasScreen(onBack: () -> Unit) {
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+    val sdkSessionManager = koinInject<SdkSessionManager>()
+    val coroutineScope = rememberCoroutineScope()
+    val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
 
     var selectedCategory by remember { mutableStateOf(NasCategory.Photos) }
     var isSearchMode by remember { mutableStateOf(false) }
@@ -66,49 +80,217 @@ fun NasScreen(onBack: () -> Unit) {
     var selectedAudio by remember { mutableStateOf<NasAudioItem?>(null) }
     var selectedDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
     var showUploadProgressDialog by remember { mutableStateOf(false) }
+    var lastPickerCategory by remember { mutableStateOf<NasCategory?>(null) }
+    var lastPickedImagesSize by remember { mutableIntStateOf(0) }
+    var lastPickedFilesSize by remember { mutableIntStateOf(0) }
     val selectedPhotoIds = remember { mutableStateListOf<String>() }
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
-    val uploadTasks = remember {
-        listOf(
-            NasUploadTaskItem(
-                id = "upload_audio_001",
-                title = "录音纪要",
-                type = NasUploadTaskType.Audio,
-                progress = 1f,
-                status = NasUploadTaskStatus.Completed
-            ),
-            NasUploadTaskItem(
-                id = "upload_audio_002",
-                title = "录音纪要",
-                type = NasUploadTaskType.Audio,
-                progress = 0.7f,
-                status = NasUploadTaskStatus.Uploading
-            ),
-            NasUploadTaskItem(
-                id = "upload_doc_001",
-                title = "文档纪要",
-                type = NasUploadTaskType.Document,
-                progress = 0f,
-                status = NasUploadTaskStatus.Waiting
-            ),
-            NasUploadTaskItem(
-                id = "upload_image_001",
-                title = "图片纪要",
-                type = NasUploadTaskType.Image,
-                progress = 0.7f,
-                status = NasUploadTaskStatus.Uploading
-            )
-        )
+    val uploadTasks = remember { mutableStateListOf<NasUploadTaskItem>() }
+    val activeUploadCount = uploadTasks.count {
+        it.status == NasUploadTaskStatus.Uploading ||
+            it.status == NasUploadTaskStatus.Registering ||
+            it.status == NasUploadTaskStatus.Waiting
     }
-    val activeUploadCount = remember(uploadTasks) {
-        uploadTasks.count {
-            it.status == NasUploadTaskStatus.Uploading || it.status == NasUploadTaskStatus.Waiting
-        }
-    }
+    val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
+
+    fun appendUploadTasks(tasks: List<NasUploadTaskItem>) {
+        if (tasks.isEmpty()) return
+        uploadTasks.addAll(0, tasks.asReversed())
+        showUploadProgressDialog = true
+    }
+
+    fun replaceUploadTask(taskId: String, transform: (NasUploadTaskItem) -> NasUploadTaskItem) {
+        val index = uploadTasks.indexOfFirst { it.id == taskId }
+        if (index >= 0) {
+            uploadTasks[index] = transform(uploadTasks[index])
+        }
+    }
+
+    fun launchBatchUpload(
+        category: NasCategory,
+        items: List<Pair<String, String>>,
+    ) {
+        if (items.isEmpty()) return
+
+        val preparedTasks =
+            items.mapIndexed { index, (uri, displayName) ->
+                NasUploadTaskItem(
+                    id = "nas_upload_${currentTimeMillisSafe()}_${index}_${displayName.hashCode().toString().replace('-', '0')}",
+                    title = displayName,
+                    type = category.toUploadTaskType(),
+                    progress = if (index == 0) 0.08f else 0f,
+                    status = if (index == 0) NasUploadTaskStatus.Uploading else NasUploadTaskStatus.Waiting,
+                )
+            }
+        appendUploadTasks(preparedTasks)
+
+        coroutineScope.launch {
+            val uploadPayloads = mutableListOf<TransferUploadItem>()
+
+            preparedTasks.forEachIndexed { index, task ->
+                val uri = items[index].first
+                val bytes = mediaController.readUriToBytes(uri)
+                if (bytes == null || bytes.isEmpty()) {
+                    replaceUploadTask(task.id) {
+                        it.copy(status = NasUploadTaskStatus.Failed, progress = 0f)
+                    }
+                    return@forEachIndexed
+                }
+
+                uploadPayloads += TransferUploadItem(
+                    entryId = task.id,
+                    entryName = task.title,
+                    bytes = bytes,
+                )
+                replaceUploadTask(task.id) {
+                    it.copy(
+                        status = if (uploadPayloads.size == 1) NasUploadTaskStatus.Uploading else NasUploadTaskStatus.Waiting,
+                        progress = if (uploadPayloads.size == 1) 0.12f else 0f,
+                    )
+                }
+            }
+
+            if (uploadPayloads.isEmpty()) return@launch
+
+            sdkSessionManager
+                .sendFilesToDevice(
+                    targetCdi = targetCdi,
+                    items = uploadPayloads,
+                    deviceKind = FileTransferDeviceKind.Nas,
+                    onProgress = { frame ->
+                        val orderedIds = uploadPayloads.map { it.entryId }
+                        val completedCount = frame.completedEntries.coerceIn(0, orderedIds.size)
+                        orderedIds.forEachIndexed { index, entryId ->
+                            when {
+                                index < completedCount -> {
+                                    replaceUploadTask(entryId) {
+                                        it.copy(status = NasUploadTaskStatus.Uploading, progress = 0.92f)
+                                    }
+                                }
+                                index == completedCount -> {
+                                    replaceUploadTask(entryId) {
+                                        it.copy(status = NasUploadTaskStatus.Uploading, progress = 0.35f)
+                                    }
+                                }
+                                else -> {
+                                    replaceUploadTask(entryId) {
+                                        it.copy(status = NasUploadTaskStatus.Waiting, progress = 0f)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                )
+                .onSuccess { outcome ->
+                    val doneMap = outcome.done.items.associateBy { it.entryId }
+                    val registerItems = mutableListOf<NasRegisterBlobItem>()
+                    outcome.sentItems.forEach { sentItem ->
+                        val result = doneMap[sentItem.entryId]
+                        if (result?.ok == true) {
+                            replaceUploadTask(sentItem.entryId) { current ->
+                                current.copy(status = NasUploadTaskStatus.Registering, progress = 0.96f)
+                            }
+                            registerItems += NasRegisterBlobItem(
+                                blobRef = sentItem.blobRef,
+                                entryId = sentItem.entryId,
+                                fileName = sentItem.entryName,
+                                kind = sentItem.entryName.toNasRegisterKind(),
+                                contentType = sentItem.entryName.toMimeType(),
+                            )
+                        } else {
+                            replaceUploadTask(sentItem.entryId) { current ->
+                                current.copy(
+                                    status = NasUploadTaskStatus.Failed,
+                                    progress = current.progress.coerceAtLeast(0f),
+                                )
+                            }
+                        }
+                    }
+
+                    if (registerItems.isEmpty()) {
+                        return@onSuccess
+                    }
+
+                    sdkSessionManager
+                        .registerBlobsToNas(
+                            targetCdi = targetCdi,
+                            items = registerItems,
+                        )
+                        .onSuccess { registerResponse ->
+                            val resultMap = registerResponse.results.associateBy { it.blobRef }
+                            registerItems.forEach { registerItem ->
+                                val registerResult = resultMap[registerItem.blobRef]
+                                replaceUploadTask(registerItem.entryId.orEmpty()) { current ->
+                                    if (registerResult?.ok == true) {
+                                        current.copy(status = NasUploadTaskStatus.Completed, progress = 1f)
+                                    } else {
+                                        current.copy(
+                                            status = NasUploadTaskStatus.Failed,
+                                            progress = current.progress.coerceAtLeast(0.96f),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .onFailure {
+                            registerItems.forEach { registerItem ->
+                                replaceUploadTask(registerItem.entryId.orEmpty()) { current ->
+                                    current.copy(
+                                        status = NasUploadTaskStatus.Failed,
+                                        progress = current.progress.coerceAtLeast(0.96f),
+                                    )
+                                }
+                            }
+                        }
+                }
+                .onFailure {
+                    uploadPayloads.forEach { item ->
+                        replaceUploadTask(item.entryId) { current ->
+                            current.copy(status = NasUploadTaskStatus.Failed)
+                        }
+                    }
+                }
+        }
+    }
+
+    LaunchedEffect(mediaController.pickedImages.size, lastPickerCategory) {
+        val size = mediaController.pickedImages.size
+        if (size > lastPickedImagesSize && lastPickerCategory == NasCategory.Photos) {
+            val newUris = mediaController.pickedImages.take(size - lastPickedImagesSize)
+            val items =
+                newUris
+                    .filter { it.isNotBlank() }
+                    .map { uri -> uri to deriveUploadDisplayName(uri, defaultPrefix = "图片") }
+                    .distinctBy { it.first }
+            launchBatchUpload(
+                category = NasCategory.Photos,
+                items = items,
+            )
+        }
+        lastPickedImagesSize = size
+    }
+
+    LaunchedEffect(mediaController.pickedFiles.size, lastPickerCategory) {
+        val size = mediaController.pickedFiles.size
+        val pickerCategory = lastPickerCategory
+        if (size > lastPickedFilesSize && pickerCategory != null && pickerCategory != NasCategory.Photos) {
+            val newFiles = mediaController.pickedFiles.take(size - lastPickedFilesSize)
+            val items =
+                newFiles
+                    .filter { it.uri.isNotBlank() }
+                    .map { file -> file.uri to file.displayName.ifBlank { deriveUploadDisplayName(file.uri, defaultPrefix = pickerCategory.title) } }
+                    .distinctBy { it.first }
+            launchBatchUpload(
+                category = pickerCategory,
+                items = items,
+            )
+        }
+        lastPickedFilesSize = size
+    }
     
     val imageMonths = remember {
         fun img(id: String, name: String, time: String, location: String) = NasImageItem(
@@ -763,6 +945,7 @@ fun NasScreen(onBack: () -> Unit) {
                             }
                         },
                         onAddClick = {
+                            lastPickerCategory = selectedCategory
                             when (selectedCategory) {
                                 NasCategory.Photos -> mediaController.openGallery()
                                 NasCategory.Recordings -> mediaController.openAudioPicker()
@@ -807,5 +990,55 @@ fun NasScreen(onBack: () -> Unit) {
                 previewImage = null
             }
         )
+    }
+}
+
+private fun NasCategory.toUploadTaskType(): NasUploadTaskType =
+    when (this) {
+        NasCategory.Photos -> NasUploadTaskType.Image
+        NasCategory.Recordings -> NasUploadTaskType.Audio
+        NasCategory.Documents -> NasUploadTaskType.Document
+    }
+
+private fun deriveUploadDisplayName(uri: String, defaultPrefix: String): String {
+    val sanitized = uri.substringAfterLast('/').substringBefore('?').substringBefore('#')
+    return sanitized.takeIf { it.isNotBlank() } ?: "$defaultPrefix-${currentTimeMillisSafe()}"
+}
+
+private fun currentTimeMillisSafe(): Long = currentTimeMillis()
+
+private fun String.toNasRegisterKind(): String {
+    return when (substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "svg" -> "image"
+        "mp3", "wav", "m4a", "aac", "flac", "ogg" -> "audio"
+        else -> "file"
+    }
+}
+
+private fun String.toMimeType(): String {
+    return when (substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "heic", "heif" -> "image/heic"
+        "bmp" -> "image/bmp"
+        "svg" -> "image/svg+xml"
+        "mp3" -> "audio/mpeg"
+        "wav" -> "audio/wav"
+        "m4a" -> "audio/mp4"
+        "aac" -> "audio/aac"
+        "flac" -> "audio/flac"
+        "ogg" -> "audio/ogg"
+        "pdf" -> "application/pdf"
+        "txt" -> "text/plain"
+        "json" -> "application/json"
+        "doc" -> "application/msword"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "xls" -> "application/vnd.ms-excel"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "ppt" -> "application/vnd.ms-powerpoint"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        else -> "application/octet-stream"
     }
 }
