@@ -8,17 +8,25 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material3.Text
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,17 +41,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
 
 @Composable
 fun NasScreen(onBack: () -> Unit) {
+    val ds = LocalDesignScale.current
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
 
     var selectedCategory by remember { mutableStateOf(NasCategory.Photos) }
+    var isSearchMode by remember { mutableStateOf(false) }
+    var isSearchSelectionMode by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     var isPhotoSelectionMode by remember { mutableStateOf(false) }
     var isAudioSelectionMode by remember { mutableStateOf(false) }
     var isDocumentSelectionMode by remember { mutableStateOf(false) }
@@ -236,6 +252,12 @@ fun NasScreen(onBack: () -> Unit) {
                 selectedAudio = null
             }
             selectedDocument != null -> selectedDocument = null
+            isSearchSelectionMode -> isSearchSelectionMode = false
+            isSearchMode -> {
+                isSearchMode = false
+                isSearchSelectionMode = false
+                searchQuery = ""
+            }
             isPhotoSelectionMode || isAudioSelectionMode || isDocumentSelectionMode -> exitAllSelectionModes()
             else -> onBack()
         }
@@ -387,33 +409,53 @@ fun NasScreen(onBack: () -> Unit) {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
             ) {
-                when (selectedCategory) {
-                    NasCategory.Photos -> NasPhotosContent(
-                        imageMonths = imageMonths,
-                        selectionMode = isPhotoSelectionMode,
-                        selectedImageIds = selectedPhotoIds,
-                        onImageClick = { image -> selectedImage = image },
-                        onImageLongClick = { image -> previewImage = image },
-                        onImageSelectionToggle = { image -> togglePhotoSelection(image) }
-                    )
-                    NasCategory.Recordings -> NasRecordingsContent(
-                        audioMonths = audios,
-                        selectionMode = isAudioSelectionMode,
-                        selectedAudioIds = selectedAudioIds,
-                        onAudioClick = { audio -> selectedAudio = audio },
-                        onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
-                    )
-                    NasCategory.Documents -> NasDocumentsContent(
-                        documentMonths = documents,
-                        selectionMode = isDocumentSelectionMode,
-                        selectedDocumentIds = selectedDocumentIds,
-                        onDocumentClick = { document -> selectedDocument = document },
-                        onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) }
-                    )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (isSearchMode) {
+                        Spacer(modifier = Modifier.height(ds.sm(72.dp)))
+                        Text(
+                            text = if (isSearchSelectionMode) {
+                                "最近搜索"
+                            } else {
+                                "正在寻找关于“${searchQuery.ifBlank { "" }}”的${selectedCategory.title}"
+                            },
+                            style = TextStyle(
+                                color = Color.White,
+                                fontSize = ds.sp(16f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(ds.sm(18.dp)))
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (selectedCategory) {
+                            NasCategory.Photos -> NasPhotosContent(
+                                imageMonths = imageMonths,
+                                selectionMode = isPhotoSelectionMode,
+                                selectedImageIds = selectedPhotoIds,
+                                onImageClick = { image -> selectedImage = image },
+                                onImageLongClick = { image -> previewImage = image },
+                                onImageSelectionToggle = { image -> togglePhotoSelection(image) }
+                            )
+                            NasCategory.Recordings -> NasRecordingsContent(
+                                audioMonths = audios,
+                                selectionMode = isAudioSelectionMode,
+                                selectedAudioIds = selectedAudioIds,
+                                onAudioClick = { audio -> selectedAudio = audio },
+                                onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
+                            )
+                            NasCategory.Documents -> NasDocumentsContent(
+                                documentMonths = documents,
+                                selectionMode = isDocumentSelectionMode,
+                                selectedDocumentIds = selectedDocumentIds,
+                                onDocumentClick = { document -> selectedDocument = document },
+                                onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) }
+                            )
+                        }
+                    }
                 }
             }
 
-            // ── 顶部：悬浮 toolbar ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -421,17 +463,92 @@ fun NasScreen(onBack: () -> Unit) {
                     .padding(horizontal = 16.dp)
                     .padding(top = 8.dp, bottom = 16.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    NasTopBackButton(onClick = {
-                        if (isCurrentSelectionMode) exitAllSelectionModes() else handleNasBack()
-                    })
-
-                    if (isCurrentSelectionMode) {
-                        Spacer(modifier = Modifier.weight(1f))
+                if (isSearchMode) {
+                    if (isSearchSelectionMode) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            NasGlassTextButton(
+                                text = "全选",
+                                onClick = {
+                                    when (selectedCategory) {
+                                        NasCategory.Photos -> {
+                                            if (selectedPhotoIds.size == allPhotoIds.size) {
+                                                selectedPhotoIds.clear()
+                                            } else {
+                                                selectedPhotoIds.clear()
+                                                selectedPhotoIds.addAll(allPhotoIds)
+                                            }
+                                        }
+                                        NasCategory.Recordings -> {
+                                            if (selectedAudioIds.size == allAudioIds.size) {
+                                                selectedAudioIds.clear()
+                                            } else {
+                                                selectedAudioIds.clear()
+                                                selectedAudioIds.addAll(allAudioIds)
+                                            }
+                                        }
+                                        NasCategory.Documents -> {
+                                            if (selectedDocumentIds.size == allDocumentIds.size) {
+                                                selectedDocumentIds.clear()
+                                            } else {
+                                                selectedDocumentIds.clear()
+                                                selectedDocumentIds.addAll(allDocumentIds)
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            NasGlassCircleButton(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "关闭选择",
+                                onClick = {
+                                    isSearchSelectionMode = false
+                                    exitAllSelectionModes()
+                                },
+                                modifier = Modifier.size(ds.sm(44.dp))
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Spacer(modifier = Modifier.width(ds.sm(44.dp)))
+                            NasGlassTextButton(
+                                text = "选择",
+                                onClick = {
+                                    isSearchSelectionMode = true
+                                    when (selectedCategory) {
+                                        NasCategory.Photos -> {
+                                            exitAllSelectionModes()
+                                            isPhotoSelectionMode = true
+                                            selectedPhotoIds.clear()
+                                        }
+                                        NasCategory.Recordings -> {
+                                            exitAllSelectionModes()
+                                            isAudioSelectionMode = true
+                                            selectedAudioIds.clear()
+                                        }
+                                        NasCategory.Documents -> {
+                                            exitAllSelectionModes()
+                                            isDocumentSelectionMode = true
+                                            selectedDocumentIds.clear()
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                } else if (isCurrentSelectionMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         NasGlassTextButton(
                             text = "上传脑花",
                             onClick = {
@@ -468,38 +585,113 @@ fun NasScreen(onBack: () -> Unit) {
                             },
                             icon = Res.drawable.ic_delete
                         )
-                    } else {
-                        NasGlassCircleButton(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = "搜索",
-                            onClick = {}
-                        )
-
-                        NasTopCategoryRow(
-                            selected = selectedCategory,
-                            onSelect = {
-                                selectedCategory = it
-                                exitAllSelectionModes()
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
                     }
+                } else {
+                    NasTopCategoryRow(
+                        selected = selectedCategory,
+                        onSelect = {
+                            selectedCategory = it
+                            exitAllSelectionModes()
+                            isSearchMode = false
+                            isSearchSelectionMode = false
+                            searchQuery = ""
+                        }
+                    )
                 }
             }
 
-            // ── 底部：悬浮操作栏 ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomStart)
                     .padding(horizontal = 16.dp)
-                    .padding(bottom = 12.dp)
+                    .padding(bottom = 16.dp)
             ) {
-                if (isCurrentSelectionMode) {
-                    NasGlassTextButton(
-                        text = "取消选择",
-                        onClick = { exitAllSelectionModes() }
-                    )
+                if (isSearchMode) {
+                    if (isSearchSelectionMode) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            NasGlassTextButton(
+                                text = "发送脑花",
+                                onClick = { /* TODO: Implement send action */ },
+                                modifier = Modifier.width(140.dp)
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                NasGlassCircleButton(
+                                    imageVector = Icons.Outlined.FileDownload,
+                                    contentDescription = "下载",
+                                    onClick = { /* TODO: Implement download action */ },
+                                    modifier = Modifier.size(44.dp)
+                                )
+                                NasGlassCircleButton(
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = "删除",
+                                    onClick = { /* TODO: Implement delete action */ },
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .background(
+                                        color = Color.White.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                textStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = ds.sp(14f)
+                                ),
+                                decorationBox = { innerTextField ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = "搜索",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = ds.sp(14f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            NasGlassCircleButton(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "退出搜索",
+                                onClick = {
+                                    isSearchMode = false
+                                    searchQuery = ""
+                                },
+                                modifier = Modifier.size(44.dp)
+                            )
+                        }
+                    }
+                } else if (isPhotoSelectionMode || isAudioSelectionMode || isDocumentSelectionMode) {
+                    // 选择模式：退出选择 + 占位符平衡布局
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        NasGlassTextButton(
+                            text = "退出选择",
+                            onClick = { exitAllSelectionModes() },
+                            selected = true
+                        )
+                        Spacer(modifier = Modifier.size(width = 96.dp, height = 44.dp))
+                    }
                 } else {
                     NasBottomQuickActions(
                         onSelectionClick = {
@@ -527,6 +719,11 @@ fun NasScreen(onBack: () -> Unit) {
                                 NasCategory.Recordings -> mediaController.openAudioPicker()
                                 NasCategory.Documents -> mediaController.openFilePicker()
                             }
+                        },
+                        onSearchClick = {
+                            exitAllSelectionModes()
+                            isSearchMode = true
+                            isSearchSelectionMode = false
                         }
                     )
                 }

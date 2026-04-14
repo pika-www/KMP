@@ -112,6 +112,7 @@ internal fun NasTopCategoryRow(
 internal fun NasBottomQuickActions(
     onSelectionClick: () -> Unit,
     onAddClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -119,13 +120,24 @@ internal fun NasBottomQuickActions(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        NasGlassTextButton(text = "选择", onClick = onSelectionClick)
-        NasGlassCircleButton(
-            imageVector = Icons.Outlined.Add,
-            contentDescription = "新增",
-            onClick = onAddClick,
-            modifier = Modifier.size(44.dp)
+        NasGlassTextButton(
+            text = "选择",
+            onClick = onSelectionClick
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NasGlassCircleButton(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = "新增",
+                onClick = onAddClick,
+                modifier = Modifier.size(44.dp)
+            )
+            NasGlassCircleButton(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = "搜索",
+                onClick = onSearchClick,
+                modifier = Modifier.size(44.dp)
+            )
+        }
     }
 }
 
@@ -684,14 +696,16 @@ internal fun NasGlassTextButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: DrawableResource? = null
+    icon: DrawableResource? = null,
+    selected: Boolean = false
 ) {
     val ds = LocalDesignScale.current
     val shape = RoundedCornerShape(100.dp)
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val border = if (isPressed) NasGlassSelectedBorder else NasGlassButtonBorder
-    val backgroundBrush = if (isPressed) NasGlassPressedOverlay else Brush.verticalGradient(
+    val highlighted = isPressed || selected
+    val border = if (highlighted) NasGlassSelectedBorder else NasGlassButtonBorder
+    val backgroundBrush = if (highlighted) NasGlassPressedOverlay else Brush.verticalGradient(
         colors = listOf(NasGlassButtonBg, NasGlassButtonBg)
     )
 
@@ -701,7 +715,7 @@ internal fun NasGlassTextButton(
             .clip(shape)
             .background(backgroundBrush)
             .then(
-                if (isPressed) {
+                if (highlighted) {
                     Modifier.background(NasGlassPressedGlow)
                 } else {
                     Modifier
@@ -728,7 +742,7 @@ internal fun NasGlassTextButton(
                     painter = painterResource(icon),
                     contentDescription = null,
                     modifier = Modifier.size(ds.sm(14.dp)),
-                    tint = if (isPressed) NasPressedTextColor else Color.White
+                    tint = if (highlighted) NasPressedTextColor else Color.White
                 )
                 Spacer(modifier = Modifier.width(ds.sm(6.dp)))
             }
@@ -738,7 +752,7 @@ internal fun NasGlassTextButton(
                     fontSize = ds.sp(12f),
                     fontWeight = FontWeight.SemiBold
                 ),
-                color = if (isPressed) NasPressedTextColor else Color.White
+                color = if (highlighted) NasPressedTextColor else Color.White
             )
         }
     }
