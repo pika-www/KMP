@@ -36,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -46,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
-import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
 
 @Composable
@@ -67,9 +65,47 @@ fun NasScreen(onBack: () -> Unit) {
     var previewImage by remember { mutableStateOf<NasImageItem?>(null) }
     var selectedAudio by remember { mutableStateOf<NasAudioItem?>(null) }
     var selectedDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
+    var showUploadProgressDialog by remember { mutableStateOf(false) }
     val selectedPhotoIds = remember { mutableStateListOf<String>() }
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
+    val uploadTasks = remember {
+        listOf(
+            NasUploadTaskItem(
+                id = "upload_audio_001",
+                title = "录音纪要",
+                type = NasUploadTaskType.Audio,
+                progress = 1f,
+                status = NasUploadTaskStatus.Completed
+            ),
+            NasUploadTaskItem(
+                id = "upload_audio_002",
+                title = "录音纪要",
+                type = NasUploadTaskType.Audio,
+                progress = 0.7f,
+                status = NasUploadTaskStatus.Uploading
+            ),
+            NasUploadTaskItem(
+                id = "upload_doc_001",
+                title = "文档纪要",
+                type = NasUploadTaskType.Document,
+                progress = 0f,
+                status = NasUploadTaskStatus.Waiting
+            ),
+            NasUploadTaskItem(
+                id = "upload_image_001",
+                title = "图片纪要",
+                type = NasUploadTaskType.Image,
+                progress = 0.7f,
+                status = NasUploadTaskStatus.Uploading
+            )
+        )
+    }
+    val activeUploadCount = remember(uploadTasks) {
+        uploadTasks.count {
+            it.status == NasUploadTaskStatus.Uploading || it.status == NasUploadTaskStatus.Waiting
+        }
+    }
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
@@ -411,7 +447,7 @@ fun NasScreen(onBack: () -> Unit) {
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (isSearchMode) {
-                        Spacer(modifier = Modifier.height(ds.sm(72.dp)))
+                        Spacer(modifier = Modifier.height(ds.sm(if (activeUploadCount > 0) 108.dp else 72.dp)))
                         Text(
                             text = if (isSearchSelectionMode) {
                                 "最近搜索"
@@ -425,6 +461,8 @@ fun NasScreen(onBack: () -> Unit) {
                             )
                         )
                         Spacer(modifier = Modifier.height(ds.sm(18.dp)))
+                    } else if (activeUploadCount > 0) {
+                        Spacer(modifier = Modifier.height(ds.sm(44.dp)))
                     }
 
                     Box(modifier = Modifier.weight(1f)) {
@@ -587,16 +625,27 @@ fun NasScreen(onBack: () -> Unit) {
                         )
                     }
                 } else {
-                    NasTopCategoryRow(
-                        selected = selectedCategory,
-                        onSelect = {
-                            selectedCategory = it
-                            exitAllSelectionModes()
-                            isSearchMode = false
-                            isSearchSelectionMode = false
-                            searchQuery = ""
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        NasTopCategoryRow(
+                            selected = selectedCategory,
+                            onSelect = {
+                                selectedCategory = it
+                                exitAllSelectionModes()
+                                isSearchMode = false
+                                isSearchSelectionMode = false
+                                searchQuery = ""
+                            }
+                        )
+                        if (activeUploadCount > 0) {
+                            NasUploadBanner(
+                                activeCount = activeUploadCount,
+                                onClick = { showUploadProgressDialog = true }
+                            )
                         }
-                    )
+                    }
                 }
             }
 
@@ -729,6 +778,13 @@ fun NasScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (showUploadProgressDialog) {
+        NasUploadProgressDialog(
+            tasks = uploadTasks,
+            onDismiss = { showUploadProgressDialog = false }
+        )
     }
 
     previewImage?.let { image ->

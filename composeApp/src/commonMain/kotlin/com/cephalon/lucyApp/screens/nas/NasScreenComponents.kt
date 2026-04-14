@@ -10,6 +10,7 @@ import androidios.composeapp.generated.resources.img_demo
 import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,6 +89,27 @@ internal enum class NasCategory(val title: String, val icon: DrawableResource) {
     Documents("文档", Res.drawable.ic_doc)
 }
 
+internal enum class NasUploadTaskType {
+    Image,
+    Audio,
+    Document
+}
+
+internal enum class NasUploadTaskStatus {
+    Waiting,
+    Uploading,
+    Completed,
+    Failed
+}
+
+internal data class NasUploadTaskItem(
+    val id: String,
+    val title: String,
+    val type: NasUploadTaskType,
+    val progress: Float,
+    val status: NasUploadTaskStatus
+)
+
 @Composable
 internal fun NasTopCategoryRow(
     selected: NasCategory,
@@ -104,6 +129,121 @@ internal fun NasTopCategoryRow(
                 onClick = { onSelect(category) },
                 modifier = Modifier.weight(1f)
             )
+        }
+    }
+}
+
+@Composable
+internal fun NasUploadBanner(
+    activeCount: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val ds = LocalDesignScale.current
+    val shape = RoundedCornerShape(999.dp)
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = Color(0x1FFFFFFF),
+        border = BorderStroke(1.dp, Color(0x33FFFFFF))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sm(14.dp), vertical = ds.sm(8.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "目前有正在上传的任务${if (activeCount > 0) "（$activeCount）" else ""} ",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Normal
+                ),
+                color = Color.White.copy(alpha = 0.78f)
+            )
+            Text(
+                text = "点击此处查看",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = Color.White
+            )
+        }
+    }
+}
+
+@Composable
+internal fun NasUploadProgressDialog(
+    tasks: List<NasUploadTaskItem>,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        val ds = LocalDesignScale.current
+        val activeCount = tasks.count { it.status == NasUploadTaskStatus.Uploading || it.status == NasUploadTaskStatus.Waiting }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(ds.sm(28.dp)),
+            color = Color(0x402B241C),
+            border = BorderStroke(1.dp, Color(0x26FFFFFF))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(18.dp)),
+                verticalArrangement = Arrangement.spacedBy(ds.sm(14.dp))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    NasGlassCircleButton(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "关闭上传进度",
+                        onClick = onDismiss,
+                        modifier = Modifier.size(ds.sm(36.dp))
+                    )
+                    Text(
+                        text = "上传进度",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = ds.sp(20f),
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White
+                    )
+                    NasGlassCircleButton(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "收起上传进度",
+                        onClick = onDismiss,
+                        modifier = Modifier.size(ds.sm(36.dp))
+                    )
+                }
+
+                if (activeCount > 0) {
+                    Text(
+                        text = "还有${activeCount}个任务进行中",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Normal
+                        ),
+                        color = Color.White.copy(alpha = 0.72f)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(ds.sm(10.dp))
+                ) {
+                    tasks.forEach { task ->
+                        NasUploadTaskCard(task = task)
+                    }
+                }
+            }
         }
     }
 }
@@ -1017,6 +1157,119 @@ internal fun NasDocumentCard(
         }
     }
 }
+
+@Composable
+private fun NasUploadTaskCard(
+    task: NasUploadTaskItem,
+    modifier: Modifier = Modifier
+) {
+    val ds = LocalDesignScale.current
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(ds.sm(18.dp)),
+        color = Color(0x33FFFFFF),
+        border = BorderStroke(1.dp, Color(0x14FFFFFF))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sm(14.dp), vertical = ds.sm(14.dp)),
+            verticalArrangement = Arrangement.spacedBy(ds.sm(10.dp))
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(task.iconRes()),
+                    contentDescription = null,
+                    modifier = Modifier.size(ds.sm(20.dp)),
+                    tint = Color.White
+                )
+                Spacer(modifier = Modifier.width(ds.sm(10.dp)))
+                Text(
+                    text = task.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            NasUploadProgressBar(
+                progress = task.progressForDisplay(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = task.statusText(),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal
+                    ),
+                    color = Color.White.copy(alpha = 0.78f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NasUploadProgressBar(
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(4.dp)
+    ) {
+        val progressValue = progress.coerceIn(0f, 1f)
+        val radius = CornerRadius(size.height / 2f, size.height / 2f)
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.22f),
+            cornerRadius = radius
+        )
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset.Zero,
+            size = androidx.compose.ui.geometry.Size(width = size.width * progressValue, height = size.height),
+            cornerRadius = radius
+        )
+    }
+}
+
+private fun NasUploadTaskItem.iconRes(): DrawableResource =
+    when (type) {
+        NasUploadTaskType.Image -> Res.drawable.ic_image
+        NasUploadTaskType.Audio -> Res.drawable.ic_audio
+        NasUploadTaskType.Document -> Res.drawable.ic_doc
+    }
+
+private fun NasUploadTaskItem.progressForDisplay(): Float =
+    when (status) {
+        NasUploadTaskStatus.Waiting -> 0f
+        NasUploadTaskStatus.Uploading -> progress.coerceIn(0f, 1f)
+        NasUploadTaskStatus.Completed -> 1f
+        NasUploadTaskStatus.Failed -> progress.coerceIn(0f, 1f)
+    }
+
+private fun NasUploadTaskItem.statusText(): String =
+    when (status) {
+        NasUploadTaskStatus.Waiting -> "等待上传"
+        NasUploadTaskStatus.Uploading -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
+        NasUploadTaskStatus.Completed -> "已完成"
+        NasUploadTaskStatus.Failed -> "上传失败"
+    }
 
 private fun formatAudioDuration(durationSec: Int): String {
     val minutes = durationSec / 60
