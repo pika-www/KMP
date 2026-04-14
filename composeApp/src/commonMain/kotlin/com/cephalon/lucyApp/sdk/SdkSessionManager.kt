@@ -73,10 +73,38 @@ data class NasRegisterBlobsResponse(
     val results: List<NasRegisterBlobResult>,
 )
 
+data class NasFileListItem(
+    val id: Long?,
+    val time: String?,
+    val location: String?,
+    val kind: String?,
+    val contentType: String?,
+    val size: Long?,
+    val fileName: String?,
+    val desc: String?,
+    val thumbnailImgBlobRef: String?,
+)
+
+data class NasFileListResponse(
+    val cmd: String,
+    val requestId: String?,
+    val kind: String?,
+    val items: List<NasFileListItem>,
+    val nextCursor: String?,
+    val error: String?,
+)
+
 private data class PendingNasRegisterRequest(
     val requestId: String,
     val blobRefs: List<String>,
     val waiter: CompletableDeferred<NasRegisterBlobsResponse>,
+)
+
+private data class PendingNasFileListRequest(
+    val requestId: String,
+    val kind: String,
+    val cursor: String?,
+    val waiter: CompletableDeferred<NasFileListResponse>,
 )
 
 class SdkSessionManager(
@@ -151,6 +179,7 @@ class SdkSessionManager(
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
+    private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
     private val _activeFileTransferCount = MutableStateFlow(0)
 
     private var _latestRequestId: String? = null
@@ -473,6 +502,71 @@ class SdkSessionManager(
         }
     }
 
+    suspend fun listFilesFromNas(
+        targetCdi: String,
+        kind: String,
+        pageSize: Int = 20,
+        cursor: String? = null,
+        timeoutMs: Long = 60_000L,
+    ): Result<NasFileListResponse> {
+        val normalizedKind = kind.trim()
+        if (normalizedKind.isBlank()) {
+            return Result.failure(IllegalArgumentException("kind 不能为空"))
+        }
+        if (pageSize <= 0) {
+            return Result.failure(IllegalArgumentException("pageSize 必须大于 0"))
+        }
+
+        ensureConnectedIfTokenValid()
+            .exceptionOrNull()
+            ?.let { error -> return Result.failure(error) }
+
+        val activeSession = session
+            ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        val requestId = generateMessageId19()
+        val waiter = CompletableDeferred<NasFileListResponse>()
+        val rspSubject = "cephalon.im.user.${activeSession.userId}"
+        val resolvedTargetCdi = targetCdi.trim()
+        pendingNasFileListRequests.update { current ->
+            current + (requestId to PendingNasFileListRequest(requestId, normalizedKind, cursor, waiter))
+        }
+
+        appLogD(
+            TAG,
+            "开始获取 NAS 文件列表 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind pageSize=$pageSize cursor=${cursor ?: "null"}",
+        )
+
+        return runCatching {
+            activeSession.publishToNas(
+                cdi = resolvedTargetCdi,
+                payload = buildNasFileListPayload(
+                    requestId = requestId,
+                    rspSubject = rspSubject,
+                    kind = normalizedKind,
+                    pageSize = pageSize,
+                    cursor = cursor,
+                ),
+            )
+            withTimeoutOrNull(timeoutMs) { waiter.await() }
+                ?: throw IllegalStateException("等待 NAS 文件列表响应超时")
+        }.onSuccess { response ->
+            appLogD(
+                TAG,
+                "获取 NAS 文件列表成功 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind count=${response.items.size} nextCursor=${response.nextCursor ?: "null"} error=${response.error ?: "null"}",
+            )
+        }.onFailure { error ->
+            appLogD(
+                TAG,
+                "获取 NAS 文件列表失败 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind error=${error.message ?: "unknown"}",
+            )
+            waiter.cancel(error as? CancellationException)
+        }.also {
+            pendingNasFileListRequests.update { current -> current - requestId }
+            scheduleBackgroundDisconnectIfNeeded()
+        }
+    }
+
     suspend fun publishTextWithImageToNpc(
         cdi: String,
         text: String,
@@ -583,6 +677,29 @@ class SdkSessionManager(
                         "<binary payload ${messagePayload.size} bytes>",
                     )
                 appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject len=${messageText.length}")
+                val nasFileListResponse = parseNasFileListResponse(messageText)
+                if (nasFileListResponse != null) {
+                    val matchedRequestId = findMatchingNasFileListRequestId(nasFileListResponse)
+                    if (matchedRequestId != null) {
+                        appLogD(
+                            TAG,
+                            "[Consumer] 接受 NAS 文件列表响应 requestId=$matchedRequestId kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
+                        )
+                        _receivedMessages.update { current ->
+                            (listOf("subject=$subject\n$messageText") + current).take(100)
+                        }
+                        pendingNasFileListRequests.value[matchedRequestId]?.waiter?.complete(nasFileListResponse)
+                        pendingNasFileListRequests.update { current -> current - matchedRequestId }
+                        _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
+                        appLogD(TAG, _consumerLog.value)
+                    } else {
+                        appLogD(
+                            TAG,
+                            "[Consumer] 收到未匹配的 NAS 文件列表响应 requestId=${nasFileListResponse.requestId ?: "none"} kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
+                        )
+                    }
+                    return@startUserChannelConsumer
+                }
                 val nasRegisterResponse = parseNasRegisterBlobsResponse(messageText)
                 if (nasRegisterResponse != null) {
                     val matchedRequestId = findMatchingNasRegisterRequestId(nasRegisterResponse)
@@ -696,7 +813,11 @@ class SdkSessionManager(
         pendingNasRegisterRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
+        pendingNasFileListRequests.value.values.forEach { pending ->
+            pending.waiter.cancel()
+        }
         pendingNasRegisterRequests.value = emptyMap()
+        pendingNasFileListRequests.value = emptyMap()
         _activeFileTransferCount.value = 0
         _latestRequestId = null
         _assistantReplyText.value = ""
@@ -1064,7 +1185,48 @@ class SdkSessionManager(
     private fun hasActiveTransportWork(): Boolean {
         return _activeRequestIds.value.isNotEmpty() ||
             _activeFileTransferCount.value > 0 ||
-            pendingNasRegisterRequests.value.isNotEmpty()
+            pendingNasRegisterRequests.value.isNotEmpty() ||
+            pendingNasFileListRequests.value.isNotEmpty()
+    }
+
+    private fun parseNasFileListResponse(payload: String): NasFileListResponse? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        val cmd = root["cmd"]?.jsonPrimitive?.contentOrNull ?: return null
+        if (cmd != "file_list_rsp") return null
+
+        val body =
+            runCatching { root["file_list_rsp"]?.jsonObject }.getOrNull()
+                ?: root
+
+        val items =
+            runCatching { body["list"]?.jsonArray }.getOrNull()
+                ?.mapNotNull { item ->
+                    val itemObject = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
+                    NasFileListItem(
+                        id = itemObject["id"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                        time = itemObject["time"]?.jsonPrimitive?.contentOrNull,
+                        location = itemObject["location"]?.jsonPrimitive?.contentOrNull,
+                        kind = itemObject["kind"]?.jsonPrimitive?.contentOrNull,
+                        contentType = itemObject["contentType"]?.jsonPrimitive?.contentOrNull,
+                        size = itemObject["size"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                        fileName = itemObject["fileName"]?.jsonPrimitive?.contentOrNull,
+                        desc = itemObject["desc"]?.jsonPrimitive?.contentOrNull,
+                        thumbnailImgBlobRef = itemObject["thumbnailImgBlobRef"]?.jsonPrimitive?.contentOrNull,
+                    )
+                }
+                ?: emptyList()
+
+        val kinds = items.mapNotNull { it.kind }.distinct()
+        return NasFileListResponse(
+            cmd = cmd,
+            requestId =
+                root["request_id"]?.jsonPrimitive?.contentOrNull
+                    ?: body["request_id"]?.jsonPrimitive?.contentOrNull,
+            kind = body["kind"]?.jsonPrimitive?.contentOrNull ?: kinds.singleOrNull(),
+            items = items,
+            nextCursor = body["next_cursor"]?.jsonPrimitive?.contentOrNull,
+            error = body["error"]?.jsonPrimitive?.contentOrNull,
+        )
     }
 
     private fun parseNasRegisterBlobsResponse(payload: String): NasRegisterBlobsResponse? {
@@ -1124,6 +1286,30 @@ class SdkSessionManager(
         }
 
         return pendingNasRegisterRequests.value.keys.singleOrNull()
+    }
+
+    private fun findMatchingNasFileListRequestId(response: NasFileListResponse): String? {
+        response.requestId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { requestId ->
+                if (requestId in pendingNasFileListRequests.value) {
+                    return requestId
+                }
+            }
+
+        response.kind
+            ?.takeIf { it.isNotBlank() }
+            ?.let { responseKind ->
+                val kindMatched =
+                    pendingNasFileListRequests.value.values.filter { pending ->
+                        pending.kind == responseKind
+                    }
+                if (kindMatched.size == 1) {
+                    return kindMatched.first().requestId
+                }
+            }
+
+        return pendingNasFileListRequests.value.keys.singleOrNull()
     }
 
     companion object {
@@ -1203,6 +1389,41 @@ private fun buildNasRegisterBlobsPayload(
         append("\"items\":[")
         append(encodedItems)
         append("]")
+        append("}")
+        append("}")
+    }
+}
+
+private fun buildNasFileListPayload(
+    requestId: String,
+    rspSubject: String,
+    kind: String,
+    pageSize: Int,
+    cursor: String?,
+): String {
+    return buildString {
+        append("{")
+        append("\"cmd\":\"file_list_req\",")
+        append("\"request_id\":\"")
+        append(requestId.escapeForJson())
+        append("\",")
+        append("\"rsp_subject\":\"")
+        append(rspSubject.escapeForJson())
+        append("\",")
+        append("\"file_list_req\":{")
+        append("\"kind\":\"")
+        append(kind.escapeForJson())
+        append("\",")
+        append("\"page_size\":")
+        append(pageSize)
+        append(",\"cursor\":")
+        if (cursor.isNullOrBlank()) {
+            append("null")
+        } else {
+            append("\"")
+            append(cursor.escapeForJson())
+            append("\"")
+        }
         append("}")
         append("}")
     }

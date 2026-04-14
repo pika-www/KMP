@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.time.currentTimeMillis
+import com.cephalon.lucyApp.sdk.NasFileListItem
 import com.cephalon.lucyApp.sdk.NasRegisterBlobItem
 import com.cephalon.lucyApp.sdk.FileTransferDeviceKind
 import com.cephalon.lucyApp.sdk.SdkSessionManager
@@ -87,6 +89,14 @@ fun NasScreen(onBack: () -> Unit) {
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
     val uploadTasks = remember { mutableStateListOf<NasUploadTaskItem>() }
+    val imageItems = remember { mutableStateListOf<NasImageItem>() }
+    val audioItems = remember { mutableStateListOf<NasAudioItem>() }
+    val documentItems = remember { mutableStateListOf<NasDocumentItem>() }
+    val nextCursorMap = remember { mutableStateMapOf<NasCategory, String?>() }
+    val errorMap = remember { mutableStateMapOf<NasCategory, String?>() }
+    val hasLoadedMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
+    val loadingMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
+    val loadingMoreMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val activeUploadCount = uploadTasks.count {
         it.status == NasUploadTaskStatus.Uploading ||
             it.status == NasUploadTaskStatus.Registering ||
@@ -291,130 +301,94 @@ fun NasScreen(onBack: () -> Unit) {
         }
         lastPickedFilesSize = size
     }
-    
-    val imageMonths = remember {
-        fun img(id: String, name: String, time: String, location: String) = NasImageItem(
-            id = id, name = name, type = "图片", format = "png",
-            sizeKB = (2100..2300).random(), path = "drawable/img-demo.png",
-            time = time, location = location, resolution = "1920x1080"
-        )
-        listOf(
-            NasImageMonthGroup(
-                label = "2026年4月",
-                images = listOf(
-                    img("img_001", "morning_walk.png", "2026-04-01 08:30", "上海·徐汇滨江"),
-                    img("img_002", "coffee_corner.png", "2026-04-03 10:15", "上海·静安"),
-                    img("img_003", "team_lunch.png", "2026-04-06 12:40", "上海·长宁"),
-                    img("img_004", "night_view.png", "2026-04-08 20:05", "上海·陆家嘴"),
-                    img("img_005", "rooftop_sunset.png", "2026-04-11 18:30", "上海·外滩"),
-                    img("img_006", "garden_bloom.png", "2026-04-14 09:00", "上海·世纪公园"),
-                    img("img_007", "street_art.png", "2026-04-17 15:20", "上海·莫干山路"),
-                    img("img_008", "bridge_night.png", "2026-04-20 21:10", "上海·南浦大桥"),
-                    img("img_009", "brunch_table.png", "2026-04-23 11:00", "上海·武康路"),
-                    img("img_010", "cat_cafe.png", "2026-04-26 14:45", "上海·愚园路"),
-                    img("img_011", "rain_drops.png", "2026-04-28 16:30", "上海·新天地"),
-                    img("img_012", "bookshelf.png", "2026-04-30 10:00", "上海·思南路")
-                )
-            ),
-            NasImageMonthGroup(
-                label = "2026年3月",
-                images = listOf(
-                    img("img_013", "spring_park.png", "2026-03-02 09:20", "杭州·西湖"),
-                    img("img_014", "office_board.png", "2026-03-05 14:10", "杭州·滨江"),
-                    img("img_015", "book_store.png", "2026-03-08 16:45", "杭州·天目里"),
-                    img("img_016", "weekend_market.png", "2026-03-11 11:30", "杭州·武林路"),
-                    img("img_017", "tea_house.png", "2026-03-14 15:00", "杭州·龙井"),
-                    img("img_018", "lake_view.png", "2026-03-17 07:40", "杭州·断桥"),
-                    img("img_019", "night_canal.png", "2026-03-20 20:15", "杭州·拱宸桥"),
-                    img("img_020", "cherry_blossom.png", "2026-03-23 10:30", "杭州·太子湾"),
-                    img("img_021", "temple_steps.png", "2026-03-26 13:00", "杭州·灵隐"),
-                    img("img_022", "hill_trail.png", "2026-03-29 08:00", "杭州·北高峰")
-                )
-            ),
-            NasImageMonthGroup(
-                label = "2026年2月",
-                images = listOf(
-                    img("img_023", "train_window.png", "2026-02-01 07:55", "高铁上"),
-                    img("img_024", "family_dinner.png", "2026-02-04 18:25", "苏州·园区"),
-                    img("img_025", "museum_day.png", "2026-02-07 15:10", "苏州博物馆"),
-                    img("img_026", "river_evening.png", "2026-02-10 17:45", "苏州·金鸡湖"),
-                    img("img_027", "lantern_fest.png", "2026-02-13 19:30", "苏州·平江路"),
-                    img("img_028", "snow_garden.png", "2026-02-16 09:00", "苏州·拙政园"),
-                    img("img_029", "noodle_shop.png", "2026-02-19 12:15", "苏州·观前街"),
-                    img("img_030", "canal_bridge.png", "2026-02-22 16:00", "苏州·山塘街"),
-                    img("img_031", "sunset_tower.png", "2026-02-25 17:20", "苏州·虎丘"),
-                    img("img_032", "market_stall.png", "2026-02-28 10:45", "苏州·双塔")
-                )
-            ),
-            NasImageMonthGroup(
-                label = "2026年1月",
-                images = listOf(
-                    img("img_033", "new_year.png", "2026-01-01 00:05", "上海·外滩"),
-                    img("img_034", "hot_pot.png", "2026-01-04 19:00", "上海·打浦路"),
-                    img("img_035", "gym_selfie.png", "2026-01-07 07:30", "上海·静安"),
-                    img("img_036", "coding_desk.png", "2026-01-10 22:00", "上海·漕河泾"),
-                    img("img_037", "foggy_morning.png", "2026-01-13 08:15", "上海·世博园"),
-                    img("img_038", "pet_dog.png", "2026-01-16 14:00", "上海·共青森林"),
-                    img("img_039", "mall_lights.png", "2026-01-19 20:30", "上海·环球港"),
-                    img("img_040", "vinyl_record.png", "2026-01-22 16:45", "上海·衡山路")
-                )
-            ),
-            NasImageMonthGroup(
-                label = "2025年12月",
-                images = listOf(
-                    img("img_041", "christmas_tree.png", "2025-12-01 18:00", "上海·恒隆"),
-                    img("img_042", "winter_run.png", "2025-12-04 06:50", "上海·世纪公园"),
-                    img("img_043", "year_end_party.png", "2025-12-08 21:30", "上海·THE BUND"),
-                    img("img_044", "gift_wrap.png", "2025-12-12 13:00", "上海·淮海路"),
-                    img("img_045", "frozen_lake.png", "2025-12-16 10:00", "上海·顾村公园"),
-                    img("img_046", "coffee_art.png", "2025-12-20 15:20", "上海·巨鹿路"),
-                    img("img_047", "city_skyline.png", "2025-12-24 19:00", "上海·陆家嘴"),
-                    img("img_048", "countdown.png", "2025-12-31 23:55", "上海·人民广场")
-                )
-            )
-        )
+
+    fun setCategoryItems(category: NasCategory, items: List<NasFileListItem>, append: Boolean) {
+        when (category) {
+            NasCategory.Photos -> {
+                val mapped = items.map { it.toNasImageItem() }
+                if (!append) imageItems.clear()
+                imageItems.addAll(mapped)
+            }
+            NasCategory.Recordings -> {
+                val mapped = items.map { it.toNasAudioItem() }
+                if (!append) audioItems.clear()
+                audioItems.addAll(mapped)
+            }
+            NasCategory.Documents -> {
+                val mapped = items.map { it.toNasDocumentItem() }
+                if (!append) documentItems.clear()
+                documentItems.addAll(mapped)
+            }
+        }
     }
 
-    val audios = remember {
-        fun aud(id: String, name: String, time: String, duration: Int) = NasAudioItem(
-            id = id, name = name, type = "音频", format = "m4a",
-            sizeKB = 102, path = "drawable/demo.m4a",
-            time = time, durationSec = duration
-        )
-        listOf(
-            NasAudioMonthGroup(
-                label = "八月",
-                audios = listOf(
-                    aud("aud_001", "2026.01.22. 16:40", "2026-08-01 16:40", 60),
-                    aud("aud_002", "我旅行的一天，我非常开心", "2026-08-03 10:15", 185),
-                    aud("aud_003", "2026.01.22. 16:40 粑粑啦啦", "2026-08-05 14:30", 90),
-                    aud("aud_004", "2026.01.22. 16:40", "2026-08-10 09:00", 120),
-                    aud("aud_005", "2026.01.22. 16:40 8882467", "2026-08-15 11:20", 75),
-                    aud("aud_006", "2026.01.22.16:40 8882467", "2026-08-20 16:40", 200)
+    fun clearAllNasListState() {
+        imageItems.clear()
+        audioItems.clear()
+        documentItems.clear()
+        nextCursorMap.clear()
+        errorMap.clear()
+        hasLoadedMap.clear()
+        loadingMap.clear()
+        loadingMoreMap.clear()
+    }
+
+    fun requestNasList(category: NasCategory, loadMore: Boolean = false) {
+        if (loadingMap[category] == true || loadingMoreMap[category] == true) return
+        val cursor = if (loadMore) nextCursorMap[category] else null
+        if (loadMore && cursor.isNullOrBlank()) return
+
+        if (loadMore) {
+            loadingMoreMap[category] = true
+        } else {
+            loadingMap[category] = true
+            errorMap.remove(category)
+        }
+
+        coroutineScope.launch {
+            sdkSessionManager
+                .listFilesFromNas(
+                    targetCdi = targetCdi,
+                    kind = category.toNasListKind(),
+                    pageSize = NAS_PAGE_SIZE,
+                    cursor = cursor,
                 )
-            ),
-            NasAudioMonthGroup(
-                label = "七月",
-                audios = listOf(
-                    aud("aud_007", "2026.07.01. 08:30", "2026-07-01 08:30", 45),
-                    aud("aud_008", "语音备忘录", "2026-07-08 15:00", 130),
-                    aud("aud_009", "2026.07.15. 20:10", "2026-07-15 20:10", 60)
-                )
-            )
-        )
+                .onSuccess { response ->
+                    val responseError = response.error?.takeIf { it.isNotBlank() }
+                    if (responseError != null) {
+                        errorMap[category] = responseError
+                        return@onSuccess
+                    }
+                    errorMap.remove(category)
+                    setCategoryItems(category = category, items = response.items, append = loadMore)
+                    nextCursorMap[category] = response.nextCursor
+                    hasLoadedMap[category] = true
+                }
+                .onFailure { error ->
+                    errorMap[category] = error.message ?: "加载失败"
+                }
+
+            loadingMap[category] = false
+            loadingMoreMap[category] = false
+        }
     }
 
-    val allPhotoIds = remember(imageMonths) {
-        imageMonths.flatMap { monthGroup -> monthGroup.images }.map { image -> image.id }
+    LaunchedEffect(targetCdi) {
+        clearAllNasListState()
     }
 
-    val allImages = remember(imageMonths) {
-        imageMonths.flatMap { monthGroup -> monthGroup.images }
+    LaunchedEffect(selectedCategory, targetCdi) {
+        if (hasLoadedMap[selectedCategory] == true) return@LaunchedEffect
+        requestNasList(selectedCategory, loadMore = false)
     }
 
-    val allAudioIds = remember(audios) {
-        audios.flatMap { group -> group.audios }.map { audio -> audio.id }
-    }
+    val imageMonths = imageItems.toImageMonthGroups()
+    val audios = audioItems.toAudioMonthGroups()
+    val documents = documentItems.toDocumentMonthGroups()
+    val allImages = imageItems.toList()
+    val allPhotoIds = imageItems.map { it.id }
+    val allAudioIds = audioItems.map { it.id }
+    val allDocumentIds = documentItems.map { it.id }
 
     fun exitPhotoSelectionMode() {
         isPhotoSelectionMode = false
@@ -482,35 +456,6 @@ fun NasScreen(onBack: () -> Unit) {
     }
 
     PlatformBackHandler(onBack = ::handleNasBack)
-
-    val documents = remember {
-        fun doc(id: String, name: String, format: String, time: String, sizeKB: Int) = NasDocumentItem(
-            id = id, name = name, type = "文档", format = format,
-            sizeKB = sizeKB, path = "drawable/$name", time = time
-        )
-        listOf(
-            NasDocumentMonthGroup(
-                label = "四月",
-                documents = listOf(
-                    doc("doc_001", "NAS.pdf", "pdf", "2026-04-09 18:50", 256),
-                    doc("doc_002", "demo-doc.pages", "pages", "2026-04-01 12:00", 88),
-                    doc("doc_004", "doc.doc", "doc", "2026-04-10 11:10", 28),
-                    doc("doc_005", "pptx.pptx", "pptx", "2026-04-10 11:11", 31),
-                    doc("doc_006", "xls.xls", "xls", "2026-04-10 11:12", 30)
-                )
-            ),
-            NasDocumentMonthGroup(
-                label = "三月",
-                documents = listOf(
-                    doc("doc_003", "project_plan.pages", "pages", "2026-03-28 09:00", 88)
-                )
-            )
-        )
-    }
-
-    val allDocumentIds = remember(documents) {
-        documents.flatMap { group -> group.documents }.map { document -> document.id }
-    }
 
     // 如果选中了图片，显示详情页
     selectedImage?.let { image ->
@@ -586,6 +531,45 @@ fun NasScreen(onBack: () -> Unit) {
         NasCategory.Recordings -> isAudioSelectionMode
         NasCategory.Documents -> isDocumentSelectionMode
     }
+    val currentCategoryError = errorMap[selectedCategory]
+    val currentCategoryLoading = loadingMap[selectedCategory] == true
+    val currentCategoryLoadingMore = loadingMoreMap[selectedCategory] == true
+    val currentCategoryHasMore = !nextCursorMap[selectedCategory].isNullOrBlank()
+    val currentCategoryFooter: @Composable (() -> Unit) = {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(ds.sm(10.dp))
+        ) {
+            if (currentCategoryLoading) {
+                Text(
+                    text = "加载中...",
+                    style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
+                )
+            }
+            if (!currentCategoryLoading && currentCategoryError != null) {
+                Text(
+                    text = currentCategoryError,
+                    style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
+                )
+                NasGlassTextButton(
+                    text = if (hasLoadedMap[selectedCategory] == true) "重新加载" else "重试",
+                    onClick = { requestNasList(selectedCategory, loadMore = false) },
+                    modifier = Modifier.width(ds.sm(132.dp))
+                )
+            } else if (!currentCategoryLoading && currentCategoryHasMore) {
+                NasGlassTextButton(
+                    text = if (currentCategoryLoadingMore) "加载中..." else "加载更多",
+                    onClick = {
+                        if (!currentCategoryLoadingMore) {
+                            requestNasList(selectedCategory, loadMore = true)
+                        }
+                    },
+                    modifier = Modifier.width(ds.sm(132.dp))
+                )
+            }
+        }
+    }
 
     Scaffold(containerColor = Color.Black) { padding ->
         Box(
@@ -655,21 +639,27 @@ fun NasScreen(onBack: () -> Unit) {
                                 selectedImageIds = selectedPhotoIds,
                                 onImageClick = { image -> selectedImage = image },
                                 onImageLongClick = { image -> previewImage = image },
-                                onImageSelectionToggle = { image -> togglePhotoSelection(image) }
+                                onImageSelectionToggle = { image -> togglePhotoSelection(image) },
+                                emptyText = if (currentCategoryLoading) null else "暂无图片",
+                                footer = currentCategoryFooter,
                             )
                             NasCategory.Recordings -> NasRecordingsContent(
                                 audioMonths = audios,
                                 selectionMode = isAudioSelectionMode,
                                 selectedAudioIds = selectedAudioIds,
                                 onAudioClick = { audio -> selectedAudio = audio },
-                                onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) }
+                                onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) },
+                                emptyText = if (currentCategoryLoading) null else "暂无音频",
+                                footer = currentCategoryFooter,
                             )
                             NasCategory.Documents -> NasDocumentsContent(
                                 documentMonths = documents,
                                 selectionMode = isDocumentSelectionMode,
                                 selectedDocumentIds = selectedDocumentIds,
                                 onDocumentClick = { document -> selectedDocument = document },
-                                onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) }
+                                onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) },
+                                emptyText = if (currentCategoryLoading) null else "暂无文档",
+                                footer = currentCategoryFooter,
                             )
                         }
                     }
@@ -1000,6 +990,13 @@ private fun NasCategory.toUploadTaskType(): NasUploadTaskType =
         NasCategory.Documents -> NasUploadTaskType.Document
     }
 
+private fun NasCategory.toNasListKind(): String =
+    when (this) {
+        NasCategory.Photos -> "image"
+        NasCategory.Recordings -> "audio"
+        NasCategory.Documents -> "file"
+    }
+
 private fun deriveUploadDisplayName(uri: String, defaultPrefix: String): String {
     val sanitized = uri.substringAfterLast('/').substringBefore('?').substringBefore('#')
     return sanitized.takeIf { it.isNotBlank() } ?: "$defaultPrefix-${currentTimeMillisSafe()}"
@@ -1042,3 +1039,89 @@ private fun String.toMimeType(): String {
         else -> "application/octet-stream"
     }
 }
+
+private fun NasFileListItem.toNasImageItem(): NasImageItem {
+    val name = fileName.orEmpty().ifBlank { "图片-${id ?: currentTimeMillisSafe()}" }
+    return NasImageItem(
+        id = (id?.toString() ?: name).ifBlank { "image-${currentTimeMillisSafe()}" },
+        name = name,
+        type = "图片",
+        format = name.substringAfterLast('.', "png").ifBlank { "png" },
+        sizeKB = ((size ?: 0L) / 1024L).toInt().coerceAtLeast(0),
+        path = thumbnailImgBlobRef.orEmpty(),
+        time = time.orEmpty().ifBlank { "--" },
+        location = location,
+        resolution = desc.orEmpty().ifBlank { "--" },
+    )
+}
+
+private fun NasFileListItem.toNasAudioItem(): NasAudioItem {
+    val name = fileName.orEmpty().ifBlank { "音频-${id ?: currentTimeMillisSafe()}" }
+    return NasAudioItem(
+        id = (id?.toString() ?: name).ifBlank { "audio-${currentTimeMillisSafe()}" },
+        name = name,
+        type = "音频",
+        format = name.substringAfterLast('.', "m4a").ifBlank { "m4a" },
+        sizeKB = ((size ?: 0L) / 1024L).toInt().coerceAtLeast(0),
+        path = thumbnailImgBlobRef.orEmpty(),
+        time = time.orEmpty().ifBlank { "--" },
+        durationSec = 0,
+    )
+}
+
+private fun NasFileListItem.toNasDocumentItem(): NasDocumentItem {
+    val name = fileName.orEmpty().ifBlank { "文档-${id ?: currentTimeMillisSafe()}" }
+    return NasDocumentItem(
+        id = (id?.toString() ?: name).ifBlank { "document-${currentTimeMillisSafe()}" },
+        name = name,
+        type = "文档",
+        format = name.substringAfterLast('.', "file").ifBlank { "file" },
+        sizeKB = ((size ?: 0L) / 1024L).toInt().coerceAtLeast(0),
+        path = thumbnailImgBlobRef.orEmpty(),
+        time = time.orEmpty().ifBlank { "--" },
+    )
+}
+
+private fun List<NasImageItem>.toImageMonthGroups(): List<NasImageMonthGroup> {
+    return this
+        .groupBy { it.time.toMonthLabel() }
+        .entries
+        .sortedByDescending { it.key }
+        .map { (label, items) ->
+            NasImageMonthGroup(label = label, images = items.sortedByDescending { image -> image.time })
+        }
+}
+
+private fun List<NasAudioItem>.toAudioMonthGroups(): List<NasAudioMonthGroup> {
+    return this
+        .groupBy { it.time.toMonthLabel() }
+        .entries
+        .sortedByDescending { it.key }
+        .map { (label, items) ->
+            NasAudioMonthGroup(label = label, audios = items.sortedByDescending { audio -> audio.time })
+        }
+}
+
+private fun List<NasDocumentItem>.toDocumentMonthGroups(): List<NasDocumentMonthGroup> {
+    return this
+        .groupBy { it.time.toMonthLabel() }
+        .entries
+        .sortedByDescending { it.key }
+        .map { (label, items) ->
+            NasDocumentMonthGroup(label = label, documents = items.sortedByDescending { document -> document.time })
+        }
+}
+
+private fun String.toMonthLabel(): String {
+    val datePart = substringBefore(' ').trim()
+    val segments = datePart.split('-')
+    val year = segments.getOrNull(0)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
+    val month = segments.getOrNull(1)?.takeIf { it.isNotBlank() }
+    return if (year != null && month != null) {
+        "${year}年${month.removePrefix("0")}月"
+    } else {
+        "未分组"
+    }
+}
+
+private const val NAS_PAGE_SIZE = 20

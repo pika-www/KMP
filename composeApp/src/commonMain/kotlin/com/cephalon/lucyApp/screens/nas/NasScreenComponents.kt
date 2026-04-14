@@ -561,8 +561,11 @@ internal fun NasPhotosContent(
     selectedImageIds: Collection<String> = emptyList(),
     onImageClick: (NasImageItem) -> Unit = {},
     onImageLongClick: (NasImageItem) -> Unit = {},
-    onImageSelectionToggle: (NasImageItem) -> Unit = {}
+    onImageSelectionToggle: (NasImageItem) -> Unit = {},
+    emptyText: String? = null,
+    footer: (@Composable () -> Unit)? = null
 ) {
+    val ds = LocalDesignScale.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -570,52 +573,61 @@ internal fun NasPhotosContent(
             .padding(top = 56.dp, bottom = 64.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        imageMonths.forEach { monthGroup ->
+        if (imageMonths.isEmpty() && !emptyText.isNullOrBlank()) {
             Text(
-                text = monthGroup.label,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color.White
+                text = emptyText,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = ds.sp(14f)),
+                color = Color.White.copy(alpha = 0.72f)
             )
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                monthGroup.images.chunked(4).forEach { rowImages ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        rowImages.forEach { image ->
-                            NasImageThumbnail(
-                                image = image,
-                                modifier = Modifier.weight(1f),
-                                showSelectionIndicator = selectionMode,
-                                isSelected = selectedImageIds.contains(image.id),
-                                onClick = {
-                                    if (selectionMode) {
-                                        onImageSelectionToggle(image)
-                                    } else {
-                                        onImageClick(image)
+        } else {
+            imageMonths.forEach { monthGroup ->
+                Text(
+                    text = monthGroup.label,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color.White
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    monthGroup.images.chunked(4).forEach { rowImages ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            rowImages.forEach { image ->
+                                NasImageThumbnail(
+                                    image = image,
+                                    modifier = Modifier.weight(1f),
+                                    showSelectionIndicator = selectionMode,
+                                    isSelected = selectedImageIds.contains(image.id),
+                                    onClick = {
+                                        if (selectionMode) {
+                                            onImageSelectionToggle(image)
+                                        } else {
+                                            onImageClick(image)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (!selectionMode) {
+                                            onImageLongClick(image)
+                                        }
                                     }
-                                },
-                                onLongClick = {
-                                    if (!selectionMode) {
-                                        onImageLongClick(image)
-                                    }
-                                }
-                            )
-                        }
-                        repeat(4 - rowImages.size) {
-                            Spacer(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                            )
+                                )
+                            }
+                            repeat(4 - rowImages.size) {
+                                Spacer(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+        footer?.invoke()
         Spacer(modifier = Modifier.height(6.dp))
     }
 }
@@ -626,7 +638,9 @@ internal fun NasRecordingsContent(
     selectionMode: Boolean = false,
     selectedAudioIds: Collection<String> = emptyList(),
     onAudioClick: (NasAudioItem) -> Unit = {},
-    onAudioSelectionToggle: (NasAudioItem) -> Unit = {}
+    onAudioSelectionToggle: (NasAudioItem) -> Unit = {},
+    emptyText: String? = null,
+    footer: (@Composable () -> Unit)? = null
 ) {
     val ds = LocalDesignScale.current
     Column(
@@ -636,39 +650,48 @@ internal fun NasRecordingsContent(
             .padding(top = ds.sm(56.dp), bottom = ds.sm(64.dp)),
         verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
-        audioMonths.forEach { monthGroup ->
-            Column(verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))) {
-                Text(
-                    text = monthGroup.label,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
-                    color = Color.White
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(0.5.dp, Color(0x0FFFFFFF), RoundedCornerShape(ds.sm(16.dp)))
-                        .clip(RoundedCornerShape(ds.sm(16.dp)))
-                        .background(Color(0x1AFFFFFF))
-                        .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(12.dp)),
-                    verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
-                ) {
-                    monthGroup.audios.forEach { audio ->
-                        NasAudioCard(
-                            audio = audio,
-                            showSelectionIndicator = selectionMode,
-                            isSelected = selectedAudioIds.contains(audio.id),
-                            onClick = {
-                                if (selectionMode) {
-                                    onAudioSelectionToggle(audio)
-                                } else {
-                                    onAudioClick(audio)
+        if (audioMonths.isEmpty() && !emptyText.isNullOrBlank()) {
+            Text(
+                text = emptyText,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = ds.sp(14f)),
+                color = Color.White.copy(alpha = 0.72f)
+            )
+        } else {
+            audioMonths.forEach { monthGroup ->
+                Column(verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))) {
+                    Text(
+                        text = monthGroup.label,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
+                        color = Color.White
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(0.5.dp, Color(0x0FFFFFFF), RoundedCornerShape(ds.sm(16.dp)))
+                            .clip(RoundedCornerShape(ds.sm(16.dp)))
+                            .background(Color(0x1AFFFFFF))
+                            .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(12.dp)),
+                        verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
+                    ) {
+                        monthGroup.audios.forEach { audio ->
+                            NasAudioCard(
+                                audio = audio,
+                                showSelectionIndicator = selectionMode,
+                                isSelected = selectedAudioIds.contains(audio.id),
+                                onClick = {
+                                    if (selectionMode) {
+                                        onAudioSelectionToggle(audio)
+                                    } else {
+                                        onAudioClick(audio)
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
         }
+        footer?.invoke()
         Spacer(modifier = Modifier.height(6.dp))
     }
 }
@@ -679,7 +702,9 @@ internal fun NasDocumentsContent(
     selectionMode: Boolean = false,
     selectedDocumentIds: Collection<String> = emptyList(),
     onDocumentClick: (NasDocumentItem) -> Unit = {},
-    onDocumentSelectionToggle: (NasDocumentItem) -> Unit = {}
+    onDocumentSelectionToggle: (NasDocumentItem) -> Unit = {},
+    emptyText: String? = null,
+    footer: (@Composable () -> Unit)? = null
 ) {
     val ds = LocalDesignScale.current
     Column(
@@ -689,39 +714,48 @@ internal fun NasDocumentsContent(
             .padding(top = ds.sm(56.dp), bottom = ds.sm(64.dp)),
         verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
-        documentMonths.forEach { monthGroup ->
-            Column(verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))) {
-                Text(
-                    text = monthGroup.label,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
-                    color = Color.White
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(0.5.dp, Color(0x0FFFFFFF), RoundedCornerShape(ds.sm(16.dp)))
-                        .clip(RoundedCornerShape(ds.sm(16.dp)))
-                        .background(Color(0x1AFFFFFF))
-                        .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(12.dp)),
-                    verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
-                ) {
-                    monthGroup.documents.forEach { document ->
-                        NasDocumentCard(
-                            document = document,
-                            showSelectionIndicator = selectionMode,
-                            isSelected = selectedDocumentIds.contains(document.id),
-                            onClick = {
-                                if (selectionMode) {
-                                    onDocumentSelectionToggle(document)
-                                } else {
-                                    onDocumentClick(document)
+        if (documentMonths.isEmpty() && !emptyText.isNullOrBlank()) {
+            Text(
+                text = emptyText,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = ds.sp(14f)),
+                color = Color.White.copy(alpha = 0.72f)
+            )
+        } else {
+            documentMonths.forEach { monthGroup ->
+                Column(verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))) {
+                    Text(
+                        text = monthGroup.label,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
+                        color = Color.White
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(0.5.dp, Color(0x0FFFFFFF), RoundedCornerShape(ds.sm(16.dp)))
+                            .clip(RoundedCornerShape(ds.sm(16.dp)))
+                            .background(Color(0x1AFFFFFF))
+                            .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(12.dp)),
+                        verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
+                    ) {
+                        monthGroup.documents.forEach { document ->
+                            NasDocumentCard(
+                                document = document,
+                                showSelectionIndicator = selectionMode,
+                                isSelected = selectedDocumentIds.contains(document.id),
+                                onClick = {
+                                    if (selectionMode) {
+                                        onDocumentSelectionToggle(document)
+                                    } else {
+                                        onDocumentClick(document)
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
         }
+        footer?.invoke()
         Spacer(modifier = Modifier.height(ds.sm(6.dp)))
     }
 }
