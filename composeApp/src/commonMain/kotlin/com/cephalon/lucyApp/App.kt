@@ -154,7 +154,8 @@ fun App() {
                             onBack = instance.component::onBack,
                             onNavigateToNas = instance.component::onNavigateToNas,
                             onNavigateToHome = instance.component::onNavigateToHome,
-                            onLogout = instance.component::onLogout
+                            onLogout = instance.component::onLogout,
+                            initialTargetCdi = instance.component.targetCdi,
                         )
                     }
 

@@ -94,7 +94,7 @@ fun HomeScreen(
     onOpenSdkTest: () -> Unit,
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
-    onOpenBrainBoxLoginSuccess: () -> Unit,
+    onOpenBrainBoxLoginSuccess: (cdi: String) -> Unit,
     onOpenAgentModel: () -> Unit,
     onOpenScanBindChannel: () -> Unit
 ) {
@@ -354,9 +354,9 @@ fun HomeScreen(
         BrainBoxLoginSheet(
             isVisible = showBrainBoxLoginSheet,
             onDismiss = { showBrainBoxLoginSheet = false },
-            onBindSuccess = {
+            onBindSuccess = { cdi ->
                 showBrainBoxLoginSheet = false
-                onOpenBrainBoxLoginSuccess()
+                onOpenBrainBoxLoginSuccess(cdi)
             }
         )
         }

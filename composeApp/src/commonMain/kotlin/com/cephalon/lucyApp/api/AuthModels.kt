@@ -144,13 +144,24 @@ data class LucyDevicesData(
 )
 
 @Serializable
+data class LucyDevicePairingInfo(
+    @SerialName("channel_device_id")
+    val channelDeviceId: String = "",
+)
+
+@Serializable
 data class LucyDevice(
     val id: String = "",
     val name: String = "",
     @SerialName("serial_number")
     val serialNumber: String = "",
-    val status: String = "offline"
+    val status: String = "offline",
+    @SerialName("pairing_info")
+    val pairingInfo: LucyDevicePairingInfo? = null,
 )
+
+val LucyDevice.channelDeviceId: String
+    get() = pairingInfo?.channelDeviceId?.trim().orEmpty()
 
 /**
  * POST /v1/channels/lucy-app/feedback
@@ -182,6 +193,20 @@ data class DailyRewardData(
     val granted: Boolean = false,
     @SerialName("reward_amount")
     val rewardAmount: Long = 0
+)
+
+/**
+ * POST /aiden/lucy-server/v1/channels/lucy/devices/device-bindings
+ */
+@Serializable
+data class DeviceBindingRequest(
+    val otp: String,
+)
+
+@Serializable
+data class DeviceBindingData(
+    val cdi: String = "",
+    val status: String = "",
 )
 
 object AuthInput {

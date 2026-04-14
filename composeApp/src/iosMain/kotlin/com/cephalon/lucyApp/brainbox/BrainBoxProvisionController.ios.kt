@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.cephalon.lucyApp.logging.appLogD
 import com.cephalon.lucyApp.scan.rememberOpenAppSettings
 import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +68,11 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
                     rssi = RSSI.intValue,
                 )
                 bleDevicesFlow.value = discoveredDevices.values.sortedByDescending { it.rssi ?: Int.MIN_VALUE }
+                val currentDevices = bleDevicesFlow.value
+                val deviceText = currentDevices.joinToString(separator = " | ") { device ->
+                    "name=${device.name}, id=${device.id}, subtitle=${device.subtitle}, rssi=${device.rssi}"
+                }
+                appLogD(BLE_SCAN_LOG_TAG, "Scanned BLE devices(${currentDevices.size}): $deviceText")
             }
         }
     }
@@ -161,3 +167,5 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
 
     return controller
 }
+
+private const val BLE_SCAN_LOG_TAG = "BrainBoxBleScan"

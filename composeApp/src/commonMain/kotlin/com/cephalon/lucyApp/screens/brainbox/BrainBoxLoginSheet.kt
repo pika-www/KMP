@@ -30,12 +30,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LucyDevice
+import com.cephalon.lucyApp.api.channelDeviceId
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiMode
+import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
 import com.cephalon.lucyApp.brainbox.rememberBrainBoxProvisionController
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.components.ToastHost
 import com.cephalon.lucyApp.components.rememberToastState
+import com.cephalon.lucyApp.deviceaccess.BleScanDevice
+import com.cephalon.lucyApp.deviceaccess.gatt.GattWifiNetwork
+import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage
+import com.cephalon.lucyApp.deviceaccess.gatt.rememberProvisionManager
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -61,16 +67,23 @@ private enum class BrainBoxStep(
 fun BrainBoxLoginSheet(
     isVisible: Boolean,
     onDismiss: () -> Unit,
-    onBindSuccess: () -> Unit,
+    onBindSuccess: (cdi: String) -> Unit,
 ) {
     val authRepository = koinInject<AuthRepository>()
     val controller = rememberBrainBoxProvisionController()
+    val provisionManager = rememberProvisionManager()
     val scope = rememberCoroutineScope()
     val toastState = rememberToastState()
-    val bleDevices by controller.bleDevices.collectAsState()
-    val isBleScanning by controller.isBleScanning.collectAsState()
-    val wifiNetworks by controller.wifiNetworks.collectAsState()
-    val isWifiLoading by controller.isWifiLoading.collectAsState()
+    val bleScanState by provisionManager.scanState.collectAsState()
+    val provisionState by provisionManager.state.collectAsState()
+    val bleDevices = bleScanState.devices.map { it.toBrainBoxBleDevice() }
+    val isBleScanning = bleScanState.isScanning
+    val wifiNetworks = provisionState.wifiNetworks.map { it.toBrainBoxWifiNetwork() }
+    val isWifiLoading = provisionState.stage == ProvisionFlowStage.Connecting ||
+        provisionState.stage == ProvisionFlowStage.Discovering ||
+        provisionState.stage == ProvisionFlowStage.ReadingPairingInfo ||
+        provisionState.stage == ProvisionFlowStage.RequestingOtp ||
+        provisionState.stage == ProvisionFlowStage.ScanningWifi
 
     var currentStep by remember { mutableStateOf(BrainBoxStep.Scan) }
     var selectedBleDevice by remember { mutableStateOf<BrainBoxBleDevice?>(null) }
@@ -94,7 +107,8 @@ fun BrainBoxLoginSheet(
         isBinding = false
         isLoadingDevices = false
         serverDevices.clear()
-        controller.stopBleScan()
+        provisionManager.stopScan()
+        scope.launch { provisionManager.cancel() }
     }
 
     fun goPrevious() {
@@ -105,8 +119,9 @@ fun BrainBoxLoginSheet(
         }
     }
 
+    val wifiMode = BrainBoxWifiMode.NearbyScan
     val selectedWifiNetwork = wifiNetworks.firstOrNull { it.ssid == selectedWifiSsid }
-    val selectedWifiName = when (controller.wifiMode) {
+    val selectedWifiName = when (wifiMode) {
         BrainBoxWifiMode.NearbyScan -> selectedWifiSsid.trim()
         BrainBoxWifiMode.ManualOnly -> manualSsid.trim()
     }
@@ -120,30 +135,60 @@ fun BrainBoxLoginSheet(
         if (isVisible) {
             resetState()
         } else {
-            controller.stopBleScan()
+            provisionManager.stopScan()
+            provisionManager.cancel()
         }
     }
 
+    // 蓝牙状态变化只影响扫描步骤
     LaunchedEffect(isVisible, currentStep, controller.bluetoothPermissionGranted, controller.bluetoothEnabled) {
         if (!isVisible) return@LaunchedEffect
-        when (currentStep) {
-            BrainBoxStep.Scan -> {
-                val granted = controller.requestBluetoothPermission()
-                if (granted && controller.bluetoothEnabled) {
-                    controller.startBleScan()
+        if (currentStep == BrainBoxStep.Scan) {
+            val granted = controller.requestBluetoothPermission()
+            if (granted && controller.bluetoothEnabled) {
+                provisionManager.startScan().onFailure {
+                    toastState.show(it.message ?: "开始扫描失败")
                 }
             }
+        }
+    }
+
+    // WiFi / 绑定步骤只在 step 切换时执行一次，不受蓝牙状态重触发
+    LaunchedEffect(isVisible, currentStep) {
+        if (!isVisible) return@LaunchedEffect
+        when (currentStep) {
+            BrainBoxStep.Scan -> { /* 由上面的 LaunchedEffect 处理 */ }
             BrainBoxStep.Wifi -> {
-                controller.stopBleScan()
-                controller.requestWifiPermission()
-                if (controller.wifiMode == BrainBoxWifiMode.NearbyScan && controller.wifiPermissionGranted) {
-                    controller.refreshWifiNetworks().onFailure {
-                        toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
+                provisionManager.stopScan()
+                val device = selectedBleDevice?.toBleScanDevice()
+                if (device != null) {
+                    // 先连接设备读取 device_info，判断是否已联网
+                    provisionManager.connectDevice(device).onSuccess {
+                        val deviceInfo = provisionManager.state.value.deviceInfo
+                        if (deviceInfo != null && deviceInfo.isConnected && deviceInfo.ip.isNotBlank()) {
+                            println("[BrainBox] 设备已联网 (ssid=${deviceInfo.ssid}, ip=${deviceInfo.ip})，跳过配网直接请求 OTP")
+                            wifiConnectedSsid = deviceInfo.ssid
+                            provisionManager.requestOtpAfterWifi()
+                                .onSuccess { pairingInfo ->
+                                    println("[BrainBox] UI: OTP=${pairingInfo.otp}, CDI=${pairingInfo.channelDeviceId}")
+                                    currentStep = BrainBoxStep.Bind
+                                }
+                                .onFailure { otpError ->
+                                    toastState.show(otpError.message ?: "请求 OTP 失败")
+                                }
+                        } else {
+                            // 设备未联网，正常扫描 WiFi
+                            provisionManager.refreshWifiNetworks(device).onFailure {
+                                toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
+                            }
+                        }
+                    }.onFailure {
+                        toastState.show(it.message ?: "连接设备失败")
                     }
                 }
             }
             BrainBoxStep.Bind -> {
-                controller.stopBleScan()
+                provisionManager.stopScan()
                 isLoadingDevices = true
                 serverDevices.clear()
                 val devices = runCatching { authRepository.getDevices() }
@@ -157,8 +202,10 @@ fun BrainBoxLoginSheet(
         }
     }
 
-    val displayDevice = remember(selectedBleDevice, serverDevices.toList(), wifiConnectedSsid) {
+    val displayDevice = remember(selectedBleDevice, serverDevices.toList(), wifiConnectedSsid, provisionState.channelDeviceId) {
         serverDevices.firstOrNull { candidate ->
+            candidate.channelDeviceId == provisionState.channelDeviceId
+        } ?: serverDevices.firstOrNull { candidate ->
             val currentName = selectedBleDevice?.name.orEmpty()
             currentName.isNotBlank() && candidate.name.contains(currentName, ignoreCase = true)
         } ?: serverDevices.firstOrNull()
@@ -172,19 +219,21 @@ fun BrainBoxLoginSheet(
             } else if (!controller.bluetoothEnabled) {
                 toastState.show("请先打开系统蓝牙")
             } else {
-                controller.startBleScan()
+                provisionManager.startScan().onFailure {
+                    toastState.show(it.message ?: "开始扫描失败")
+                }
             }
         }
     }
 
     fun refreshWifiAgain() {
         scope.launch {
-            val granted = controller.requestWifiPermission()
-            if (!granted) {
-                toastState.show("请先授权 Wi‑Fi 与定位权限")
+            val device = selectedBleDevice?.toBleScanDevice()
+            if (device == null) {
+                toastState.show("请先选择蓝牙设备")
                 return@launch
             }
-            controller.refreshWifiNetworks().onFailure {
+            provisionManager.refreshWifiNetworks(device).onFailure {
                 toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
             }
         }
@@ -192,7 +241,7 @@ fun BrainBoxLoginSheet(
 
     fun connectWifi() {
         val ssid = selectedWifiName
-        val networkRequiresPassword = when (controller.wifiMode) {
+        val networkRequiresPassword = when (wifiMode) {
             BrainBoxWifiMode.NearbyScan -> selectedWifiNetwork?.isSecure == true
             BrainBoxWifiMode.ManualOnly -> true
         }
@@ -206,11 +255,20 @@ fun BrainBoxLoginSheet(
         }
         scope.launch {
             isConnectingWifi = true
-            controller.connectToWifi(ssid = ssid, password = wifiPassword)
-                .onSuccess {
+            provisionManager.configureWifi(ssid = ssid, password = wifiPassword)
+                .onSuccess { networkStatus ->
                     wifiConnectedSsid = ssid
-                    currentStep = BrainBoxStep.Bind
-                    toastState.show(it)
+                    toastState.show("设备已连接到 ${networkStatus.ssid.ifBlank { ssid }}")
+
+                    // WiFi 连接成功后请求 OTP
+                    provisionManager.requestOtpAfterWifi()
+                        .onSuccess { pairingInfo ->
+                            println("[BrainBox] UI: OTP=${pairingInfo.otp}, CDI=${pairingInfo.channelDeviceId}")
+                            currentStep = BrainBoxStep.Bind
+                        }
+                        .onFailure { otpError ->
+                            toastState.show(otpError.message ?: "请求 OTP 失败")
+                        }
                 }
                 .onFailure {
                     toastState.show(it.message ?: "连接 Wi‑Fi 失败")
@@ -220,27 +278,35 @@ fun BrainBoxLoginSheet(
     }
 
     fun bindAndContinue() {
+        val otp = provisionState.otp
+        if (otp.isNullOrBlank()) {
+            toastState.show("OTP 未获取，请重试")
+            return
+        }
         scope.launch {
             isBinding = true
-            val success = runCatching { authRepository.setConnectionFlag() }
-                .getOrDefault(false)
+            authRepository.bindDeviceWithOtp(otp)
+                .onSuccess { bindingData ->
+                    println("[BrainBox] UI: 绑定成功 cdi=${bindingData.cdi}, status=${bindingData.status}")
+                    toastState.show("设备绑定成功")
+                    onBindSuccess(bindingData.cdi)
+                }
+                .onFailure { error ->
+                    toastState.show(error.message ?: "绑定失败，请稍后重试")
+                }
             isBinding = false
-            if (success) {
-                onBindSuccess()
-            } else {
-                toastState.show("绑定失败，请稍后重试")
-            }
         }
     }
 
     HalfModalBottomSheet(
         isVisible = isVisible,
         onDismissRequest = {
-            controller.stopBleScan()
+            provisionManager.stopScan()
+            scope.launch { provisionManager.cancel() }
             onDismiss()
         },
         onDismissed = {
-            controller.stopBleScan()
+            provisionManager.stopScan()
         },
         showBackButton = false,
         showCloseButton = false,
@@ -262,7 +328,8 @@ fun BrainBoxLoginSheet(
                         style = MaterialTheme.typography.titleMedium,
                         color = Color(0xFF333333),
                         modifier = Modifier.clickable {
-                            controller.stopBleScan()
+                            provisionManager.stopScan()
+                            scope.launch { provisionManager.cancel() }
                             onDismiss()
                         }
                     )
@@ -314,7 +381,9 @@ fun BrainBoxLoginSheet(
                     }
                     BrainBoxStep.Wifi -> {
                         BrainBoxWifiStep(
-                            controller = controller,
+                            wifiMode = wifiMode,
+                            wifiPermissionGranted = true,
+                            openWifiSettings = controller::openWifiSettings,
                             selectedDevice = selectedBleDevice,
                             wifiNetworks = wifiNetworks,
                             isWifiLoading = isWifiLoading,
@@ -350,3 +419,34 @@ fun BrainBoxLoginSheet(
     }
 }
 
+private fun BleScanDevice.toBrainBoxBleDevice(): BrainBoxBleDevice {
+    return BrainBoxBleDevice(
+        id = id,
+        name = name,
+        subtitle = subtitle,
+        rssi = rssi,
+    )
+}
+
+private fun BrainBoxBleDevice.toBleScanDevice(): BleScanDevice {
+    return BleScanDevice(
+        id = id,
+        name = name,
+        subtitle = subtitle,
+        rssi = rssi,
+    )
+}
+
+private fun GattWifiNetwork.toBrainBoxWifiNetwork(): BrainBoxWifiNetwork {
+    return BrainBoxWifiNetwork(
+        ssid = ssid,
+        strengthLevel = when (val currentSignal = signal ?: 0) {
+            in 80..100 -> 4
+            in 60..79 -> 3
+            in 40..59 -> 2
+            in 20..39 -> 1
+            else -> 0
+        },
+        isSecure = isSecure,
+    )
+}

@@ -3,6 +3,9 @@ package com.cephalon.lucyApp.di
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.api.AuthApi
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.deviceaccess.DeviceChatManager
+import com.cephalon.lucyApp.deviceaccess.DeviceConnector
+import com.cephalon.lucyApp.deviceaccess.ProvisionUseCase
 import com.cephalon.lucyApp.network.NetworkUrlFactory
 import com.cephalon.lucyApp.network.createNetworkClient
 import com.cephalon.lucyApp.sdk.SdkSessionManager
@@ -28,6 +31,9 @@ val appModule = module {
     single { AuthApi(get(), get()) }
     single { AuthRepository(get(), get(), get()) }
     single { SdkSessionManager(get()) }
+    single { DeviceChatManager(get()) }
+    single { ProvisionUseCase(get()) }
+    single { DeviceConnector(get(), get(), get()) }
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
     single { BalanceWsManager(get(), get(), get(), get()) }

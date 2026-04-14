@@ -115,6 +115,7 @@ fun AgentModelScreen(
     onNavigateToNas: () -> Unit = {},
     onNavigateToHome: () -> Unit = {},
     onLogout: () -> Unit = {},
+    initialTargetCdi: String? = null,
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val uriHandler = LocalUriHandler.current
@@ -131,7 +132,9 @@ fun AgentModelScreen(
 
     // 当前用户 + 设备（用于缓存 key）
     val currentUserId = userInfo?.userId ?: "anonymous"
-    val currentCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
+    val currentCdi = initialTargetCdi
+        ?: onlineDeviceCdis.firstOrNull()
+        ?: SdkSessionManager.DEFAULT_TARGET_CDI
     val cacheKey = "${currentUserId}_${currentCdi}"
 
     val logs = remember {
@@ -454,7 +457,10 @@ fun AgentModelScreen(
                 text.ifBlank {
                     if (imageAttachment != null) "" else ""
                 }
-            val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
+            val targetCdi = initialTargetCdi
+                ?: onlineDeviceCdis.firstOrNull()
+                ?: SdkSessionManager.DEFAULT_TARGET_CDI
+            println("[Chat] 发送消息: text=\"$outgoingText\", targetCdi=$targetCdi, initialTargetCdi=$initialTargetCdi, onlineDeviceCdis=$onlineDeviceCdis, hasImage=${imageAttachment != null}")
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -524,6 +530,7 @@ fun AgentModelScreen(
                 }
 
                 sendResult.onSuccess { messageId ->
+                    println("[Chat] 发送成功: messageId=$messageId, targetCdi=$targetCdi")
                     updateConversation(targetConversationId) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
@@ -542,6 +549,7 @@ fun AgentModelScreen(
                 }
 
                 sendResult.onFailure { error ->
+                    println("[Chat] 发送失败: targetCdi=$targetCdi, error=${error.message}")
                     removeAssistantPlaceholderInConversation(targetConversationId)
                     appendMessageToConversation(
                         targetConversationId,

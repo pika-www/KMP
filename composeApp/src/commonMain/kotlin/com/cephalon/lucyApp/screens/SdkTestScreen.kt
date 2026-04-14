@@ -39,6 +39,7 @@ import org.koin.compose.koinInject
 fun SdkTestScreen(onBack: () -> Unit) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val scope = rememberCoroutineScope()
+    var targetCdi by remember { mutableStateOf(SdkSessionManager.DEFAULT_TARGET_CDI) }
     var textMessage by remember { mutableStateOf("你好") }
     var actionText by remember { mutableStateOf("") }
     var typedAssistantReply by remember { mutableStateOf("") }
@@ -96,10 +97,9 @@ fun SdkTestScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
             Spacer(modifier = Modifier.height(12.dp))
             TextField(
-                value = SdkSessionManager.DEFAULT_TARGET_CDI,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("目标 CDI（固定）") },
+                value = targetCdi,
+                onValueChange = { targetCdi = it },
+                label = { Text("目标 CDI") },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -123,12 +123,12 @@ fun SdkTestScreen(onBack: () -> Unit) {
                     onClick = {
                         scope.launch {
                             sdkSessionManager.publishTextToNpc(
-                                cdi = SdkSessionManager.DEFAULT_TARGET_CDI,
+                                cdi = targetCdi,
                                 text = textMessage,
                             )
                                 .onSuccess {
                                     actionText =
-                                        "发送成功 -> cdi=${SdkSessionManager.DEFAULT_TARGET_CDI}, messageId=$it"
+                                        "发送成功 -> cdi=$targetCdi, messageId=$it"
                                 }
                                 .onFailure { error ->
                                     actionText = "发送失败：${error.message ?: "unknown"}"

@@ -114,6 +114,25 @@ class AuthRepository(
         return if (resp.code == 20000) resp.data?.devices.orEmpty() else emptyList()
     }
 
+    suspend fun findDeviceByChannelDeviceId(channelDeviceId: String): LucyDevice? {
+        val normalized = channelDeviceId.trim()
+        if (normalized.isBlank()) return null
+        return getDevices().firstOrNull { it.channelDeviceId == normalized }
+    }
+
+    suspend fun requireDeviceByChannelDeviceId(channelDeviceId: String): Result<LucyDevice> {
+        val normalized = channelDeviceId.trim()
+        if (normalized.isBlank()) {
+            return Result.failure(IllegalArgumentException("channel_device_id 不能为空"))
+        }
+        val device = findDeviceByChannelDeviceId(normalized)
+        return if (device != null) {
+            Result.success(device)
+        } else {
+            Result.failure(IllegalStateException("未找到 channel_device_id=$normalized 对应的设备，请先确认设备已完成绑定"))
+        }
+    }
+
     // ---- 意见反馈 ----
 
     private val feedbackPath = "/channels/lucy-app/feedback"
@@ -206,6 +225,35 @@ class AuthRepository(
      * 本地缓存是否已连接（同步读取，不走网络）
      */
     fun isConnectionFlagCached(): Boolean = settings.getBoolean(KEY_CONNECTION_FLAG, false)
+
+    // ---- 设备绑定（OTP） ----
+
+    private val deviceBindingPath = "/aiden/lucy-server/v1/channels/lucy/devices/device-bindings"
+
+    /**
+     * 用 BLE 获取的 OTP 绑定设备。
+     * POST /aiden/lucy-server/v1/channels/lucy/devices/device-bindings
+     * body: {"otp":"323584"}
+     * 成功响应: {"cdi":"...", "status":"bound"}
+     */
+    suspend fun bindDeviceWithOtp(otp: String): Result<DeviceBindingData> {
+        println("[BrainBox] bindDeviceWithOtp: otp=$otp")
+        return try {
+            val resp = authApi.postAbsolute<DeviceBindingRequest, DeviceBindingData>(
+                deviceBindingPath,
+                DeviceBindingRequest(otp = otp),
+            )
+            println("[BrainBox] bindDeviceWithOtp: code=${resp.code}, msg=${resp.msg}, cdi=${resp.data?.cdi}, status=${resp.data?.status}")
+            if (resp.code == 20000 && resp.data != null) {
+                Result.success(resp.data)
+            } else {
+                Result.failure(Exception(resp.msg))
+            }
+        } catch (e: Exception) {
+            println("[BrainBox] bindDeviceWithOtp: 异常 ${e.message}")
+            Result.failure(e)
+        }
+    }
 
     fun logout() {
         _userInfo.value = null

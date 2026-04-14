@@ -66,7 +66,7 @@ class RootComponentImpl(
                 scope.launch {
                     val connected = authRepository.checkConnectionFlag()
                     if (connected) {
-                        navigation.replaceAll(Config.AgentModel)
+                        navigation.replaceAll(Config.AgentModel())
                     }
                 }
             }
@@ -88,7 +88,7 @@ class RootComponentImpl(
         source = navigation,
         serializer = Config.serializer(),
         initialConfiguration = if (authRepository.hasValidToken()) {
-            if (authRepository.isConnectionFlagCached()) Config.AgentModel else Config.Home()
+            if (authRepository.isConnectionFlagCached()) Config.AgentModel() else Config.Home()
         } else if (isOnboardingSeen()) {
             Config.Home()
         } else {
@@ -112,7 +112,7 @@ class RootComponentImpl(
                             authRepository.getUserInfo()
                             val connected = authRepository.checkConnectionFlag()
                             if (connected) {
-                                navigation.replaceAll(Config.AgentModel)
+                                navigation.replaceAll(Config.AgentModel())
                             } else {
                                 navigation.replaceAll(Config.Home())
                             }
@@ -154,8 +154,14 @@ class RootComponentImpl(
                         safePush(Config.BrainBoxGuide(source = BrainBoxGuideSource.FromHome))
                     }
 
-                    override fun onOpenBrainBoxLoginSuccess() {
-                        navigation.replaceAll(Config.AgentModel)
+                    override fun onOpenBrainBoxLoginSuccess(cdi: String) {
+                        scope.launch {
+                            println("[BrainBox] 绑定成功 cdi=$cdi，设置连接标记并初始化 SDK...")
+                            authRepository.setConnectionFlag()
+                            val result = sdkSessionManager.ensureConnectedIfTokenValid()
+                            println("[BrainBox] SDK 连接结果: ${result.isSuccess}, 跳转对话页 targetCdi=$cdi")
+                            navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
+                        }
                     }
 
                     override fun onOpenAgentModel() {
@@ -168,10 +174,10 @@ class RootComponentImpl(
                                 println("RootComponent: 端脑云接入失败，不跳转")
                                 return@launch
                             }
-                            println("RootComponent: 接入成功，开始 SDK connectAfterLogin()")
-                            sdkSessionManager.connectAfterLogin()
-                            println("RootComponent: SDK 初始化完成，跳转 AgentModel")
-                            navigation.replaceAll(Config.AgentModel)
+                            println("RootComponent: 接入成功，开始 SDK ensureConnectedIfTokenValid()")
+                            val sdkResult = sdkSessionManager.ensureConnectedIfTokenValid()
+                            println("RootComponent: SDK 连接结果: ${sdkResult.isSuccess}，跳转 AgentModel")
+                            navigation.replaceAll(Config.AgentModel())
                         }
                     }
 
@@ -186,7 +192,7 @@ class RootComponentImpl(
                     override val showBack: Boolean get() = config.showBack
 
                     override fun onBack() {
-                        navigation.replaceAll(Config.AgentModel)
+                        navigation.replaceAll(Config.AgentModel())
                     }
                 }
             )
@@ -231,8 +237,9 @@ class RootComponentImpl(
                 }
             )
 
-            Config.AgentModel -> RootComponent.Child.AgentModel(
+            is Config.AgentModel -> RootComponent.Child.AgentModel(
                 component = object : AgentModelComponent {
+                    override val targetCdi: String? get() = config.targetCdi
                     override fun onBack() {
                         navigation.replaceAll(Config.Home())
                     }
@@ -259,7 +266,7 @@ class RootComponentImpl(
                     override fun onScanSuccess() {
                         scope.launch {
                             authRepository.setConnectionFlag()
-                            navigation.replaceAll(Config.AgentModel)
+                            navigation.replaceAll(Config.AgentModel())
                         }
                     }
                 }
@@ -296,7 +303,7 @@ class RootComponentImpl(
         data object WsTest : Config
 
         @Serializable
-        data object AgentModel : Config
+        data class AgentModel(val targetCdi: String? = null) : Config
 
         @Serializable
         data object ScanBindChannel : Config

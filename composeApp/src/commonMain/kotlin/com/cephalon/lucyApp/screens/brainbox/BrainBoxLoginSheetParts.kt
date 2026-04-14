@@ -170,7 +170,9 @@ internal fun BrainBoxScanStep(
 
 @Composable
 internal fun BrainBoxWifiStep(
-    controller: BrainBoxProvisionController,
+    wifiMode: BrainBoxWifiMode,
+    wifiPermissionGranted: Boolean,
+    openWifiSettings: () -> Unit,
     selectedDevice: BrainBoxBleDevice?,
     wifiNetworks: List<BrainBoxWifiNetwork>,
     isWifiLoading: Boolean,
@@ -190,8 +192,8 @@ internal fun BrainBoxWifiStep(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        if (controller.wifiMode == BrainBoxWifiMode.NearbyScan) {
-            if (!controller.wifiPermissionGranted) {
+        if (wifiMode == BrainBoxWifiMode.NearbyScan) {
+            if (!wifiPermissionGranted) {
                 BrainBoxActionCard(
                     title = "需要 Wi‑Fi 与定位权限",
                     body = "授权后才能查询附近 Wi‑Fi 并发起连接。",
@@ -219,7 +221,7 @@ internal fun BrainBoxWifiStep(
                         title = if (isWifiLoading) "正在查询附近 Wi‑Fi" else "暂未获取到 Wi‑Fi 列表",
                         body = if (isWifiLoading) "请稍候…" else "你可以刷新重试，或直接去系统设置连接。",
                         primaryText = "打开系统 Wi‑Fi",
-                        onPrimary = controller::openWifiSettings,
+                        onPrimary = openWifiSettings,
                         showLoading = isWifiLoading,
                     )
                 } else {

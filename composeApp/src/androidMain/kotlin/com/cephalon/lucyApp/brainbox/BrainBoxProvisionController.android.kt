@@ -29,6 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.cephalon.lucyApp.logging.appLogD
+import java.util.Locale
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -170,6 +172,11 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
             rssi = result.rssi,
         )
         bleDevicesState.value = discoveredDevices.values.sortedByDescending { it.rssi ?: Int.MIN_VALUE }
+        val currentDevices = bleDevicesState.value
+        val deviceText = currentDevices.joinToString(separator = " | ") { device ->
+            "name=${device.name}, id=${device.id}, subtitle=${device.subtitle}, rssi=${device.rssi}"
+        }
+        appLogD(BLE_SCAN_LOG_TAG, "Scanned BLE devices(${currentDevices.size}): $deviceText")
     }
 
     val scanCallback = remember {
@@ -421,3 +428,5 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
 
     return controller
 }
+
+private const val BLE_SCAN_LOG_TAG = "BrainBoxBleScan"

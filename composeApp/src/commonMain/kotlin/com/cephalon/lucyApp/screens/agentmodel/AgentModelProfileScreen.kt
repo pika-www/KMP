@@ -75,7 +75,10 @@ import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.components.CodeInput
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.getPlatform
+import com.cephalon.lucyApp.sdk.SdkSessionManager
+import com.cephalon.lucyApp.sdk.SdkConnectionState
 import com.cephalon.lucyApp.ws.BalanceWsManager
+import lucy.im.sdk.OnlineDevice
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
@@ -475,9 +478,7 @@ internal fun AgentModelProfileScreen(
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             MyDevicesContent(
-                                authRepository = authRepository,
                                 onAddNewDevice = onNavigateToHome,
-                                onConfigWifi = { wifiConfigDevice = it }
                             )
                         }
                     }
@@ -1830,44 +1831,45 @@ private fun LogoutConfirmDialog(
 
 @Composable
 private fun MyDevicesContent(
-    authRepository: AuthRepository,
     onAddNewDevice: () -> Unit = {},
-    onConfigWifi: (com.cephalon.lucyApp.api.LucyDevice) -> Unit = {},
 ) {
-    var devices by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val sdkSessionManager = koinInject<SdkSessionManager>()
+    val onlineDevices by sdkSessionManager.onlineDevices.collectAsState()
+    val connectionState by sdkSessionManager.connectionState.collectAsState()
 
     LaunchedEffect(Unit) {
-        devices = authRepository.getDevices()
-        isLoading = false
+        println("[MyDevices] 进入设备页, connectionState=$connectionState, onlineDevices=${onlineDevices.map { it.cdi }}")
+        sdkSessionManager.ensureConnectedIfTokenValid()
     }
 
-    if (isLoading) {
+    if (connectionState == SdkConnectionState.CONNECTING) {
         Box(
             modifier = Modifier.fillMaxWidth().height(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("加载中...", color = Color(0xFF999999))
+            Text("连接中...", color = Color(0xFF999999))
         }
         return
     }
 
-    if (devices.isEmpty()) {
+    if (onlineDevices.isEmpty()) {
         Box(
             modifier = Modifier.fillMaxWidth().height(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("暂无绑定设备", color = Color(0xFF999999))
+            Text(
+                text = if (connectionState == SdkConnectionState.CONNECTED) "当前无在线设备" else "SDK 未连接",
+                color = Color(0xFF999999)
+            )
         }
         return
     }
 
-    devices.forEachIndexed { index, device ->
+    onlineDevices.forEachIndexed { index, device ->
         if (index > 0) Spacer(modifier = Modifier.height(16.dp))
-        DeviceCard(
+        OnlineDeviceCard(
             device = device,
             onAddNewDevice = onAddNewDevice,
-            onConfigWifi = { onConfigWifi(device) }
         )
     }
 
@@ -1875,10 +1877,9 @@ private fun MyDevicesContent(
 }
 
 @Composable
-private fun DeviceCard(
-    device: com.cephalon.lucyApp.api.LucyDevice,
+private fun OnlineDeviceCard(
+    device: OnlineDevice,
     onAddNewDevice: () -> Unit = {},
-    onConfigWifi: () -> Unit = {},
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1893,7 +1894,6 @@ private fun DeviceCard(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 设备信息头部
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1906,7 +1906,7 @@ private fun DeviceCard(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            text = (device.name.firstOrNull() ?: 'D').uppercase(),
+                            text = "D",
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF555555)
                         )
@@ -1915,7 +1915,7 @@ private fun DeviceCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = device.id,
+                        text = "CDI: ${device.cdi}",
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                         color = Color(0xFF111111),
                         maxLines = 1,
@@ -1928,18 +1928,11 @@ private fun DeviceCard(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = when (device.status) {
-                                "online", "free" -> Color(0xFF34C759)
-                                else -> Color(0xFFAAAAAA)
-                            },
+                            color = Color(0xFF34C759),
                             modifier = Modifier.size(8.dp)
                         ) {}
                         Text(
-                            text = when (device.status) {
-                                "online" -> "在线设备"
-                                "free" -> "空闲设备"
-                                else -> "离线设备"
-                            },
+                            text = "在线",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF555555)
                         )
@@ -1947,57 +1940,18 @@ private fun DeviceCard(
                 }
             }
 
-            // 设备详情
-            if (device.name.isNotBlank()) {
-                Text(
-                    text = "设备名称：${device.name}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF888888)
-                )
-            }
-            if (device.serialNumber.isNotBlank()) {
-                Text(
-                    text = "型号：${device.serialNumber}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF888888)
-                )
-            }
-
-            Text(
-                text = "蓝牙已连接",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF555555)
-            )
-            Text(
-                text = "WIFI已连接",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF555555)
-            )
-
             HorizontalDivider(color = Color(0xFFF0F0F0))
 
-            // 操作按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                DeviceActionButton(
-                    text = "切换设备",
-                    modifier = Modifier.weight(1f),
-                    onClick = { /* TODO: 切换设备 */ }
-                )
                 DeviceActionButton(
                     text = "添加新设备",
                     modifier = Modifier.weight(1f),
                     onClick = onAddNewDevice
                 )
             }
-
-            DeviceActionButton(
-                text = "配置WIFI",
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onConfigWifi
-            )
         }
     }
 }

@@ -117,10 +117,12 @@ class SdkSessionManager(
     private val connectMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val sdkDispatcher = Dispatchers.Default.limitedParallelism(4)
     private val sdkClient =
         LucyImAppClient(
             LucyImAppConfig(
                 lucyServerBaseUrl = "${AppConfig.baseDomain}/aiden/lucy-server",
+                dispatcher = sdkDispatcher,
             ),
         )
 
@@ -257,7 +259,9 @@ class SdkSessionManager(
     suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
         return connectMutex.withLock {
             if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
-                if (!areObserversActive()) {
+                val observersActive = areObserversActive()
+                appLogD(TAG, "SDK 已连接(复用), userId=${session!!.userId}, observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}, consumerJob=${consumerJob?.isActive}, deviceObserverJob=${deviceObserverJob?.isActive}")
+                if (!observersActive) {
                     appLogD(TAG, "检测到连接存在但监听未激活，重建监听")
                     _connectionLog.value = "连接正常，正在恢复监听..."
                     restartObservers(session = session!!, reason = "主动恢复监听")
@@ -276,19 +280,27 @@ class SdkSessionManager(
             _connectionState.value = SdkConnectionState.CONNECTING
             _connectionLog.value = "连接中..."
             appLogD(TAG, _connectionLog.value)
+            appLogD(TAG, "connect: token=${token.take(20)}..., tokenLen=${token.length}")
 
-            runCatching {
-                sdkClient.connect(token)
-            }.onSuccess { newSession ->
+            appLogD(TAG, "connect: 调用 sdkClient.connect() ...")
+            val connectResult = runCatching { sdkClient.connect(token) }
+            appLogD(TAG, "connect: sdkClient.connect() 返回 isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
+
+            connectResult.onSuccess { newSession ->
+                appLogD(TAG, "connect: onSuccess 开始, userId=${newSession.userId}")
                 resetSessionResources()
                 session = newSession
                 authReconnectAttempts = 0
                 _connectionState.value = SdkConnectionState.CONNECTED
                 _connectionLog.value = "连接成功，userId=${newSession.userId}"
                 appLogD(TAG, _connectionLog.value)
+                appLogD(TAG, "connect: 即将启动 observers...")
                 startObservers(newSession)
+                appLogD(TAG, "connect: observers 已启动")
                 startTokenExpiryMonitor()
+                appLogD(TAG, "connect: tokenExpiryMonitor 已启动")
             }.onFailure { error ->
+                appLogD(TAG, "connect: onFailure error=${error::class.simpleName}: ${error.message}")
                 if (isAuthorizationError(error)) {
                     tokenStore.clear()
                     resetSessionResources()
@@ -344,11 +356,13 @@ class SdkSessionManager(
             _reasoningText.value = ""
             appLogD(TAG, "发送请求 messageId=$outgoingMessageId，当前活跃: ${_activeRequestIds.value}")
         }
-        appLogD(TAG, "发送消息 cdi=$cdi payload=$payload")
+        val userId = activeSession.userId
+        val natsSubject = "cephalon.im.npc.$userId.$cdi"
+        appLogD(TAG, "发送消息 subject=$natsSubject, userId=$userId, cdi=$cdi, payload=$payload")
         return runCatching {
             activeSession.publishToNpc(cdi = cdi, payload = payload)
         }.onSuccess {
-            appLogD(TAG, "发送成功 cdi=$cdi")
+            appLogD(TAG, "发送成功 subject=$natsSubject")
         }.onFailure { error ->
             if (outgoingMessageId != null) {
                 _activeRequestIds.update { it - outgoingMessageId }
@@ -651,6 +665,7 @@ class SdkSessionManager(
         reconnectJob = null
         _receivedMessages.value = emptyList()
 
+        appLogD(TAG, "[DeviceObserver] 启动在线设备订阅, userId=${newSession.userId}, subscribeChannel=cephalon.im.user.${newSession.userId}")
         val newObserver = newSession.startOnlineNpcDeviceObserver(scope = scope)
         deviceObserver = newObserver
         deviceObserverJob =
@@ -663,9 +678,9 @@ class SdkSessionManager(
                 }
                 _deviceLog.value =
                     if (cdis.isEmpty()) {
-                        "当前无在线设备（lastOnlineCdi=${_lastOnlineCdi.value ?: "none"}）"
+                        "[DeviceObserver] 当前无在线设备（userId=${newSession.userId}, lastOnlineCdi=${_lastOnlineCdi.value ?: "none"}）"
                     } else {
-                        "已获取 ${cdis.size} 台在线设备，cdi=${cdis.joinToString(",")}" 
+                        "[DeviceObserver] 在线设备更新: ${cdis.size} 台, cdis=[${cdis.joinToString(", ")}], userId=${newSession.userId}"
                     }
                 appLogD(TAG, _deviceLog.value)
             }
