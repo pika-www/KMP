@@ -124,6 +124,7 @@ fun App() {
                             onOpenSdkTest = instance.component::onOpenSdkTest,
                             onOpenWsTest = instance.component::onOpenWsTest,
                             onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
+                            onOpenBrainBoxLoginSuccess = instance.component::onOpenBrainBoxLoginSuccess,
                             onOpenAgentModel = instance.component::onOpenAgentModel,
                             onOpenScanBindChannel = instance.component::onOpenScanBindChannel,
                         )

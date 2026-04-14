@@ -8,6 +8,10 @@
 	<string></string>
 	<key>CFBundleName</key>
 	<string></string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>需要使用蓝牙扫描附近的脑花盒子设备</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>需要使用蓝牙连接附近的脑花盒子设备</string>
 	<key>NSCameraUsageDescription</key>
 	<string>需要使用相机拍照进行本地部署测试</string>
 	<key>NSMicrophoneUsageDescription</key>

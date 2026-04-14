@@ -154,6 +154,10 @@ class RootComponentImpl(
                         safePush(Config.BrainBoxGuide(source = BrainBoxGuideSource.FromHome))
                     }
 
+                    override fun onOpenBrainBoxLoginSuccess() {
+                        navigation.replaceAll(Config.AgentModel)
+                    }
+
                     override fun onOpenAgentModel() {
                         // 调用 connect 接口 → SDK 初始化绑定设备 → 跳转对话页
                         scope.launch {

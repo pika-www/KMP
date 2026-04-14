@@ -26,6 +26,7 @@ kotlin {
         binaries.all {
             linkerOpts("-L$blobRoot/target/aarch64-apple-ios/release", "-llucy_blob_core")
             linkerOpts("-framework", "Network")
+            linkerOpts("-framework", "CoreBluetooth")
             linkerOpts("-framework", "Security")
             linkerOpts("-framework", "CoreFoundation")
             linkerOpts("-framework", "SystemConfiguration")
@@ -39,6 +40,7 @@ kotlin {
         binaries.all {
             linkerOpts("-L$blobRoot/target/aarch64-apple-ios-sim/release", "-llucy_blob_core")
             linkerOpts("-framework", "Network")
+            linkerOpts("-framework", "CoreBluetooth")
             linkerOpts("-framework", "Security")
             linkerOpts("-framework", "CoreFoundation")
             linkerOpts("-framework", "SystemConfiguration")

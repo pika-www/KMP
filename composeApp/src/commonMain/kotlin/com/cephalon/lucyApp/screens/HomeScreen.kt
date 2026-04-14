@@ -22,8 +22,11 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +49,7 @@ import androidios.composeapp.generated.resources.reboto
 import androidios.composeapp.generated.resources.roboto_bg
 import com.cephalon.lucyApp.components.DesignScaleProvider
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.screens.brainbox.BrainBoxLoginSheet
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.absoluteValue
@@ -90,10 +94,12 @@ fun HomeScreen(
     onOpenSdkTest: () -> Unit,
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
+    onOpenBrainBoxLoginSuccess: () -> Unit,
     onOpenAgentModel: () -> Unit,
     onOpenScanBindChannel: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    var showBrainBoxLoginSheet by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { accessCards.size }
@@ -180,7 +186,7 @@ fun HomeScreen(
                         ) {
                             if (pagerState.currentPage == pageIndex) {
                                 when (pageIndex) {
-                                    0 -> onOpenWsTest()
+                                    0 -> showBrainBoxLoginSheet = true
                                     1 -> onOpenAgentModel()
                                     2 -> onOpenScanBindChannel()
                                 }
@@ -263,7 +269,7 @@ fun HomeScreen(
                                 ) {
                                     if (pagerState.currentPage == pageIndex) {
                                         when (pageIndex) {
-                                            0 -> onOpenAgentModel()
+                                            0 -> showBrainBoxLoginSheet = true
                                             1 -> onOpenAgentModel()
                                             2 -> onOpenScanBindChannel()
                                         }
@@ -344,6 +350,15 @@ fun HomeScreen(
                 )
             }
         }
+
+        BrainBoxLoginSheet(
+            isVisible = showBrainBoxLoginSheet,
+            onDismiss = { showBrainBoxLoginSheet = false },
+            onBindSuccess = {
+                showBrainBoxLoginSheet = false
+                onOpenBrainBoxLoginSuccess()
+            }
+        )
         }
     }
 }

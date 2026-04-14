@@ -7,6 +7,7 @@ interface HomeComponent {
     fun onOpenSdkTest()
     fun onOpenWsTest()
     fun onOpenBrainBoxGuide()
+    fun onOpenBrainBoxLoginSuccess()
     fun onOpenAgentModel()
     fun onOpenScanBindChannel()
     fun onOpenNas()
