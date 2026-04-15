@@ -9,10 +9,6 @@ MARKETING_VERSION=1.0
 
 // 确保搜索用户路径
 USER_HEADER_SEARCH_PATHS = $(inherited)
-
-// lucy-blob 原生静态库
 LUCY_BLOB_ROOT = $(SRCROOT)/../sdk/lucy-im-sdk-kotlin/lucy-blob
-LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) $(LUCY_BLOB_ROOT)/target/aarch64-apple-ios/release
-LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(LUCY_BLOB_ROOT)/target/aarch64-apple-ios-sim/release
-OTHER_LDFLAGS = $(inherited) -llucy_blob_core
-
+OTHER_LDFLAGS[sdk=iphoneos*] = $(inherited) $(LUCY_BLOB_ROOT)/target/aarch64-apple-ios/release/liblucy_blob_core.a
+OTHER_LDFLAGS[sdk=iphonesimulator*] = $(inherited) $(LUCY_BLOB_ROOT)/target/aarch64-apple-ios-sim/release/liblucy_blob_core.a
