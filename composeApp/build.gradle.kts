@@ -16,6 +16,8 @@ kotlin {
 
     // ✅ iOS
     val blobRoot = rootProject.projectDir.resolve("sdk/lucy-im-sdk-kotlin/lucy-blob").absolutePath
+    val blobIosArm64StaticLib = "$blobRoot/target/aarch64-apple-ios/release/liblucy_blob_core.a"
+    val blobIosSimulatorArm64StaticLib = "$blobRoot/target/aarch64-apple-ios-sim/release/liblucy_blob_core.a"
 
     val iosTargets = listOf(
         iosArm64(),
@@ -24,7 +26,7 @@ kotlin {
 
     iosArm64 {
         binaries.all {
-            linkerOpts("-L$blobRoot/target/aarch64-apple-ios/release", "-llucy_blob_core")
+            linkerOpts(blobIosArm64StaticLib)
             linkerOpts("-framework", "Network")
             linkerOpts("-framework", "CoreBluetooth")
             linkerOpts("-framework", "Security")
@@ -38,7 +40,7 @@ kotlin {
     }
     iosSimulatorArm64 {
         binaries.all {
-            linkerOpts("-L$blobRoot/target/aarch64-apple-ios-sim/release", "-llucy_blob_core")
+            linkerOpts(blobIosSimulatorArm64StaticLib)
             linkerOpts("-framework", "Network")
             linkerOpts("-framework", "CoreBluetooth")
             linkerOpts("-framework", "Security")

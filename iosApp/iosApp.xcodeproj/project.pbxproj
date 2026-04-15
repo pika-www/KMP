@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		24FF6B6E41BAC7488004382D /* Androidios.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Androidios.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		24FF6B6E41BAC7488004382D /* lucy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = lucy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -50,7 +50,7 @@
 		648394C65FA7E7E260FAD374 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				24FF6B6E41BAC7488004382D /* Androidios.app */,
+				24FF6B6E41BAC7488004382D /* lucy.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 			packageProductDependencies = (
 			);
 			productName = iosApp;
-			productReference = 24FF6B6E41BAC7488004382D /* Androidios.app */;
+			productReference = 24FF6B6E41BAC7488004382D /* lucy.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -241,10 +241,18 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_ASSET_PATHS = "\"iosApp/Preview Content\"";
-				DEVELOPMENT_TEAM = 39Y6939Z8B;
+				DEVELOPMENT_TEAM = 986GGG32VP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "需要使用蓝牙扫描附近的脑花盒子设备";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "需要使用蓝牙连接附近的脑花盒子设备";
+				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用相机拍照进行本地部署测试";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "需要使用麦克风进行录音测试";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要保存图片到相册时使用";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问相册选择图片进行本地部署测试";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "需要使用语音识别将录音内容转换为文字输入";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -254,9 +262,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -268,6 +273,10 @@
 					"-framework",
 					SystemConfiguration,
 				);
+				PRODUCT_BUNDLE_IDENTIFIER = cloud.cephalon.naohua;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -280,10 +289,18 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_ASSET_PATHS = "\"iosApp/Preview Content\"";
-				DEVELOPMENT_TEAM = 39Y6939Z8B;
+				DEVELOPMENT_TEAM = 986GGG32VP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "需要使用蓝牙扫描附近的脑花盒子设备";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "需要使用蓝牙连接附近的脑花盒子设备";
+				INFOPLIST_KEY_NSCameraUsageDescription = "需要使用相机拍照进行本地部署测试";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "需要使用麦克风进行录音测试";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要保存图片到相册时使用";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问相册选择图片进行本地部署测试";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "需要使用语音识别将录音内容转换为文字输入";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -293,9 +310,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -307,6 +321,10 @@
 					"-framework",
 					SystemConfiguration,
 				);
+				PRODUCT_BUNDLE_IDENTIFIER = cloud.cephalon.naohua;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
