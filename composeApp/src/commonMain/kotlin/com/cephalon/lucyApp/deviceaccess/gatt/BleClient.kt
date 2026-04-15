@@ -44,6 +44,7 @@ interface BleGattConnection {
     suspend fun discoverServices(): Result<List<BleGattService>>
     suspend fun readCharacteristic(serviceUuid: String, characteristicUuid: String): Result<ByteArray>
     suspend fun writeCharacteristic(serviceUuid: String, characteristicUuid: String, payload: ByteArray): Result<Unit>
+    suspend fun writeCharacteristicNoResponse(serviceUuid: String, characteristicUuid: String, payload: ByteArray): Result<Unit>
     suspend fun setCharacteristicNotification(
         serviceUuid: String,
         characteristicUuid: String,

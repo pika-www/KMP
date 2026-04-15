@@ -232,19 +232,20 @@ class AuthRepository(
 
     /**
      * 用 BLE 获取的 OTP 绑定设备。
-     * POST /aiden/lucy-server/v1/channels/lucy/devices/device-bindings
+     * PUT /aiden/lucy-server/v1/channels/lucy/devices/device-bindings
      * body: {"otp":"323584"}
-     * 成功响应: {"cdi":"...", "status":"bound"}
+     * 成功响应: {"code":200,"msg":"绑定成功","data":{"cdi":"...","status":"..."}}
      */
     suspend fun bindDeviceWithOtp(otp: String): Result<DeviceBindingData> {
         println("[BrainBox] bindDeviceWithOtp: otp=$otp")
         return try {
-            val resp = authApi.postAbsolute<DeviceBindingRequest, DeviceBindingData>(
+            val resp = authApi.putAbsolute<DeviceBindingRequest, DeviceBindingData>(
                 deviceBindingPath,
                 DeviceBindingRequest(otp = otp),
             )
             println("[BrainBox] bindDeviceWithOtp: code=${resp.code}, msg=${resp.msg}, cdi=${resp.data?.cdi}, status=${resp.data?.status}")
-            if (resp.code == 20000 && resp.data != null) {
+            if (resp.code == 200 && resp.data != null) {
+                resp.data.serverMsg = resp.msg ?: "绑定成功"
                 Result.success(resp.data)
             } else {
                 Result.failure(Exception(resp.msg))

@@ -156,11 +156,14 @@ class RootComponentImpl(
 
                     override fun onOpenBrainBoxLoginSuccess(cdi: String) {
                         scope.launch {
-                            println("[BrainBox] 绑定成功 cdi=$cdi，设置连接标记并初始化 SDK...")
+                            println("[BrainBox] 绑定成功 cdi=$cdi，设置连接标记...")
                             authRepository.setConnectionFlag()
-                            val result = sdkSessionManager.ensureConnectedIfTokenValid()
-                            println("[BrainBox] SDK 连接结果: ${result.isSuccess}, 跳转对话页 targetCdi=$cdi")
+                            println("[BrainBox] 跳转对话页 targetCdi=$cdi")
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
+                            // SDK 连接放后台，不阻塞导航
+                            println("[BrainBox] 后台初始化 SDK...")
+                            val result = sdkSessionManager.ensureConnectedIfTokenValid()
+                            println("[BrainBox] SDK 连接结果: ${result.isSuccess}")
                         }
                     }
 

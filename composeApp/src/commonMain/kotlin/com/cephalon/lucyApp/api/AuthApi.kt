@@ -128,6 +128,21 @@ class AuthApi(
     }
 
     /**
+     * PUT 请求 — 使用完整路径（不拼接 prefix）
+     */
+    suspend inline fun <reified T, reified R> putAbsolute(path: String, body: T): BaseResponse<R> {
+        return try {
+            val resp: BaseResponse<R> = client.put(urlFactory.http(path)) {
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }.body()
+            resp.also { checkSessionExpired(it) }
+        } catch (e: Exception) {
+            BaseResponse(code = -1, msg = e.message ?: "网络连接失败")
+        }
+    }
+
+    /**
      * 通用的 DELETE 请求方法
      */
     suspend inline fun <reified R> delete(path: String, params: Map<String, String> = emptyMap()): BaseResponse<R> {

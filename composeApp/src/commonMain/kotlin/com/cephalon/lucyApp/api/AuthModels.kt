@@ -207,7 +207,11 @@ data class DeviceBindingRequest(
 data class DeviceBindingData(
     val cdi: String = "",
     val status: String = "",
-)
+) {
+    /** 服务端响应 msg，由 Repository 层填入，不参与序列化 */
+    @kotlinx.serialization.Transient
+    var serverMsg: String = ""
+}
 
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')

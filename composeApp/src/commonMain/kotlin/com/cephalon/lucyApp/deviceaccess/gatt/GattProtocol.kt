@@ -17,13 +17,14 @@ object BrainBoxGattProtocol {
 
 enum class GattRoute(
     val characteristicUuid: String,
+    val writeWithResponse: Boolean = true,
 ) {
     DeviceInfo(BrainBoxGattProtocol.DEVICE_INFO_UUID),
     NetworkStatus(BrainBoxGattProtocol.NETWORK_STATUS_UUID),
-    WifiConfig(BrainBoxGattProtocol.WIFI_CONFIG_UUID),
-    WifiScan(BrainBoxGattProtocol.WIFI_SCAN_UUID),
+    WifiConfig(BrainBoxGattProtocol.WIFI_CONFIG_UUID, writeWithResponse = false),
+    WifiScan(BrainBoxGattProtocol.WIFI_SCAN_UUID, writeWithResponse = false),
     LucyPairingInfo(BrainBoxGattProtocol.LUCY_PAIRING_INFO_UUID),
-    LucyPairingRequest(BrainBoxGattProtocol.LUCY_PAIRING_REQUEST_UUID),
+    LucyPairingRequest(BrainBoxGattProtocol.LUCY_PAIRING_REQUEST_UUID, writeWithResponse = true),
 }
 
 @Serializable
@@ -93,6 +94,15 @@ data class LucyPairingInfoPayload(
 
     val isPendingBinding: Boolean
         get() = bindingStatus.equals("pending", ignoreCase = true) || bindingStatus.isBlank()
+
+    val isOtpExpired: Boolean
+        get() {
+            val expiresAt = otpExpiresAtMs ?: return false
+            return kotlinx.datetime.Clock.System.now().toEpochMilliseconds() >= expiresAt
+        }
+
+    val isOtpValid: Boolean
+        get() = !otp.isNullOrBlank() && !isOtpExpired
 }
 
 @Serializable

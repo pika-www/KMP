@@ -399,6 +399,32 @@ private class AndroidBleGattConnection private constructor(
         }
     }
 
+    override suspend fun writeCharacteristicNoResponse(
+        serviceUuid: String,
+        characteristicUuid: String,
+        payload: ByteArray,
+    ): Result<Unit> {
+        val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
+            ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
+        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                gatt.writeCharacteristic(
+                    characteristic,
+                    payload,
+                    BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE,
+                ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
+            }.getOrDefault(false)
+        } else {
+            @Suppress("DEPRECATION")
+            characteristic.value = payload
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            @Suppress("DEPRECATION")
+            runCatching { gatt.writeCharacteristic(characteristic) }.getOrDefault(false)
+        }
+        return if (started) Result.success(Unit)
+        else Result.failure(IllegalStateException("无法写入特征(NoResponse) $characteristicUuid"))
+    }
+
     override suspend fun setCharacteristicNotification(
         serviceUuid: String,
         characteristicUuid: String,

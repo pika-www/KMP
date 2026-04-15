@@ -29,6 +29,11 @@ fun createNetworkClient(
         defaultRequest {
             url(config.baseUrl)
             header("Lang", "zh")
+            val token = tokenStore.getValidTokenOrNull()
+            println("[NetworkClient] defaultRequest: token=${if (token != null) "${token.take(20)}..." else "null"}, url=${this.url.buildString()}")
+            if (token != null) {
+                header(HttpHeaders.Authorization, "Bearer $token")
+            }
         }
 
         install(HttpTimeout) {
@@ -49,13 +54,6 @@ fun createNetworkClient(
         install(Logging) {
             logger = Logger.DEFAULT
             level = LogLevel.ALL
-        }
-
-        install(DefaultRequest) {
-            val token = tokenStore.getValidTokenOrNull()
-            if (token != null) {
-                header(HttpHeaders.Authorization, "Bearer $token")
-            }
         }
 
         install(WebSockets)

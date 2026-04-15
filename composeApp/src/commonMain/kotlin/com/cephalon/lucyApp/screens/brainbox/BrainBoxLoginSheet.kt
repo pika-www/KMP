@@ -153,6 +153,32 @@ fun BrainBoxLoginSheet(
         }
     }
 
+    fun requestOtpAndBind() {
+        if (isBinding) return
+        isBinding = true
+        scope.launch {
+            println("[BrainBox] 开始请求 OTP 并绑定...")
+            val otpResult = provisionManager.requestOtpAfterWifi()
+            val otp = otpResult.getOrNull()?.otp
+            if (otpResult.isFailure || otp.isNullOrBlank()) {
+                toastState.show(otpResult.exceptionOrNull()?.message ?: "获取 OTP 失败，请重试")
+                isBinding = false
+                return@launch
+            }
+            println("[BrainBox] OTP 获取成功: otp=$otp, 开始调用绑定接口...")
+            authRepository.bindDeviceWithOtp(otp)
+                .onSuccess { bindingData ->
+                    println("[BrainBox] UI: 绑定成功 cdi=${bindingData.cdi}, status=${bindingData.status}, msg=${bindingData.serverMsg}")
+                    toastState.show(bindingData.serverMsg.ifBlank { "绑定成功" })
+                    onBindSuccess(bindingData.cdi)
+                }
+                .onFailure { error ->
+                    toastState.show(error.message ?: "绑定失败，请稍后重试")
+                }
+            isBinding = false
+        }
+    }
+
     // WiFi / 绑定步骤只在 step 切换时执行一次，不受蓝牙状态重触发
     LaunchedEffect(isVisible, currentStep) {
         if (!isVisible) return@LaunchedEffect
@@ -165,17 +191,12 @@ fun BrainBoxLoginSheet(
                     // 先连接设备读取 device_info，判断是否已联网
                     provisionManager.connectDevice(device).onSuccess {
                         val deviceInfo = provisionManager.state.value.deviceInfo
-                        if (deviceInfo != null && deviceInfo.isConnected && deviceInfo.ip.isNotBlank()) {
-                            println("[BrainBox] 设备已联网 (ssid=${deviceInfo.ssid}, ip=${deviceInfo.ip})，跳过配网直接请求 OTP")
+                        println("[BrainBox] WiFi步骤检查: isConnected=${deviceInfo?.isConnected}, ip=${deviceInfo?.ip}, ssid=${deviceInfo?.ssid}, state=${deviceInfo?.state}")
+                        if (deviceInfo != null && deviceInfo.isConnected && deviceInfo.ip.isNotBlank() && deviceInfo.ssid.isNotBlank()) {
+                            println("[BrainBox] 设备已联网 (ssid=${deviceInfo.ssid}, ip=${deviceInfo.ip})，跳过配网，请求 OTP 并绑定...")
                             wifiConnectedSsid = deviceInfo.ssid
-                            provisionManager.requestOtpAfterWifi()
-                                .onSuccess { pairingInfo ->
-                                    println("[BrainBox] UI: OTP=${pairingInfo.otp}, CDI=${pairingInfo.channelDeviceId}")
-                                    currentStep = BrainBoxStep.Bind
-                                }
-                                .onFailure { otpError ->
-                                    toastState.show(otpError.message ?: "请求 OTP 失败")
-                                }
+                            currentStep = BrainBoxStep.Bind
+                            requestOtpAndBind()
                         } else {
                             // 设备未联网，正常扫描 WiFi
                             provisionManager.refreshWifiNetworks(device).onFailure {
@@ -189,15 +210,6 @@ fun BrainBoxLoginSheet(
             }
             BrainBoxStep.Bind -> {
                 provisionManager.stopScan()
-                isLoadingDevices = true
-                serverDevices.clear()
-                val devices = runCatching { authRepository.getDevices() }
-                    .onFailure {
-                        toastState.show(it.message ?: "获取设备列表失败")
-                    }
-                    .getOrDefault(emptyList())
-                serverDevices.addAll(devices)
-                isLoadingDevices = false
             }
         }
     }
@@ -259,42 +271,14 @@ fun BrainBoxLoginSheet(
                 .onSuccess { networkStatus ->
                     wifiConnectedSsid = ssid
                     toastState.show("设备已连接到 ${networkStatus.ssid.ifBlank { ssid }}")
-
-                    // WiFi 连接成功后请求 OTP
-                    provisionManager.requestOtpAfterWifi()
-                        .onSuccess { pairingInfo ->
-                            println("[BrainBox] UI: OTP=${pairingInfo.otp}, CDI=${pairingInfo.channelDeviceId}")
-                            currentStep = BrainBoxStep.Bind
-                        }
-                        .onFailure { otpError ->
-                            toastState.show(otpError.message ?: "请求 OTP 失败")
-                        }
+                    currentStep = BrainBoxStep.Bind
+                    // WiFi 连接成功后请求 OTP 并绑定
+                    requestOtpAndBind()
                 }
                 .onFailure {
                     toastState.show(it.message ?: "连接 Wi‑Fi 失败")
                 }
             isConnectingWifi = false
-        }
-    }
-
-    fun bindAndContinue() {
-        val otp = provisionState.otp
-        if (otp.isNullOrBlank()) {
-            toastState.show("OTP 未获取，请重试")
-            return
-        }
-        scope.launch {
-            isBinding = true
-            authRepository.bindDeviceWithOtp(otp)
-                .onSuccess { bindingData ->
-                    println("[BrainBox] UI: 绑定成功 cdi=${bindingData.cdi}, status=${bindingData.status}")
-                    toastState.show("设备绑定成功")
-                    onBindSuccess(bindingData.cdi)
-                }
-                .onFailure { error ->
-                    toastState.show(error.message ?: "绑定失败，请稍后重试")
-                }
-            isBinding = false
         }
     }
 
@@ -405,7 +389,7 @@ fun BrainBoxLoginSheet(
                             connectedWifi = wifiConnectedSsid,
                             isLoadingDevices = isLoadingDevices,
                             isBinding = isBinding,
-                            onBind = ::bindAndContinue,
+                            onBind = ::requestOtpAndBind,
                         )
                     }
                 }

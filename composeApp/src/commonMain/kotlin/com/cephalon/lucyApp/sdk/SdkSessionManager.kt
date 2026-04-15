@@ -670,6 +670,7 @@ class SdkSessionManager(
         deviceObserver = newObserver
         deviceObserverJob =
             newObserver.collectDevices(scope) { devices ->
+                appLogD(TAG, "[DeviceObserver] collectDevices 回调, devices.size=${devices.size}, devices=$devices")
                 _onlineDevices.value = devices
                 val cdis = devices.map { it.cdi }
                 _onlineDeviceCdis.value = cdis
@@ -906,7 +907,11 @@ class SdkSessionManager(
         val message = error.message?.lowercase() ?: return false
         return message.contains("no connection open") ||
             message.contains("connection closed") ||
-            message.contains("cannot send with no connection open")
+            message.contains("cannot send with no connection open") ||
+            message.contains("socket is not connected") ||
+            message.contains("enotconn") ||
+            message.contains("broken pipe") ||
+            message.contains("connection reset")
     }
 
     private fun areObserversActive(): Boolean {

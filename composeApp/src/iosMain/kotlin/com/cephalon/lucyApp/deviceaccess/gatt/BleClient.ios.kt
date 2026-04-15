@@ -376,6 +376,18 @@ private class IosBleGattConnection(
         }
     }
 
+    override suspend fun writeCharacteristicNoResponse(
+        serviceUuid: String,
+        characteristicUuid: String,
+        payload: ByteArray,
+    ): Result<Unit> {
+        val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
+            ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
+        return runCatching {
+            peripheral.writeValue(payload.toNSData(), forCharacteristic = characteristic, type = 1) // CBCharacteristicWriteWithoutResponse
+        }
+    }
+
     override suspend fun setCharacteristicNotification(
         serviceUuid: String,
         characteristicUuid: String,

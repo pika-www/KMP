@@ -174,7 +174,6 @@ class ProvisionManager(
     ): Result<List<GattWifiNetwork>> {
         val targetDevice = device
             ?: return Result.failure(IllegalStateException("请先选择蓝牙设备"))
-        connectDevice(targetDevice).getOrElse { return Result.failure(it) }
         return runCatching {
             currentCoroutineContext().ensureActive()
             _state.value = _state.value.copy(
@@ -182,15 +181,13 @@ class ProvisionManager(
                 selectedDevice = targetDevice,
                 errorMessage = null,
             )
+            // 在已有连接上直接扫描，断开时才重连
             val wifiNetworks = try {
                 router.scanWifi().getOrThrow()
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                // Wi-Fi 扫描失败（常见于设备扫描 WiFi 时 BLE 射频冲突断连），强制重连重试
-                println("[BrainBox] Wi-Fi 扫描失败: ${e.message}，强制重连重试...")
-                connectionManager.disconnect()
-                delay(500) // 等待设备侧 WiFi 扫描完成
-                connectDevice(targetDevice).getOrThrow()
+                println("[BrainBox] Wi-Fi 扫描失败: ${e.message}，重连后重试...")
+                reconnectBle(targetDevice)
                 router.scanWifi().getOrThrow()
             }
             _state.value = _state.value.copy(
@@ -221,7 +218,6 @@ class ProvisionManager(
         if (normalizedSsid.isBlank()) {
             return Result.failure(IllegalArgumentException("Wi‑Fi 名称不能为空"))
         }
-        connectDevice(targetDevice).getOrElse { return Result.failure(it) }
         return runCatching {
             currentCoroutineContext().ensureActive()
             _state.value = _state.value.copy(
@@ -229,6 +225,8 @@ class ProvisionManager(
                 selectedDevice = targetDevice,
                 errorMessage = null,
             )
+
+            // 直接在已有连接上写入 WiFi 配置（连接由 connectDevice 在 Wifi 步骤入口时建立）
             println("[BrainBox] configureWifi: 写入 WiFi 配置 ssid=$normalizedSsid hidden=$hidden")
             router.writeWifiConfig(
                 ssid = normalizedSsid,
@@ -239,17 +237,15 @@ class ProvisionManager(
 
             _state.value = _state.value.copy(stage = ProvisionFlowStage.WaitingForNetwork)
 
-            // 设备连接 WiFi 时 BLE 射频冲突可能导致断连，轮询 network_status 失败后强制重连重试
+            // 轮询 network_status，BLE 射频冲突导致断连时重连后继续轮询
             val finalStatus = try {
                 router.enableNetworkStatusNotify().getOrThrow()
                 println("[BrainBox] configureWifi: notify 已启用，轮询 network_status...")
                 awaitConnectedNetworkStatus(timeoutMillis)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                println("[BrainBox] configureWifi: 等待联网失败: ${e.message}，强制重连后重新轮询...")
-                connectionManager.disconnect()
-                delay(2_000) // 给设备时间完成 WiFi 连接
-                connectDevice(targetDevice).getOrThrow()
+                println("[BrainBox] configureWifi: 等待联网失败: ${e.message}，重连后重新轮询...")
+                reconnectBle(targetDevice)
                 println("[BrainBox] configureWifi: 重连成功，继续轮询 network_status...")
                 awaitConnectedNetworkStatus(timeoutMillis)
             }
@@ -272,9 +268,80 @@ class ProvisionManager(
     }
 
     /**
-     * WiFi 连接成功后单独请求 OTP。
-     * 向特性 7f0c0006 写入 {"request_id":"<timestamp>"}，等 2.5s 后读取 pairing_info 拿到 otp。
+     * 轻量级 BLE 重连：只做 connect + discover，不读 device_info/pairing_info。
+     * 带重试和递增等待，适合 WiFi 配网后 BLE 不稳定的场景。
      */
+    private suspend fun reconnectBle(device: BleScanDevice, maxAttempts: Int = 3) {
+        // 已就绪，直接返回
+        if (connectionManager.isReady()) {
+            println("[BrainBox] reconnectBle: BLE 已就绪，无需重连")
+            return
+        }
+        // 已连接但未 discover，只需 discover
+        if (connectionManager.isConnected()) {
+            println("[BrainBox] reconnectBle: BLE 已连接，执行 discover...")
+            try {
+                router.discoverCharacteristics().getOrThrow()
+                println("[BrainBox] reconnectBle: discover 成功")
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[BrainBox] reconnectBle: discover 失败: ${e.message}，开始完整重连...")
+            }
+        }
+        // 完整重连，带递增等待重试
+        for (attempt in 1..maxAttempts) {
+            try {
+                val waitMs = 2_000L * attempt // 2s, 4s, 6s
+                println("[BrainBox] reconnectBle: 等待 ${waitMs}ms 后尝试连接 (第${attempt}次/${maxAttempts})...")
+                connectionManager.disconnect()
+                delay(waitMs)
+                connectionManager.connect(device).getOrThrow()
+                if (!connectionManager.isReady()) {
+                    router.discoverCharacteristics().getOrThrow()
+                }
+                println("[BrainBox] reconnectBle: BLE 连接就绪")
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("[BrainBox] reconnectBle: 第${attempt}次失败: ${e.message}")
+                if (attempt == maxAttempts) throw e
+            }
+        }
+    }
+
+    /**
+     * 完整恢复：重新扫描 BLE → 找到同名设备 → connectDevice（connect + discover + read device_info + read pairing_info）。
+     * 用于特性句柄丢失、设备彻底断开等场景。
+     */
+    private suspend fun rescanAndReconnect(
+        originalDevice: BleScanDevice,
+        scanTimeoutMillis: Long = 15_000L,
+    ): BleScanDevice {
+        println("[BrainBox] rescanAndReconnect: 断开旧连接，开始重新扫描...")
+        connectionManager.disconnect()
+        delay(2_000) // 等待设备 BLE 栈恢复
+        connectionManager.startScan(BrainBoxGattProtocol.SERVICE_UUID)
+
+        val rediscovered = withTimeoutOrNull(scanTimeoutMillis) {
+            connectionManager.scanState
+                .map { snapshot ->
+                    snapshot.devices.firstOrNull { it.id == originalDevice.id }
+                        ?: snapshot.devices.firstOrNull { it.name == originalDevice.name }
+                }
+                .filter { it != null }
+                .first()
+        } ?: throw IllegalStateException("重新扫描超时，未找到设备 ${originalDevice.name}")
+
+        println("[BrainBox] rescanAndReconnect: 重新发现设备 ${rediscovered.name} (${rediscovered.id})，开始连接...")
+        connectDevice(rediscovered).getOrThrow()
+        println("[BrainBox] rescanAndReconnect: 连接成功，BLE 就绪")
+        _state.value = _state.value.copy(selectedDevice = rediscovered)
+        return rediscovered
+    }
+
     suspend fun requestOtpAfterWifi(): Result<LucyPairingInfoPayload> {
         val targetDevice = _state.value.selectedDevice
             ?: return Result.failure(IllegalStateException("请先选择蓝牙设备"))
@@ -285,24 +352,30 @@ class ProvisionManager(
                 errorMessage = null,
             )
 
-            // 确保连接可用
-            if (!connectionManager.isConnected()) {
-                println("[BrainBox] requestOtp: 连接已断开，重新连接...")
-                connectionManager.disconnect()
-                connectDevice(targetDevice).getOrThrow()
-            }
-
-            val pairingInfo = try {
+            // 策略：先用现有连接直接尝试，失败后重新扫描设备并连接
+            var pairingInfo = try {
+                println("[BrainBox] requestOtp: 直接尝试请求 OTP（复用现有 BLE 连接）...")
                 router.requestOtpAndAwaitPairingInfo().getOrThrow()
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                println("[BrainBox] requestOtp: 失败: ${e.message}，强制重连重试...")
-                connectionManager.disconnect()
-                delay(500)
-                connectDevice(targetDevice).getOrThrow()
+                println("[BrainBox] requestOtp: 直接请求失败: ${e.message}，重新扫描设备...")
+                rescanAndReconnect(targetDevice)
                 router.requestOtpAndAwaitPairingInfo().getOrThrow()
             }
-            println("[BrainBox] OTP 获取成功: otp=${pairingInfo.otp}, expiresAtMs=${pairingInfo.otpExpiresAtMs}, cdi=${pairingInfo.channelDeviceId}")
+            println("[BrainBox] OTP 获取结果: otp=${pairingInfo.otp}, expiresAtMs=${pairingInfo.otpExpiresAtMs}, isOtpExpired=${pairingInfo.isOtpExpired}, cdi=${pairingInfo.channelDeviceId}")
+
+            if (pairingInfo.isOtpExpired) {
+                println("[BrainBox] OTP 已过期，重新请求...")
+                pairingInfo = router.requestOtpAndAwaitPairingInfo().getOrThrow()
+                println("[BrainBox] OTP 重新获取结果: otp=${pairingInfo.otp}, expiresAtMs=${pairingInfo.otpExpiresAtMs}, isOtpExpired=${pairingInfo.isOtpExpired}")
+                if (pairingInfo.isOtpExpired) {
+                    throw IllegalStateException("OTP 已过期，请重新操作")
+                }
+            }
+            if (!pairingInfo.isOtpValid) {
+                throw IllegalStateException("未获取到有效 OTP")
+            }
+            println("[BrainBox] OTP 有效: otp=${pairingInfo.otp}, cdi=${pairingInfo.channelDeviceId}")
 
             _state.value = _state.value.copy(
                 stage = ProvisionFlowStage.Completed,
