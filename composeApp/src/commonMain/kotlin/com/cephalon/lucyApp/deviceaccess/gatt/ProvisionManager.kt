@@ -307,9 +307,22 @@ class ProvisionManager(
                 throw e
             } catch (e: Exception) {
                 println("[BrainBox] reconnectBle: 第${attempt}次失败: ${e.message}")
-                if (attempt == maxAttempts) throw e
+                if (attempt == maxAttempts) {
+                    // 所有重试失败，检测到设备断开则回退到重新扫描
+                    if (isDeviceDisconnectedError(e)) {
+                        println("[BrainBox] reconnectBle: 设备已断开，回退到重新扫描...")
+                        rescanAndReconnect(device)
+                        return
+                    }
+                    throw e
+                }
             }
         }
+    }
+
+    private fun isDeviceDisconnectedError(e: Throwable): Boolean {
+        val msg = e.message?.lowercase() ?: return false
+        return msg.contains("disconnect") || msg.contains("disconnected")
     }
 
     /**
