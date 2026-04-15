@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -55,12 +59,25 @@ fun DesignScaleProvider(
     content: @Composable () -> Unit
 ) {
     BoxWithConstraints(modifier = modifier) {
+        var lastWidth by remember { mutableStateOf(maxWidth) }
+        var stableHeight by remember { mutableStateOf(maxHeight) }
+
+        if (maxWidth != lastWidth) {
+            // 宽度变化 → 真正的配置变更（旋转/折叠/分屏）→ 更新高度基准
+            lastWidth = maxWidth
+            stableHeight = maxHeight
+        } else if (maxHeight > stableHeight) {
+            // 高度增大（键盘收起等）→ 恢复高度基准
+            stableHeight = maxHeight
+        }
+        // 高度单独减小（键盘弹出）→ 不更新 stableHeight，缩放不变
+
         val scale = DesignScale(
             scaleW = maxWidth.value / DesignScale.DESIGN_WIDTH,
-            scaleH = maxHeight.value / DesignScale.DESIGN_HEIGHT,
+            scaleH = stableHeight.value / DesignScale.DESIGN_HEIGHT,
             scaleMin = min(
                 maxWidth.value / DesignScale.DESIGN_WIDTH,
-                maxHeight.value / DesignScale.DESIGN_HEIGHT
+                stableHeight.value / DesignScale.DESIGN_HEIGHT
             )
         )
         CompositionLocalProvider(LocalDesignScale provides scale) {
