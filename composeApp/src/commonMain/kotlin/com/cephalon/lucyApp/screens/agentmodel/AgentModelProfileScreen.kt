@@ -67,6 +67,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.account_bg
+import androidios.composeapp.generated.resources.ic_skill_knowledge
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.CloseAccountRequest
@@ -464,7 +465,7 @@ internal fun AgentModelProfileScreen(
                     ProfilePageContainer {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
-                            title = "设备",
+                            title = "当前设备",
                             showBack = true,
                             onBack = { currentPage = ProfilePage.Settings },
                             onClose = onDismiss
@@ -480,6 +481,7 @@ internal fun AgentModelProfileScreen(
                         ) {
                             MyDevicesContent(
                                 onAddNewDevice = onNavigateToHome,
+                                onConfigureWifi = { device -> wifiConfigDevice = device },
                             )
                         }
                     }
@@ -1910,14 +1912,22 @@ private fun LogoutConfirmDialog(
 @Composable
 private fun MyDevicesContent(
     onAddNewDevice: () -> Unit = {},
+    onConfigureWifi: (com.cephalon.lucyApp.api.LucyDevice) -> Unit = {},
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
+    val authRepository = koinInject<AuthRepository>()
     val onlineDevices by sdkSessionManager.onlineDevices.collectAsState()
     val connectionState by sdkSessionManager.connectionState.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+
+    var showSwitchDeviceSheet by remember { mutableStateOf(false) }
+    var backendDevices by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         println("[MyDevices] 进入设备页, connectionState=$connectionState, onlineDevices=${onlineDevices.map { it.cdi }}")
         sdkSessionManager.ensureConnectedIfTokenValid()
+        // 同时加载后端设备列表以备切换
+        backendDevices = authRepository.getDevices()
     }
 
     if (connectionState == SdkConnectionState.CONNECTING) {
@@ -1961,35 +1971,104 @@ private fun MyDevicesContent(
         return
     }
 
-    onlineDevices.forEachIndexed { index, device ->
-        if (index > 0) Spacer(modifier = Modifier.height(16.dp))
-        OnlineDeviceCard(
-            device = device,
-            onAddNewDevice = onAddNewDevice,
-        )
+    // 取第一个在线设备作为当前设备展示
+    val currentDevice = onlineDevices.first()
+    // 从后端设备列表中找到匹配当前 CDI 的设备信息
+    val matchedBackendDevice = backendDevices.firstOrNull {
+        it.pairingInfo?.channelDeviceId?.trim() == currentDevice.cdi
+    }
+
+    OnlineDeviceCard(
+        device = currentDevice,
+        backendDevice = matchedBackendDevice,
+        onSwitchDevice = {
+            coroutineScope.launch {
+                backendDevices = authRepository.getDevices()
+                showSwitchDeviceSheet = true
+            }
+        },
+        onAddNewDevice = onAddNewDevice,
+        onConfigureWifi = {
+            val dev = matchedBackendDevice ?: com.cephalon.lucyApp.api.LucyDevice(
+                name = currentDevice.cdi,
+                serialNumber = currentDevice.cdi,
+                status = "online",
+            )
+            onConfigureWifi(dev)
+        },
+    )
+
+    // 如果有多个在线设备，也显示其他
+    if (onlineDevices.size > 1) {
+        Spacer(modifier = Modifier.height(16.dp))
+        onlineDevices.drop(1).forEach { device ->
+            val matched = backendDevices.firstOrNull {
+                it.pairingInfo?.channelDeviceId?.trim() == device.cdi
+            }
+            OnlineDeviceCard(
+                device = device,
+                backendDevice = matched,
+                onSwitchDevice = {
+                    coroutineScope.launch {
+                        backendDevices = authRepository.getDevices()
+                        showSwitchDeviceSheet = true
+                    }
+                },
+                onAddNewDevice = onAddNewDevice,
+                onConfigureWifi = {
+                    val dev = matched ?: com.cephalon.lucyApp.api.LucyDevice(
+                        name = device.cdi,
+                        serialNumber = device.cdi,
+                        status = "online",
+                    )
+                    onConfigureWifi(dev)
+                },
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
     }
 
     Spacer(modifier = Modifier.height(20.dp))
+
+    // 切换设备二级模态框
+    if (showSwitchDeviceSheet) {
+        SwitchDeviceSheet(
+            devices = backendDevices,
+            currentCdi = currentDevice.cdi,
+            onDismiss = { showSwitchDeviceSheet = false },
+            onDeviceSelected = { selectedDevice ->
+                showSwitchDeviceSheet = false
+                println("[MyDevices] 选择设备: ${selectedDevice.name} cdi=${selectedDevice.pairingInfo?.channelDeviceId}")
+            }
+        )
+    }
 }
 
 @Composable
 private fun OnlineDeviceCard(
     device: OnlineDevice,
+    backendDevice: com.cephalon.lucyApp.api.LucyDevice?,
+    onSwitchDevice: () -> Unit = {},
     onAddNewDevice: () -> Unit = {},
+    onConfigureWifi: () -> Unit = {},
 ) {
+    val displayName = backendDevice?.serialNumber?.ifBlank { null }
+        ?: backendDevice?.name?.ifBlank { null }
+        ?: device.cdi
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         color = Color.White,
         tonalElevation = 0.dp,
-        shadowElevation = 2.dp
+        shadowElevation = 0.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // ── 设备信息行 ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1997,57 +2076,72 @@ private fun OnlineDeviceCard(
             ) {
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFFE6E6E6),
+                    color = Color(0xFF1F2535),
                     modifier = Modifier.size(52.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "D",
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF555555)
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_skill_knowledge),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "CDI: ${device.cdi}",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        text = displayName,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = Color(0xFF111111),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF34C759),
-                            modifier = Modifier.size(8.dp)
-                        ) {}
-                        Text(
-                            text = "在线",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF555555)
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "设备在线",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF999999)
+                    )
                 }
+
+                Text(
+                    text = "已连接",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Color(0xFF3478F6),
+                )
             }
 
-            HorizontalDivider(color = Color(0xFFF0F0F0))
+            Spacer(modifier = Modifier.height(20.dp))
 
+            // ── 切换设备 + 添加新设备 按钮行 ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 DeviceActionButton(
+                    text = "切换设备",
+                    filled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onSwitchDevice
+                )
+                DeviceActionButton(
                     text = "添加新设备",
+                    filled = true,
                     modifier = Modifier.weight(1f),
                     onClick = onAddNewDevice
                 )
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // ── 配置 WIFI 按钮 ──
+            DeviceActionButton(
+                text = "配置 WIFI",
+                filled = false,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onConfigureWifi
+            )
         }
     }
 }
@@ -2055,23 +2149,174 @@ private fun OnlineDeviceCard(
 @Composable
 private fun DeviceActionButton(
     text: String,
+    filled: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
+    val bgColor = if (filled) Color(0xFF1F2535) else Color(0xFFF5F5F7)
+    val textColor = if (filled) Color.White else Color(0xFF111111)
+
     Surface(
         modifier = modifier.clickable { onClick() },
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xFFF5F5F5)
+        shape = RoundedCornerShape(99.dp),
+        color = bgColor
     ) {
         Box(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = Color(0xFF111111)
+                color = textColor
             )
+        }
+    }
+}
+
+/* ───────── Switch Device Sheet ───────── */
+
+@Composable
+private fun SwitchDeviceSheet(
+    devices: List<com.cephalon.lucyApp.api.LucyDevice>,
+    currentCdi: String,
+    onDismiss: () -> Unit,
+    onDeviceSelected: (com.cephalon.lucyApp.api.LucyDevice) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0x66000000))
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            ) { onDismiss() },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                ) { /* block clicks */ },
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = Color(0xFFF5F5F7),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                // ── 拖拽指示器 ──
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(3.dp),
+                        color = Color(0xFFDDDDDD),
+                        modifier = Modifier.size(width = 36.dp, height = 4.dp)
+                    ) {}
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "切换设备",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF111111)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (devices.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("暂无可用设备", color = Color(0xFF999999))
+                    }
+                } else {
+                    devices.forEach { device ->
+                        val isCurrent = device.pairingInfo?.channelDeviceId?.trim() == currentCdi
+                        SwitchDeviceItem(
+                            device = device,
+                            isCurrent = isCurrent,
+                            onClick = {
+                                if (!isCurrent) onDeviceSelected(device)
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SwitchDeviceItem(
+    device: com.cephalon.lucyApp.api.LucyDevice,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+) {
+    val displayName = device.serialNumber.ifBlank { device.name.ifBlank { device.id } }
+    val isOnline = device.status == "online" || device.status == "free"
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !isCurrent) { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF1F2535),
+                modifier = Modifier.size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_skill_knowledge),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF111111),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (isOnline) "设备在线" else "设备离线",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isOnline) Color(0xFF999999) else Color(0xFFCC3333)
+                )
+            }
+
+            if (isCurrent) {
+                Text(
+                    text = "当前",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                    color = Color(0xFF3478F6),
+                )
+            }
         }
     }
 }

@@ -17,7 +17,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -69,18 +72,29 @@ internal fun AgentModelMessageList(
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
     streamingStatusText: String? = null,
+    listState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
     LazyColumn(
+        state = listState,
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
     ) {
-        item {
+        item(key = "__top_spacer") {
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
         }
 
-        items(items = messages) { item ->
+        itemsIndexed(items = messages, key = { index, item ->
+            when (item) {
+                is ChatItem.Assistant -> "assistant_${item.messageId ?: index}"
+                is ChatItem.User -> "user_$index"
+                is ChatItem.UserAttachments -> "attachments_$index"
+                is ChatItem.System -> "system_$index"
+                is ChatItem.RecordingItem -> "recording_${item.id}"
+                is ChatItem.SkillSuggestions -> "skills_$index"
+            }
+        }) { index, item ->
             when (item) {
                 is ChatItem.Assistant -> {
                     val isThinkingPlaceholder = item.text == STREAMING_PLACEHOLDER_TEXT
@@ -369,7 +383,7 @@ internal fun AgentModelMessageList(
             }
         }
 
-        item {
+        item(key = "__bottom_spacer") {
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
         }
     }

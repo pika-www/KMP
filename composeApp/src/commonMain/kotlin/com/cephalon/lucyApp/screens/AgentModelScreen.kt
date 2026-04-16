@@ -49,6 +49,8 @@ import androidios.composeapp.generated.resources.ic_skill_voice
 import androidios.composeapp.generated.resources.ic_skill_document
 import androidios.composeapp.generated.resources.ic_skill_chat
 import androidios.composeapp.generated.resources.ic_skill_knowledge
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
@@ -263,6 +265,29 @@ fun AgentModelScreen(
     val currentConversation = conversations.firstOrNull { it.id == selectedConversationId }
         ?: orderedConversations.firstOrNull()
     val currentMessages = currentConversation?.messages.orEmpty()
+
+    val messageListState = rememberLazyListState()
+
+    // 发送 / 新增消息时动画滚动到底部
+    LaunchedEffect(currentMessages.size) {
+        if (currentMessages.isNotEmpty()) {
+            // +2: top_spacer + bottom_spacer
+            val lastIndex = currentMessages.size + 1
+            messageListState.animateScrollToItem(lastIndex)
+        }
+    }
+
+    // streaming 期间持续跟随底部（item 高度增长时视口不会自动跟）
+    LaunchedEffect(assistantReplyStreaming) {
+        if (!assistantReplyStreaming) return@LaunchedEffect
+        while (true) {
+            delay(200)
+            val total = messageListState.layoutInfo.totalItemsCount
+            if (total > 0) {
+                messageListState.scrollToItem(total - 1)
+            }
+        }
+    }
 
     val mediaAccessController = rememberPlatformMediaAccessController { message ->
         logs.add(0, message)
@@ -722,6 +747,7 @@ fun AgentModelScreen(
                                     sendMessage()
                                 },
                                 streamingStatusText = streamingStatusText,
+                                listState = messageListState,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(horizontal = 20.dp)

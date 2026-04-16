@@ -730,13 +730,9 @@ class SdkSessionManager(
                             TAG,
                             "[Consumer] 接受 NAS 文件列表响应 requestId=$matchedRequestId kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
                         )
-                        _receivedMessages.update { current ->
-                            (listOf("subject=$subject\n$messageText") + current).take(100)
-                        }
+                        recordReceivedMessage(subject, messageText)
                         pendingNasFileListRequests.value[matchedRequestId]?.waiter?.complete(nasFileListResponse)
                         pendingNasFileListRequests.update { current -> current - matchedRequestId }
-                        _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
-                        appLogD(TAG, _consumerLog.value)
                     } else {
                         appLogD(
                             TAG,
@@ -753,13 +749,9 @@ class SdkSessionManager(
                             TAG,
                             "[Consumer] 接受 NAS 登记响应 requestId=$matchedRequestId ok=${nasRegisterResponse.ok} results=${nasRegisterResponse.results.size}",
                         )
-                        _receivedMessages.update { current ->
-                            (listOf("subject=$subject\n$messageText") + current).take(100)
-                        }
+                        recordReceivedMessage(subject, messageText)
                         pendingNasRegisterRequests.value[matchedRequestId]?.waiter?.complete(nasRegisterResponse)
                         pendingNasRegisterRequests.update { current -> current - matchedRequestId }
-                        _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
-                        appLogD(TAG, _consumerLog.value)
                     } else {
                         appLogD(
                             TAG,
@@ -786,13 +778,9 @@ class SdkSessionManager(
                     return@startUserChannelConsumer
                 }
                 appLogD(TAG, "[Consumer] 接受消息 subject=$subject sourceId=$incomingSourceMessageId")
-                _receivedMessages.update { current ->
-                    (listOf("subject=$subject\n$messageText") + current).take(100)
-                }
+                recordReceivedMessage(subject, messageText)
                 handleMachineEvent(machineEvent, incomingSourceMessageId)
                 _lastReplyMessageId.value = incomingSourceMessageId
-                _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
-                appLogD(TAG, _consumerLog.value)
             }
 
         // 监听启动成功，重置重试计数
@@ -1033,9 +1021,8 @@ class SdkSessionManager(
         appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
         when (event.type) {
             "inbound.accepted" -> {
-                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "消息已送达") }
+                updateReplyState(msgId) { it.copy(streaming = true) }
                 if (isLatest) {
-                    _streamingStatusText.value = "消息已送达"
                     _assistantReplyStreaming.value = true
                 }
                 appLogD(TAG, "[Event] inbound.accepted → 已送达 msgId=$msgId")
@@ -1109,29 +1096,32 @@ class SdkSessionManager(
             }
 
             "assistant.partial" -> {
-                if (event.text != null) {
-                    updateReplyState(msgId) { state ->
-                        // 只接受更长的文本，防止 reasoning 结束后文本回退覆盖已有内容
-                        if (event.text.length >= state.text.length) {
-                            state.copy(text = event.text, streaming = true, streamingStatusText = null)
-                        } else {
+                updateReplyState(msgId) { state ->
+                    // 只接受更长的文本，防止 reasoning 结束后文本回退覆盖已有内容
+                    if (event.text != null && event.text.length >= state.text.length) {
+                        state.copy(text = event.text, streaming = true, streamingStatusText = null)
+                    } else {
+                        if (event.text != null) {
                             appLogD(TAG, "[Event] assistant.partial → 忽略较短文本 new=${event.text.length} < current=${state.text.length} msgId=$msgId")
-                            state.copy(streaming = true, streamingStatusText = null)
                         }
+                        state.copy(streaming = true, streamingStatusText = null)
                     }
-                    if (isLatest) {
+                }
+                if (isLatest) {
+                    if (event.text != null) {
                         val currentLen = _assistantReplyText.value.length
                         if (event.text.length >= currentLen) {
                             _assistantReplyText.value = event.text
                         }
-                        _streamingStatusText.value = null
                     }
+                    _streamingStatusText.value = null
+                    _assistantReplyStreaming.value = true
+                }
+                if (event.text != null) {
                     appLogD(TAG, "[Event] assistant.partial → text更新 len=${event.text.length} msgId=$msgId")
                 } else {
                     appLogD(TAG, "[Event] assistant.partial → text为null，未更新! msgId=$msgId")
                 }
-                updateReplyState(msgId) { it.copy(streaming = true) }
-                if (isLatest) _assistantReplyStreaming.value = true
             }
 
             "assistant.final" -> {
@@ -1143,33 +1133,13 @@ class SdkSessionManager(
                         streamingStatusText = null,
                     )
                 }
-                _activeRequestIds.update { it - msgId }
-                if (isLatest) {
-                    if (finalText != null) _assistantReplyText.value = finalText
-                    _streamingStatusText.value = null
-                    _assistantReplyStreaming.value = false
-                    _latestRequestId = _activeRequestIds.value.lastOrNull()
-                }
-                appLogD(TAG, "====== 对话结束 msgId=$msgId ====== 剩余活跃: ${_activeRequestIds.value}")
-                notifyConversationCompleteIfInBackground(msgId)
-                if (_activeRequestIds.value.isEmpty()) {
-                    scheduleBackgroundDisconnectIfNeeded()
-                }
+                if (isLatest && finalText != null) _assistantReplyText.value = finalText
+                completeRequest(msgId, isLatest, "对话结束")
             }
 
             "error" -> {
                 updateReplyState(msgId) { it.copy(streaming = false, streamingStatusText = null) }
-                _activeRequestIds.update { it - msgId }
-                if (isLatest) {
-                    _streamingStatusText.value = null
-                    _assistantReplyStreaming.value = false
-                    _latestRequestId = _activeRequestIds.value.lastOrNull()
-                }
-                appLogD(TAG, "====== 对话结束(异常) msgId=$msgId ====== error=${event.text ?: "unknown"}")
-                notifyConversationCompleteIfInBackground(msgId)
-                if (_activeRequestIds.value.isEmpty()) {
-                    scheduleBackgroundDisconnectIfNeeded()
-                }
+                completeRequest(msgId, isLatest, "对话结束(异常) error=${event.text ?: "unknown"}")
             }
 
             else -> {
@@ -1182,6 +1152,28 @@ class SdkSessionManager(
         _replyStateMap.update { map ->
             val current = map[messageId] ?: ReplyState()
             map + (messageId to transform(current))
+        }
+    }
+
+    private fun recordReceivedMessage(subject: String, messageText: String) {
+        _receivedMessages.update { current ->
+            (listOf("subject=$subject\n$messageText") + current).take(100)
+        }
+        _consumerLog.value = "监听中，累计接收 ${_receivedMessages.value.size} 条"
+        appLogD(TAG, _consumerLog.value)
+    }
+
+    private fun completeRequest(msgId: String, isLatest: Boolean, logLabel: String) {
+        _activeRequestIds.update { it - msgId }
+        if (isLatest) {
+            _streamingStatusText.value = null
+            _assistantReplyStreaming.value = false
+            _latestRequestId = _activeRequestIds.value.lastOrNull()
+        }
+        appLogD(TAG, "====== $logLabel msgId=$msgId ====== 剩余活跃: ${_activeRequestIds.value}")
+        notifyConversationCompleteIfInBackground(msgId)
+        if (_activeRequestIds.value.isEmpty()) {
+            scheduleBackgroundDisconnectIfNeeded()
         }
     }
 
