@@ -1,3 +1,4 @@
 [submodule "sdk/lucy-im-sdk-kotlin"]
 	path = sdk/lucy-im-sdk-kotlin
 	url = git@git.unicorn.org.cn:aiden/lucy-im-sdk-kotlin.git
+	branch = master
