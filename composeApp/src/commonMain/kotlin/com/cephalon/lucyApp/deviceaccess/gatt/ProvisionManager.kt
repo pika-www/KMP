@@ -99,6 +99,27 @@ class ProvisionManager(
         }
     }
 
+    /**
+     * 轻量探测：连接设备 → 读取 lucy_pairing_info → 断开，返回 bindingStatus。
+     * 不修改 ProvisionFlowState，不请求 OTP。
+     */
+    suspend fun checkBindingStatus(device: BleScanDevice): Result<String> {
+        return runCatching {
+            currentCoroutineContext().ensureActive()
+            // 临时连接
+            connectionManager.connect(device).getOrThrow()
+            if (!connectionManager.isReady()) {
+                router.discoverCharacteristics().getOrThrow()
+            }
+            val pairingInfo = router.readLucyPairingInfo().getOrThrow()
+            println("[BLE_PROBE] ${device.name}(${device.id}) bindingStatus=${pairingInfo.bindingStatus}")
+            pairingInfo.bindingStatus
+        }.also {
+            // 无论成功失败都断开，不影响后续正常连接
+            runCatching { connectionManager.disconnect() }
+        }
+    }
+
     suspend fun connectDevice(device: BleScanDevice): Result<LucyPairingInfoPayload> {
         return runCatching {
             currentCoroutineContext().ensureActive()

@@ -90,7 +90,7 @@ class RootComponentImpl(
         initialConfiguration = if (authRepository.hasValidToken()) {
             if (authRepository.isConnectionFlagCached()) Config.AgentModel() else Config.Home()
         } else if (isOnboardingSeen()) {
-            Config.Home()
+            Config.Login
         } else {
             Config.BrainBoxGuide(source = BrainBoxGuideSource.Initial)
         },

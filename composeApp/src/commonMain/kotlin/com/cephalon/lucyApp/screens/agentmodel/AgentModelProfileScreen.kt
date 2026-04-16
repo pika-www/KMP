@@ -1925,7 +1925,15 @@ private fun MyDevicesContent(
             modifier = Modifier.fillMaxWidth().height(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("连接中...", color = Color(0xFF999999))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("连接中...", color = Color(0xFF999999))
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = sdkSessionManager.connectionLog.collectAsState().value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFBBBBBB)
+                )
+            }
         }
         return
     }
@@ -1935,10 +1943,20 @@ private fun MyDevicesContent(
             modifier = Modifier.fillMaxWidth().height(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = if (connectionState == SdkConnectionState.CONNECTED) "当前无在线设备" else "SDK 未连接",
-                color = Color(0xFF999999)
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (connectionState == SdkConnectionState.CONNECTED) "当前无在线设备" else "SDK 未连接",
+                    color = Color(0xFF999999)
+                )
+                if (connectionState != SdkConnectionState.CONNECTED) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = sdkSessionManager.connectionLog.collectAsState().value,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFBBBBBB)
+                    )
+                }
+            }
         }
         return
     }

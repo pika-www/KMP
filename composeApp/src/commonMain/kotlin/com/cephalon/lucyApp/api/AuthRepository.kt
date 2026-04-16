@@ -255,7 +255,10 @@ class AuthRepository(
      * 成功响应: {"code":200,"msg":"绑定成功","data":{"cdi":"...","status":"..."}}
      */
     suspend fun bindDeviceWithOtp(otp: String): Result<DeviceBindingData> {
-        println("[BrainBox] bindDeviceWithOtp: otp=$otp")
+        val rawToken = tokenStore.getTokenOrNull()
+        val validToken = tokenStore.getValidTokenOrNull()
+        val remaining = tokenStore.getTokenRemainingMillis()
+        println("[BrainBox] bindDeviceWithOtp: otp=$otp, rawToken=${rawToken?.take(20)}, validToken=${validToken?.take(20)}, remainingMs=$remaining")
         return try {
             val resp = authApi.putAbsolute<DeviceBindingRequest, DeviceBindingData>(
                 deviceBindingPath,

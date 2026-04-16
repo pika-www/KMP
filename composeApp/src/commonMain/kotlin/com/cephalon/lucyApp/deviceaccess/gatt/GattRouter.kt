@@ -55,6 +55,12 @@ class GattRouter(
             return Result.success(preInfo)
         }
 
+        // 设备已绑定且无 OTP → 固件不允许再次请求 OTP，直接返回（上层用 CDI 跳转）
+        if (preInfo != null && preInfo.isBound && preInfo.channelDeviceId.isNotBlank()) {
+            println("[BrainBox] 设备已绑定 (bindingStatus=${preInfo.bindingStatus}, cdi=${preInfo.channelDeviceId})，跳过 OTP 请求")
+            return Result.success(preInfo)
+        }
+
         // Write With Response: 写入阻塞直到服务端处理完成，OTP 已注入 pairing_info
         requestOtp().getOrElse { return Result.failure(it) }
         println("[BrainBox] requestOtp 写入成功（Write With Response），立即读取 pairing_info...")

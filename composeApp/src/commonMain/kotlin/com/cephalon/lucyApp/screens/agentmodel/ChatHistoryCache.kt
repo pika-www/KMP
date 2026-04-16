@@ -17,6 +17,7 @@ private val cacheJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 private data class SerializableChatItem(
     val type: String,
     val text: String? = null,
+    val messageId: String? = null,
     val attachmentUris: List<String>? = null,
     val attachmentNames: List<String>? = null,
     val recordingId: String? = null,
@@ -41,7 +42,7 @@ private data class SerializableChatHistory(
 // ── ChatItem ↔ Serializable 转换 ──
 
 private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
-    is ChatItem.Assistant -> SerializableChatItem(type = "assistant", text = text)
+    is ChatItem.Assistant -> SerializableChatItem(type = "assistant", text = text, messageId = messageId)
     is ChatItem.User -> SerializableChatItem(type = "user", text = text)
     is ChatItem.UserAttachments -> SerializableChatItem(
         type = "user_attachments",
@@ -60,7 +61,7 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
 }
 
 private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
-    "assistant" -> ChatItem.Assistant(text = text ?: "")
+    "assistant" -> ChatItem.Assistant(text = text ?: "", messageId = messageId)
     "user" -> ChatItem.User(text = text ?: "")
     "user_attachments" -> {
         val uris = attachmentUris.orEmpty()

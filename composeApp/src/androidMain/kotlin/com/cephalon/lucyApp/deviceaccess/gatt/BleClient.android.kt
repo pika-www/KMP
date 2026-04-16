@@ -209,6 +209,22 @@ private fun handleScanResult(
     val name = runCatching { result.device.name }.getOrNull().takeIf { !it.isNullOrBlank() }
         ?: result.scanRecord?.deviceName?.takeIf { it.isNotBlank() }
         ?: "BLE ${address.takeLast(4)}"
+    val record = result.scanRecord
+    val serviceUuids = record?.serviceUuids?.map { it.toString() } ?: emptyList()
+    val serviceData = record?.serviceData?.entries?.map { (k, v) -> "${k}: ${v.size}bytes" } ?: emptyList()
+    val manufacturerData = buildList {
+        record?.manufacturerSpecificData?.let { data ->
+            for (i in 0 until data.size()) {
+                val key = data.keyAt(i)
+                val value = data.valueAt(i)
+                add("0x${key.toString(16)}: ${value?.size ?: 0}bytes")
+            }
+        }
+    }
+    val txPower = record?.txPowerLevel ?: Int.MIN_VALUE
+    val bondState = runCatching { result.device.bondState }.getOrNull() ?: -1
+    val deviceType = runCatching { result.device.type }.getOrNull() ?: -1
+    println("[BLE_SCAN] addr=$address, name=$name, rssi=${result.rssi}, txPower=$txPower, bondState=$bondState, deviceType=$deviceType, serviceUuids=$serviceUuids, serviceData=$serviceData, mfgData=$manufacturerData, advBytes=${record?.bytes?.size ?: 0}")
     discoveredDevices[address] = BleScanDevice(
         id = address,
         name = name,

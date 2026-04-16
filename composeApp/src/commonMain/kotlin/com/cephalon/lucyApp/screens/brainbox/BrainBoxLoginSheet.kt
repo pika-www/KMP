@@ -1,24 +1,18 @@
 package com.cephalon.lucyApp.screens.brainbox
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -27,7 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LucyDevice
 import com.cephalon.lucyApp.api.channelDeviceId
@@ -42,7 +38,10 @@ import com.cephalon.lucyApp.deviceaccess.BleScanDevice
 import com.cephalon.lucyApp.deviceaccess.gatt.GattWifiNetwork
 import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage
 import com.cephalon.lucyApp.deviceaccess.gatt.rememberProvisionManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.koin.compose.koinInject
 
 private enum class BrainBoxStep(
@@ -51,7 +50,7 @@ private enum class BrainBoxStep(
 ) {
     Scan(
         title = "扫描设备",
-        subtitle = "打开蓝牙权限并扫描附近的脑花盒子设备",
+        subtitle = "发现附近的脑花设备，确保蓝牙已开启且设备通电",
     ),
     Wifi(
         title = "连接Wi‑Fi",
@@ -93,6 +92,9 @@ fun BrainBoxLoginSheet(
     var wifiConnectedSsid by remember { mutableStateOf<String?>(null) }
     var isConnectingWifi by remember { mutableStateOf(false) }
     var isBinding by remember { mutableStateOf(false) }
+    var connectingDeviceId by remember { mutableStateOf<String?>(null) }
+    val deviceBindingMap = remember { mutableStateMapOf<String, String>() }
+    val probeMutex = remember { Mutex() }
     var isLoadingDevices by remember { mutableStateOf(false) }
     val serverDevices = remember { mutableStateListOf<LucyDevice>() }
 
@@ -105,6 +107,8 @@ fun BrainBoxLoginSheet(
         wifiConnectedSsid = null
         isConnectingWifi = false
         isBinding = false
+        connectingDeviceId = null
+        deviceBindingMap.clear()
         isLoadingDevices = false
         serverDevices.clear()
         provisionManager.stopScan()
@@ -153,15 +157,65 @@ fun BrainBoxLoginSheet(
         }
     }
 
+    // 20 秒自动停止扫描
+    LaunchedEffect(isVisible, currentStep, isBleScanning) {
+        if (!isVisible || currentStep != BrainBoxStep.Scan || !isBleScanning) return@LaunchedEffect
+        delay(20_000L)
+        provisionManager.stopScan()
+    }
+
+    // 扫描结束后，逐个连接设备探测 binding_status（扫描期间不探测，避免干扰）
+    LaunchedEffect(isVisible, currentStep) {
+        if (!isVisible || currentStep != BrainBoxStep.Scan) return@LaunchedEffect
+        var wasScanning = false
+        provisionManager.scanState.collect { snapshot ->
+            val scanning = snapshot.isScanning
+            if (wasScanning && !scanning && snapshot.devices.isNotEmpty()) {
+                // 扫描刚停止，开始探测所有尚未探测的设备
+                val devicesToProbe = snapshot.devices.filter { it.id !in deviceBindingMap }
+                println("[BLE_PROBE] 扫描结束，开始探测 ${devicesToProbe.size} 个设备")
+                for (device in devicesToProbe) {
+                    if (connectingDeviceId != null) break
+                    probeMutex.withLock {
+                        provisionManager.checkBindingStatus(device)
+                            .onSuccess { status ->
+                                deviceBindingMap[device.id] = status
+                                println("[BLE_PROBE] ${device.name}(${device.id}) → $status")
+                            }
+                            .onFailure { println("[BLE_PROBE] ${device.id} 探测失败: ${it.message}") }
+                    }
+                }
+                println("[BLE_PROBE] 探测完成")
+            }
+            wasScanning = scanning
+        }
+    }
+
     fun requestOtpAndBind() {
         if (isBinding) return
         isBinding = true
         scope.launch {
             println("[BrainBox] 开始请求 OTP 并绑定...")
             val otpResult = provisionManager.requestOtpAfterWifi()
-            val otp = otpResult.getOrNull()?.otp
-            if (otpResult.isFailure || otp.isNullOrBlank()) {
+            val pairingInfo = otpResult.getOrNull()
+            if (otpResult.isFailure || pairingInfo == null) {
                 toastState.show(otpResult.exceptionOrNull()?.message ?: "获取 OTP 失败，请重试")
+                isBinding = false
+                return@launch
+            }
+
+            // 设备已绑定（无需 OTP），直接用 CDI 跳转
+            if (pairingInfo.isBound && pairingInfo.channelDeviceId.isNotBlank()) {
+                println("[BrainBox] 设备已绑定，直接跳转 cdi=${pairingInfo.channelDeviceId}")
+                toastState.show("设备已绑定")
+                onBindSuccess(pairingInfo.channelDeviceId)
+                isBinding = false
+                return@launch
+            }
+
+            val otp = pairingInfo.otp
+            if (otp.isBlank()) {
+                toastState.show("获取 OTP 失败，请重试")
                 isBinding = false
                 return@launch
             }
@@ -292,64 +346,41 @@ fun BrainBoxLoginSheet(
         onDismissed = {
             provisionManager.stopScan()
         },
-        showBackButton = false,
-        showCloseButton = false,
-        showTopBar = false,
-        containerShape = RoundedCornerShape(topStart = 34.dp, topEnd = 34.dp),
-        containerColor = Color(0xFFF8F8F8),
-        topPadding = 12.dp,
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)
+        showTopBar = true,
+        showBackButton = currentStep != BrainBoxStep.Scan,
+        showCloseButton = true,
+        onBack = { goPrevious() },
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "取消",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFF333333),
-                        modifier = Modifier.clickable {
-                            provisionManager.stopScan()
-                            scope.launch { provisionManager.cancel() }
-                            onDismiss()
-                        }
-                    )
-                    if (currentStep != BrainBoxStep.Scan) {
-                        Text(
-                            text = "上一步",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color(0xFF333333),
-                            modifier = Modifier.clickable { goPrevious() }
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.width(44.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 20.dp)
+            ) {
                 BrainBoxStepIndicator(currentIndex = currentSheetStepIndex)
 
-                Spacer(modifier = Modifier.height(26.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
                     text = currentStep.title,
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF111111),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF12192B),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = currentStep.subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF777777),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFF595E6B),
                 )
 
-                Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 when (currentStep) {
                     BrainBoxStep.Scan -> {
@@ -360,7 +391,32 @@ fun BrainBoxLoginSheet(
                             selectedDevice = selectedBleDevice,
                             onSelectDevice = { selectedBleDevice = it },
                             onRequestPermission = ::requestBluetoothAgain,
-                            onNext = { currentStep = BrainBoxStep.Wifi },
+                            onNext = {
+                                val device = selectedBleDevice?.toBleScanDevice() ?: return@BrainBoxScanStep
+                                connectingDeviceId = device.id
+                                scope.launch {
+                                    provisionManager.stopScan()
+                                    provisionManager.connectDevice(device)
+                                        .onSuccess {
+                                            connectingDeviceId = null
+                                            currentStep = BrainBoxStep.Wifi
+                                        }
+                                        .onFailure { error ->
+                                            connectingDeviceId = null
+                                            val msg = error.message.orEmpty()
+                                            toastState.show(
+                                                if ("133" in msg || "timeout" in msg.lowercase() || "超时" in msg)
+                                                    "连接失败，设备可能已被其他手机连接"
+                                                else
+                                                    msg.ifBlank { "连接设备失败" }
+                                            )
+                                            provisionManager.startScan()
+                                        }
+                                }
+                            },
+                            connectingDeviceId = connectingDeviceId,
+                            onStopScan = { provisionManager.stopScan() },
+                            deviceBindingMap = deviceBindingMap,
                         )
                     }
                     BrainBoxStep.Wifi -> {

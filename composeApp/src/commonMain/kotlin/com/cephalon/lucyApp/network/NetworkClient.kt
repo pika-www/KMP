@@ -29,7 +29,7 @@ fun createNetworkClient(
         defaultRequest {
             url(config.baseUrl)
             header("Lang", "zh")
-            val token = tokenStore.getValidTokenOrNull()
+            val token = tokenStore.getTokenOrNull()
             println("[NetworkClient] defaultRequest: token=${if (token != null) "${token.take(20)}..." else "null"}, url=${this.url.buildString()}")
             if (token != null) {
                 header(HttpHeaders.Authorization, "Bearer $token")

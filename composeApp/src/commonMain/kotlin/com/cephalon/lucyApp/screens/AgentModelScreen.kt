@@ -88,9 +88,7 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
 import com.cephalon.lucyApp.api.AuthRepository
-import com.cephalon.lucyApp.screens.agentmodel.ChatHistoryCache
 import com.cephalon.lucyApp.sdk.SdkSessionManager
-import com.russhwolf.settings.Settings
 import org.koin.compose.koinInject
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
@@ -127,14 +125,7 @@ fun AgentModelScreen(
     val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
     val authRepository = koinInject<AuthRepository>()
     val userInfo by authRepository.userInfo.collectAsState()
-    val settings = koinInject<Settings>()
-    val chatHistoryCache = remember { ChatHistoryCache(settings) }
-
-    // 当前用户 + 设备（用于缓存 key）
-    val currentUserId = userInfo?.userId ?: "anonymous"
-    val currentCdi = initialTargetCdi
-        ?: onlineDeviceCdis.firstOrNull()
-    val cacheKey = "${currentUserId}_${currentCdi ?: "no_device"}"
+    val currentCdi = initialTargetCdi ?: onlineDeviceCdis.firstOrNull()
 
     val logs = remember {
         mutableStateListOf(
@@ -144,41 +135,29 @@ fun AgentModelScreen(
         )
     }
 
-    // 从缓存加载对话记录，找不到则创建默认对话
-    val cachedData = remember(cacheKey) { chatHistoryCache.load(cacheKey) }
-    val conversations = remember(cacheKey) {
-        val cached = cachedData?.first
-        if (!cached.isNullOrEmpty()) {
-            mutableStateListOf(*cached.toTypedArray())
-        } else {
-            mutableStateListOf(
-                ConversationItem(
-                    id = "1",
-                    title = "新对话",
-                    messages = emptyList(),
-                    lastActiveAt = currentTimeMillis()
-                )
+    // 纯内存对话列表，不做本地持久化
+    val conversations = remember {
+        mutableStateListOf(
+            ConversationItem(
+                id = "1",
+                title = "新对话",
+                messages = emptyList(),
+                lastActiveAt = currentTimeMillis()
             )
-        }
+        )
     }
-    var selectedConversationId by remember(cacheKey) {
-        mutableStateOf(cachedData?.second ?: "1")
-    }
-
-    fun saveConversationsToCache() {
-        chatHistoryCache.save(cacheKey, conversations.toList(), selectedConversationId)
-    }
+    var selectedConversationId by remember { mutableStateOf("1") }
 
     fun updateConversation(
         conversationId: String?,
-        persist: Boolean = true,
+        persist: Boolean = false,
         transform: (ConversationItem) -> ConversationItem,
     ) {
         val targetId = conversationId ?: return
         val index = conversations.indexOfFirst { it.id == targetId }
         if (index >= 0) {
             conversations[index] = transform(conversations[index])
-            if (persist) saveConversationsToCache()
+            // no-op: 不再持久化
         }
     }
 
@@ -206,11 +185,23 @@ fun AgentModelScreen(
     fun upsertStreamingAssistantMessageInConversation(conversationId: String?, messageId: String, text: String) {
         updateConversation(conversationId, persist = false) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
-            val existingIndex = updatedMessages.indexOfLast {
+            var targetIndex = updatedMessages.indexOfLast {
                 it is ChatItem.Assistant && it.messageId == messageId
             }
-            if (existingIndex >= 0) {
-                updatedMessages[existingIndex] = ChatItem.Assistant(text, messageId)
+            // Fallback: 如果找不到已绑定 messageId 的消息，尝试替换孤立占位符
+            if (targetIndex < 0) {
+                targetIndex = updatedMessages.indexOfLast {
+                    it is ChatItem.Assistant &&
+                        it.messageId == null &&
+                        it.text == STREAMING_PLACEHOLDER_TEXT
+                }
+                if (targetIndex >= 0) {
+                    println("[Streaming] upsert fallback: 用孤立占位符 idx=$targetIndex 替代")
+                }
+            }
+            println("[Streaming] upsert convId=$conversationId msgId=$messageId targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
+            if (targetIndex >= 0) {
+                updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId)
             } else {
                 updatedMessages.add(ChatItem.Assistant(text, messageId))
             }
@@ -224,12 +215,20 @@ fun AgentModelScreen(
     fun removeAssistantPlaceholderInConversation(conversationId: String?, messageId: String? = null) {
         updateConversation(conversationId) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
-            val placeholderIndex =
+            var placeholderIndex =
                 updatedMessages.indexOfLast {
                     it is ChatItem.Assistant &&
                         it.text == STREAMING_PLACEHOLDER_TEXT &&
                         (messageId == null || it.messageId == messageId)
                 }
+            // Fallback: 如果按 messageId 找不到占位符，也清理孤立占位符 (messageId==null)
+            if (placeholderIndex < 0 && messageId != null) {
+                placeholderIndex = updatedMessages.indexOfLast {
+                    it is ChatItem.Assistant &&
+                        it.text == STREAMING_PLACEHOLDER_TEXT &&
+                        it.messageId == null
+                }
+            }
             if (placeholderIndex >= 0) {
                 updatedMessages.removeAt(placeholderIndex)
             }
@@ -323,13 +322,20 @@ fun AgentModelScreen(
     activeStreamingRequests.forEach { (msgId, convId) ->
         key(msgId) {
             LaunchedEffect(msgId) {
+                println("[Streaming] LaunchedEffect 启动: msgId=$msgId, convId=$convId")
                 var streamingStarted = false
                 var displayedText = ""
+                var iterCount = 0
 
                 while (isActive) {
                     val state = sdkSessionManager.replyStateMap.value[msgId]
                     val text = state?.text ?: ""
                     val streaming = state?.streaming ?: false
+
+                    if (iterCount < 5 || (iterCount % 20 == 0)) {
+                        println("[Streaming] poll #$iterCount msgId=$msgId: stateExists=${state != null}, streaming=$streaming, textLen=${text.length}, displayedLen=${displayedText.length}")
+                    }
+                    iterCount++
 
                     if (streaming && !streamingStarted) {
                         println("AgentModel: 流式输出开始 msgId=$msgId, convId=$convId")
@@ -360,7 +366,6 @@ fun AgentModelScreen(
                         }
                         println("AgentModel: 流式输出结束 msgId=$msgId, convId=$convId, textLen=${text.length}, wasStreaming=$streamingStarted")
                         removeAssistantPlaceholderInConversation(convId, msgId)
-                        saveConversationsToCache()
                         activeStreamingRequests.remove(msgId)
                         break
                     }
@@ -473,7 +478,9 @@ fun AgentModelScreen(
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
             )
             coroutineScope.launch {
+                println("[Chat] ensureConnectedIfTokenValid 开始...")
                 val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
+                println("[Chat] ensureConnectedIfTokenValid 结果: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
                 if (connectResult.isFailure) {
                     removeAssistantPlaceholderInConversation(targetConversationId)
                     appendMessageToConversation(
@@ -533,11 +540,12 @@ fun AgentModelScreen(
                         )
                     }
                 } else {
+                    println("[Chat] 发送消息: publishTextToNpc cdi=$targetCdi text=$outgoingText")
                     sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)
                 }
 
                 sendResult.onSuccess { messageId ->
-                    println("[Chat] 发送成功: messageId=$messageId, targetCdi=$targetCdi")
+                    println("[Chat] 发送成功: messageId=$messageId, targetCdi=$targetCdi, convId=$targetConversationId")
                     updateConversation(targetConversationId) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
@@ -545,6 +553,7 @@ fun AgentModelScreen(
                                     it.messageId == null &&
                                     it.text == STREAMING_PLACEHOLDER_TEXT
                         }
+                        println("[Chat] 查找占位符: idx=$idx, totalMsgs=${msgs.size}")
                         if (idx >= 0) {
                             msgs[idx] = ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT, messageId)
                         }
@@ -552,6 +561,7 @@ fun AgentModelScreen(
                     }
                     if (targetConversationId != null) {
                         activeStreamingRequests[messageId] = targetConversationId
+                        println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, size=${activeStreamingRequests.size}")
                     }
                 }
 

@@ -260,7 +260,20 @@ class SdkSessionManager(
     }
 
     suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
-        return connectMutex.withLock {
+        // 获取 mutex 最多等 25s，防止死锁
+        val locked = withTimeoutOrNull(25_000L) { connectMutex.lock() }
+        if (locked == null) {
+            appLogD(TAG, "ensureConnectedIfTokenValid: 获取 connectMutex 超时(25s)")
+            return Result.failure(IllegalStateException("SDK 连接锁超时，请稍后重试"))
+        }
+        return try {
+            ensureConnectedIfTokenValidLocked()
+        } finally {
+            connectMutex.unlock()
+        }
+    }
+
+    private suspend fun ensureConnectedIfTokenValidLocked(): Result<Unit> {
             if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
                 val observersActive = areObserversActive()
                 appLogD(TAG, "SDK 已连接(复用), userId=${session!!.userId}, observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}, consumerJob=${consumerJob?.isActive}, deviceObserverJob=${deviceObserverJob?.isActive}")
@@ -269,15 +282,15 @@ class SdkSessionManager(
                     _connectionLog.value = "连接正常，正在恢复监听..."
                     restartObservers(session = session!!, reason = "主动恢复监听")
                 }
-                return@withLock Result.success(Unit)
+                return Result.success(Unit)
             }
 
-            val token = tokenStore.getValidTokenOrNull()
+            val token = tokenStore.getTokenOrNull()
             if (token.isNullOrBlank()) {
                 _connectionState.value = SdkConnectionState.DISCONNECTED
                 _connectionLog.value = "连接失败：未找到有效登录 token"
                 appLogD(TAG, _connectionLog.value)
-                return@withLock Result.failure(IllegalStateException("未找到有效登录 token"))
+                return Result.failure(IllegalStateException("未找到有效登录 token"))
             }
 
             _connectionState.value = SdkConnectionState.CONNECTING
@@ -286,18 +299,12 @@ class SdkSessionManager(
             appLogD(TAG, "connect: token=${token.take(20)}..., tokenLen=${token.length}")
 
             appLogD(TAG, "connect: 调用 sdkClient.connect() ...")
-            val connectResult =
-                runCatching {
-                    appLogD(TAG, "connect: runCatching 内开始执行 sdkClient.connect()")
-                    val connectedSession =
-                        withTimeoutOrNull(SDK_CONNECT_TIMEOUT_MS) {
-                            sdkClient.connect(token)
-                        } ?: throw IllegalStateException("sdkClient.connect timeout (${SDK_CONNECT_TIMEOUT_MS}ms)")
-                    appLogD(TAG, "connect: runCatching 内 sdkClient.connect() 成功")
-                    connectedSession
-                }.onFailure { error ->
-                    appLogD(TAG, "connect: runCatching 内 sdkClient.connect() 失败 ${error::class.simpleName}: ${error.message}")
-                }
+            val connectResult = withTimeoutOrNull(20_000L) {
+                runCatching { sdkClient.connect(token) }
+            } ?: run {
+                appLogD(TAG, "connect: sdkClient.connect() 超时(20s)")
+                return Result.failure(IllegalStateException("SDK 连接超时(20s)，请检查网络"))
+            }
             appLogD(TAG, "connect: sdkClient.connect() 返回 isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
 
             connectResult.onSuccess { newSession ->
@@ -331,7 +338,7 @@ class SdkSessionManager(
                 appLogD(TAG, _consumerLog.value)
                 appLogD(TAG, _deviceLog.value)
             }.map { Unit }
-        }
+            return connectResult.map { Unit }
     }
 
     fun disconnect() {
@@ -836,7 +843,11 @@ class SdkSessionManager(
         reconnectJob = null
         consumerJob?.cancel()
         deviceObserverJob?.cancel()
-        deviceObserver?.stop()
+        try {
+            deviceObserver?.stop()
+        } catch (e: Throwable) {
+            appLogD(TAG, "deviceObserver.stop() 异常: ${e.message}")
+        }
         consumerJob = null
         deviceObserverJob = null
         deviceObserver = null
@@ -874,6 +885,12 @@ class SdkSessionManager(
         logUpdater: (String) -> Unit,
     ) {
         val message = throwable.message ?: "unknown"
+        // 后台时不尝试重连/重建，disconnectInBackground 会统一处理
+        if (_isInBackground.value) {
+            appLogD(TAG, "$logLabel 异常但应用在后台，跳过重连: $message")
+            logUpdater("$logLabel：后台异常，等待前台后重连")
+            return
+        }
         if (isAuthorizationError(throwable)) {
             authReconnectAttempts++
             if (authReconnectAttempts > MAX_AUTH_RECONNECT_ATTEMPTS) {
@@ -937,7 +954,11 @@ class SdkSessionManager(
             message.contains("socket is not connected") ||
             message.contains("enotconn") ||
             message.contains("broken pipe") ||
-            message.contains("connection reset")
+            message.contains("connection reset") ||
+            message.contains("etimedout") ||
+            message.contains("operation timed out") ||
+            message.contains("closedbytechannelexception") ||
+            error is kotlinx.io.IOException
     }
 
     private fun areObserversActive(): Boolean {
@@ -992,7 +1013,11 @@ class SdkSessionManager(
         logSdkEvent("$reason，开始重建监听")
         consumerJob?.cancel()
         deviceObserverJob?.cancel()
-        deviceObserver?.stop()
+        try {
+            deviceObserver?.stop()
+        } catch (e: Throwable) {
+            appLogD(TAG, "restartObservers: deviceObserver.stop() 异常: ${e.message}")
+        }
         consumerJob = null
         deviceObserverJob = null
         deviceObserver = null
@@ -1085,9 +1110,20 @@ class SdkSessionManager(
 
             "assistant.partial" -> {
                 if (event.text != null) {
-                    updateReplyState(msgId) { it.copy(text = event.text, streaming = true, streamingStatusText = null) }
+                    updateReplyState(msgId) { state ->
+                        // 只接受更长的文本，防止 reasoning 结束后文本回退覆盖已有内容
+                        if (event.text.length >= state.text.length) {
+                            state.copy(text = event.text, streaming = true, streamingStatusText = null)
+                        } else {
+                            appLogD(TAG, "[Event] assistant.partial → 忽略较短文本 new=${event.text.length} < current=${state.text.length} msgId=$msgId")
+                            state.copy(streaming = true, streamingStatusText = null)
+                        }
+                    }
                     if (isLatest) {
-                        _assistantReplyText.value = event.text
+                        val currentLen = _assistantReplyText.value.length
+                        if (event.text.length >= currentLen) {
+                            _assistantReplyText.value = event.text
+                        }
                         _streamingStatusText.value = null
                     }
                     appLogD(TAG, "[Event] assistant.partial → text更新 len=${event.text.length} msgId=$msgId")
