@@ -2,5 +2,5 @@ package com.cephalon.lucyApp.navigation
 
 interface ScanBindChannelComponent {
     fun onBack()
-    fun onScanSuccess()
+    fun onScanSuccess(cdi: String)
 }

@@ -125,9 +125,10 @@ fun AgentModelScreen(
     val assistantReplyStreaming by sdkSessionManager.assistantReplyStreaming.collectAsState()
     val streamingStatusText by sdkSessionManager.streamingStatusText.collectAsState()
     val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+    val selectedDeviceCdi by sdkSessionManager.selectedDeviceCdi.collectAsState()
     val authRepository = koinInject<AuthRepository>()
     val userInfo by authRepository.userInfo.collectAsState()
-    val currentCdi = initialTargetCdi ?: onlineDeviceCdis.firstOrNull()
+    val currentCdi = selectedDeviceCdi ?: initialTargetCdi
 
     val logs = remember {
         mutableStateListOf(
@@ -486,8 +487,8 @@ fun AgentModelScreen(
                 text.ifBlank {
                     if (imageAttachments.isNotEmpty()) "" else ""
                 }
-            val targetCdi = initialTargetCdi
-                ?: onlineDeviceCdis.firstOrNull()
+            val targetCdi = selectedDeviceCdi
+                ?: initialTargetCdi
 
             if (targetCdi == null) {
                 appendMessageToConversation(

@@ -268,10 +268,12 @@ class RootComponentImpl(
                     override fun onBack() {
                         navigation.pop()
                     }
-                    override fun onScanSuccess() {
+                    override fun onScanSuccess(cdi: String) {
                         scope.launch {
                             authRepository.setConnectionFlag()
-                            navigation.replaceAll(Config.AgentModel())
+                            navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
+                            // SDK 连接放后台，不阻塞导航
+                            sdkSessionManager.ensureConnectedIfTokenValid()
                         }
                     }
                 }

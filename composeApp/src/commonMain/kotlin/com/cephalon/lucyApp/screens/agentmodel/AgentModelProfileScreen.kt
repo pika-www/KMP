@@ -70,6 +70,7 @@ import androidios.composeapp.generated.resources.account_bg
 import androidios.composeapp.generated.resources.ic_skill_knowledge
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.api.channelDeviceId
 import com.cephalon.lucyApp.api.CloseAccountRequest
 import com.cephalon.lucyApp.api.RechargeRuleItem
 import com.cephalon.lucyApp.auth.AuthTokenStore
@@ -78,12 +79,11 @@ import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.getPlatform
 import com.cephalon.lucyApp.payment.IAPManager
 import com.cephalon.lucyApp.sdk.SdkSessionManager
-import com.cephalon.lucyApp.sdk.SdkConnectionState
 import com.cephalon.lucyApp.ws.BalanceWsManager
-import lucy.im.sdk.OnlineDevice
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -95,6 +95,8 @@ private enum class ProfilePage {
     Recharge,
     RechargePackage,
     MyDevices,
+    SwitchDevice,
+    WifiConfig,
 }
 
 private val ProfilePageShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
@@ -117,6 +119,8 @@ internal fun AgentModelProfileScreen(
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var wifiConfigDevice by remember { mutableStateOf<com.cephalon.lucyApp.api.LucyDevice?>(null) }
+    var switchDeviceList by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
+    var switchDeviceCurrentCdi by remember { mutableStateOf("") }
     var showFeedbackSuccessDialog by remember { mutableStateOf(false) }
     var cacheSizeBytes by remember { mutableStateOf(getAppCacheSize()) }
 
@@ -481,7 +485,75 @@ internal fun AgentModelProfileScreen(
                         ) {
                             MyDevicesContent(
                                 onAddNewDevice = onNavigateToHome,
-                                onConfigureWifi = { device -> wifiConfigDevice = device },
+                                onConfigureWifi = { device ->
+                                    wifiConfigDevice = device
+                                    currentPage = ProfilePage.WifiConfig
+                                },
+                                onSwitchDevice = { devices, currentCdi ->
+                                    switchDeviceList = devices
+                                    switchDeviceCurrentCdi = currentCdi
+                                    currentPage = ProfilePage.SwitchDevice
+                                },
+                            )
+                        }
+                    }
+                }
+
+                ProfilePage.SwitchDevice -> {
+                    ProfilePageContainer {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        ProfileTopBar(
+                            title = "切换设备",
+                            showBack = true,
+                            onBack = { currentPage = ProfilePage.MyDevices },
+                            onClose = onDismiss
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = 18.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            val sdkSessionManager = koinInject<SdkSessionManager>()
+                            SwitchDeviceContent(
+                                devices = switchDeviceList,
+                                currentCdi = switchDeviceCurrentCdi,
+                                onDeviceSelected = { selectedDevice ->
+                                    val cdi = selectedDevice.channelDeviceId
+                                    sdkSessionManager.selectDevice(cdi)
+                                    switchDeviceCurrentCdi = cdi
+                                    currentPage = ProfilePage.MyDevices
+                                    println("[MyDevices] 选择设备: ${selectedDevice.name} cdi=$cdi")
+                                }
+                            )
+                        }
+                    }
+                }
+
+                ProfilePage.WifiConfig -> {
+                    ProfilePageContainer {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        ProfileTopBar(
+                            title = "配置WI-FI",
+                            showBack = true,
+                            onBack = { currentPage = ProfilePage.MyDevices },
+                            onClose = onDismiss
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(horizontal = 18.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            WifiConfigContent(
+                                device = wifiConfigDevice,
+                                onDismiss = { currentPage = ProfilePage.MyDevices }
                             )
                         }
                     }
@@ -581,11 +653,6 @@ internal fun AgentModelProfileScreen(
             }
         }
 
-        WifiConfigSheet(
-            isVisible = wifiConfigDevice != null,
-            device = wifiConfigDevice,
-            onDismiss = { wifiConfigDevice = null }
-        )
     } // Box
 }
 
@@ -1913,148 +1980,77 @@ private fun LogoutConfirmDialog(
 private fun MyDevicesContent(
     onAddNewDevice: () -> Unit = {},
     onConfigureWifi: (com.cephalon.lucyApp.api.LucyDevice) -> Unit = {},
+    onSwitchDevice: (devices: List<com.cephalon.lucyApp.api.LucyDevice>, currentCdi: String) -> Unit = { _, _ -> },
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val authRepository = koinInject<AuthRepository>()
-    val onlineDevices by sdkSessionManager.onlineDevices.collectAsState()
-    val connectionState by sdkSessionManager.connectionState.collectAsState()
+    val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+    val selectedCdi by sdkSessionManager.selectedDeviceCdi.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    var showSwitchDeviceSheet by remember { mutableStateOf(false) }
     var backendDevices by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        println("[MyDevices] 进入设备页, connectionState=$connectionState, onlineDevices=${onlineDevices.map { it.cdi }}")
+        println("[MyDevices] 进入设备页, selectedCdi=$selectedCdi, onlineCdis=$onlineCdis")
         sdkSessionManager.ensureConnectedIfTokenValid()
-        // 同时加载后端设备列表以备切换
         backendDevices = authRepository.getDevices()
+        isLoading = false
     }
 
-    if (connectionState == SdkConnectionState.CONNECTING) {
+    if (isLoading) {
         Box(
             modifier = Modifier.fillMaxWidth().height(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("连接中...", color = Color(0xFF999999))
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = sdkSessionManager.connectionLog.collectAsState().value,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFBBBBBB)
-                )
-            }
+            Text("加载中...", color = Color(0xFF999999))
         }
         return
     }
 
-    if (onlineDevices.isEmpty()) {
+    if (backendDevices.isEmpty()) {
         Box(
             modifier = Modifier.fillMaxWidth().height(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (connectionState == SdkConnectionState.CONNECTED) "当前无在线设备" else "SDK 未连接",
-                    color = Color(0xFF999999)
-                )
-                if (connectionState != SdkConnectionState.CONNECTED) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = sdkSessionManager.connectionLog.collectAsState().value,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFBBBBBB)
-                    )
-                }
-            }
+            Text("暂无设备", color = Color(0xFF999999))
         }
         return
     }
 
-    // 取第一个在线设备作为当前设备展示
-    val currentDevice = onlineDevices.first()
-    // 从后端设备列表中找到匹配当前 CDI 的设备信息
-    val matchedBackendDevice = backendDevices.firstOrNull {
-        it.pairingInfo?.channelDeviceId?.trim() == currentDevice.cdi
-    }
+    // 用户手动选择的设备优先，否则取列表第一个
+    val currentDevice = selectedCdi?.let { sel -> backendDevices.firstOrNull { it.channelDeviceId == sel } }
+        ?: backendDevices.first()
+    val currentCdi = currentDevice.channelDeviceId
+    val currentIsOnline = currentCdi.isNotEmpty() && currentCdi in onlineCdis
 
-    OnlineDeviceCard(
+    DeviceCard(
         device = currentDevice,
-        backendDevice = matchedBackendDevice,
+        isOnline = currentIsOnline,
         onSwitchDevice = {
             coroutineScope.launch {
                 backendDevices = authRepository.getDevices()
-                showSwitchDeviceSheet = true
+                onSwitchDevice(backendDevices, currentCdi)
             }
         },
         onAddNewDevice = onAddNewDevice,
-        onConfigureWifi = {
-            val dev = matchedBackendDevice ?: com.cephalon.lucyApp.api.LucyDevice(
-                name = currentDevice.cdi,
-                serialNumber = currentDevice.cdi,
-                status = "online",
-            )
-            onConfigureWifi(dev)
-        },
+        onConfigureWifi = { onConfigureWifi(currentDevice) },
     )
 
-    // 如果有多个在线设备，也显示其他
-    if (onlineDevices.size > 1) {
-        Spacer(modifier = Modifier.height(16.dp))
-        onlineDevices.drop(1).forEach { device ->
-            val matched = backendDevices.firstOrNull {
-                it.pairingInfo?.channelDeviceId?.trim() == device.cdi
-            }
-            OnlineDeviceCard(
-                device = device,
-                backendDevice = matched,
-                onSwitchDevice = {
-                    coroutineScope.launch {
-                        backendDevices = authRepository.getDevices()
-                        showSwitchDeviceSheet = true
-                    }
-                },
-                onAddNewDevice = onAddNewDevice,
-                onConfigureWifi = {
-                    val dev = matched ?: com.cephalon.lucyApp.api.LucyDevice(
-                        name = device.cdi,
-                        serialNumber = device.cdi,
-                        status = "online",
-                    )
-                    onConfigureWifi(dev)
-                },
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-
     Spacer(modifier = Modifier.height(20.dp))
-
-    // 切换设备二级模态框
-    if (showSwitchDeviceSheet) {
-        SwitchDeviceSheet(
-            devices = backendDevices,
-            currentCdi = currentDevice.cdi,
-            onDismiss = { showSwitchDeviceSheet = false },
-            onDeviceSelected = { selectedDevice ->
-                showSwitchDeviceSheet = false
-                println("[MyDevices] 选择设备: ${selectedDevice.name} cdi=${selectedDevice.pairingInfo?.channelDeviceId}")
-            }
-        )
-    }
 }
 
 @Composable
-private fun OnlineDeviceCard(
-    device: OnlineDevice,
-    backendDevice: com.cephalon.lucyApp.api.LucyDevice?,
+private fun DeviceCard(
+    device: com.cephalon.lucyApp.api.LucyDevice,
+    isOnline: Boolean,
     onSwitchDevice: () -> Unit = {},
     onAddNewDevice: () -> Unit = {},
     onConfigureWifi: () -> Unit = {},
 ) {
-    val displayName = backendDevice?.serialNumber?.ifBlank { null }
-        ?: backendDevice?.name?.ifBlank { null }
-        ?: device.cdi
+    val displayName = device.name.ifBlank { null }
+        ?: device.serialNumber.ifBlank { null }
+        ?: device.id
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -2099,16 +2095,16 @@ private fun OnlineDeviceCard(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "设备在线",
+                        text = if (isOnline) "设备在线" else "设备离线",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF999999)
+                        color = if (isOnline) Color(0xFF999999) else Color(0xFFCC3333)
                     )
                 }
 
                 Text(
-                    text = "已连接",
+                    text = if (isOnline) "已连接" else "离线",
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                    color = Color(0xFF3478F6),
+                    color = if (isOnline) Color(0xFF3478F6) else Color(0xFFCC3333),
                 )
             }
 
@@ -2174,97 +2170,157 @@ private fun DeviceActionButton(
     }
 }
 
-/* ───────── Switch Device Sheet ───────── */
+/* ───────── Switch Device Content ───────── */
 
 @Composable
-private fun SwitchDeviceSheet(
+private fun SwitchDeviceContent(
     devices: List<com.cephalon.lucyApp.api.LucyDevice>,
     currentCdi: String,
-    onDismiss: () -> Unit,
     onDeviceSelected: (com.cephalon.lucyApp.api.LucyDevice) -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0x66000000))
-            .clickable(
-                indication = null,
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            ) { onDismiss() },
-        contentAlignment = Alignment.BottomCenter
+    val sdkSessionManager = koinInject<SdkSessionManager>()
+    val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+
+    if (devices.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxWidth().height(120.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("暂无可用设备", color = Color(0xFF999999))
+        }
+    } else {
+        devices.forEach { device ->
+            val deviceCdi = device.channelDeviceId
+            val isCurrent = deviceCdi == currentCdi
+            val isOnline = deviceCdi.isNotEmpty() && deviceCdi in onlineCdis
+            SwitchDeviceItem(
+                device = device,
+                isCurrent = isCurrent,
+                isOnline = isOnline,
+                onClick = {
+                    if (!isCurrent) onDeviceSelected(device)
+                }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+/* ───────── Wifi Config Content ───────── */
+
+@Composable
+private fun WifiConfigContent(
+    device: com.cephalon.lucyApp.api.LucyDevice?,
+    onDismiss: () -> Unit,
+) {
+    val openWifiSettings = rememberOpenWifiSettings()
+
+    if (device == null) return
+
+    // ── 设备信息卡片 ──
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White
     ) {
-        Surface(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                ) { /* block clicks */ },
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            color = Color(0xFFF5F5F7),
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFE6E6E6),
+                modifier = Modifier.size(44.dp)
             ) {
-                // ── 拖拽指示器 ──
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(3.dp),
-                        color = Color(0xFFDDDDDD),
-                        modifier = Modifier.size(width = 36.dp, height = 4.dp)
-                    ) {}
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = (device.name.firstOrNull() ?: 'D').uppercase(),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF555555)
+                    )
                 }
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "切换设备",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color(0xFF111111)
+                    text = device.name.ifBlank { "设备" },
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF111111),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+                Text(
+                    text = device.serialNumber.ifBlank { device.id },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF999999),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (devices.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(120.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("暂无可用设备", color = Color(0xFF999999))
-                    }
-                } else {
-                    devices.forEach { device ->
-                        val isCurrent = device.pairingInfo?.channelDeviceId?.trim() == currentCdi
-                        SwitchDeviceItem(
-                            device = device,
-                            isCurrent = isCurrent,
-                            onClick = {
-                                if (!isCurrent) onDeviceSelected(device)
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+            if (device.status == "online" || device.status == "free") {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFE8F5E9)
+                ) {
+                    Text(
+                        text = "已连接",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                        color = Color(0xFF34C759),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
+
+    Spacer(modifier = Modifier.height(24.dp))
+
+    // ── 打开系统WiFi设置按钮 ──
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                openWifiSettings()
+                onDismiss()
+            },
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF1F2535)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "前往系统设置连接WIFI",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = Color.White
+            )
+        }
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    Text(
+        text = "点击后将跳转到系统WiFi设置页面，请在系统设置中完成WiFi连接后返回",
+        style = MaterialTheme.typography.bodySmall,
+        color = Color(0xFF999999)
+    )
 }
 
 @Composable
 private fun SwitchDeviceItem(
     device: com.cephalon.lucyApp.api.LucyDevice,
     isCurrent: Boolean,
+    isOnline: Boolean,
     onClick: () -> Unit,
 ) {
-    val displayName = device.serialNumber.ifBlank { device.name.ifBlank { device.id } }
-    val isOnline = device.status == "online" || device.status == "free"
+    val displayName = device.name.ifBlank { device.serialNumber.ifBlank { device.id } }
 
     Surface(
         modifier = Modifier

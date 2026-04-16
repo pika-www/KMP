@@ -161,7 +161,10 @@ data class LucyDevice(
 )
 
 val LucyDevice.channelDeviceId: String
-    get() = pairingInfo?.channelDeviceId?.trim().orEmpty()
+    get() {
+        val fromPairing = pairingInfo?.channelDeviceId?.trim().orEmpty()
+        return fromPairing.ifEmpty { id.trim() }
+    }
 
 /**
  * POST /v1/channels/lucy-app/feedback

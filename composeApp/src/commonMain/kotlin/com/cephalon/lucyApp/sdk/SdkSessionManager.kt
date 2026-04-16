@@ -157,6 +157,13 @@ class SdkSessionManager(
     private val _lastOnlineCdi = MutableStateFlow<String?>(null)
     val lastOnlineCdi: StateFlow<String?> = _lastOnlineCdi.asStateFlow()
 
+    private val _selectedDeviceCdi = MutableStateFlow<String?>(null)
+    val selectedDeviceCdi: StateFlow<String?> = _selectedDeviceCdi.asStateFlow()
+
+    fun selectDevice(cdi: String?) {
+        _selectedDeviceCdi.value = cdi?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     private val _receivedMessages = MutableStateFlow<List<String>>(emptyList())
     val receivedMessages: StateFlow<List<String>> = _receivedMessages.asStateFlow()
 

@@ -30,12 +30,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.scan.playScanBeep
 import com.cephalon.lucyApp.scan.QrScannerView
 import com.cephalon.lucyApp.scan.rememberOpenAppSettings
 import com.cephalon.lucyApp.scan.rememberCameraPermissionController
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 private enum class ScanState {
     Idle,
@@ -44,55 +48,63 @@ private enum class ScanState {
     Failure
 }
 
+/**
+ * 从 QR 码内容中解析 lucy://bind?channel_device_id=...&otp=... 参数
+ */
+private fun parseLucyBindUrl(url: String): Pair<String, String>? {
+    // 支持 lucy://bind?... 格式
+    if (!url.startsWith("lucy://bind")) return null
+    val queryStart = url.indexOf('?')
+    if (queryStart < 0) return null
+    val params = url.substring(queryStart + 1).split('&').associate { part ->
+        val eqIdx = part.indexOf('=')
+        if (eqIdx < 0) part to "" else part.substring(0, eqIdx) to part.substring(eqIdx + 1)
+    }
+    val cdi = params["channel_device_id"] ?: return null
+    val otp = params["otp"] ?: return null
+    if (cdi.isBlank() || otp.isBlank()) return null
+    return cdi to otp
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanBindChannelScreen(
     onBack: () -> Unit,
-    onScanSuccess: () -> Unit,
+    onScanSuccess: (cdi: String) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val scrollState = rememberScrollState()
     val cameraPermission = rememberCameraPermissionController()
     val openSettings = rememberOpenAppSettings()
+    val authRepository: AuthRepository = koinInject()
+    val coroutineScope = rememberCoroutineScope()
 
     var scanState by remember { mutableStateOf(ScanState.Idle) }
-    var scanSuccess by remember { mutableStateOf(true) }
     var showPermissionDialog by remember { mutableStateOf(false) }
+    var bindErrorMsg by remember { mutableStateOf("") }
+    var boundCdi by remember { mutableStateOf("") }
     val logs = remember {
         mutableStateListOf(
-            "进入扫码绑定页面。点击扫码区域模拟扫码结果。",
+            "等待扫描二维码...",
             "二维码来源：OpenClaw 控制台生成（openclaw lucy auth-qrcode）。"
         )
     }
 
     LaunchedEffect(Unit) {
         if (!cameraPermission.hasPermission) {
-            showPermissionDialog = true
-        }
-    }
-
-    fun handleScanned(content: String, succeed: Boolean) {
-        logs.add(0, "扫码内容: $content")
-        playScanBeep()
-        scanState = ScanState.Loading
-        scanSuccess = succeed
-    }
-
-    LaunchedEffect(scanState) {
-        if (scanState == ScanState.Loading) {
-            delay(900)
-            scanState = if (scanSuccess) {
-                logs.add(0, "绑定成功")
-                ScanState.Success
-            } else {
-                logs.add(0, "绑定失败")
-                ScanState.Failure
+            cameraPermission.requestPermission()
+            kotlinx.coroutines.delay(500)
+            if (!cameraPermission.hasPermission) {
+                showPermissionDialog = true
             }
         }
+    }
 
-        if (scanState == ScanState.Success) {
+    // 绑定成功后自动跳转
+    LaunchedEffect(scanState) {
+        if (scanState == ScanState.Success && boundCdi.isNotBlank()) {
             delay(700)
-            onScanSuccess()
+            onScanSuccess(boundCdi)
         }
     }
 
@@ -169,8 +181,39 @@ fun ScanBindChannelScreen(
                         .padding(0.dp),
                     enabled = cameraPermission.hasPermission && (scanState == ScanState.Idle || scanState == ScanState.Failure),
                     onQrCodeScanned = { content ->
-                        val ok = content.contains("lucy", ignoreCase = true) || content.contains("openclaw", ignoreCase = true)
-                        handleScanned(content, ok)
+                        if (scanState != ScanState.Idle && scanState != ScanState.Failure) return@QrScannerView
+                        playScanBeep()
+                        logs.add(0, "扫码内容: $content")
+
+                        val parsed = parseLucyBindUrl(content)
+                        if (parsed == null) {
+                            logs.add(0, "无法识别的二维码格式，需 lucy://bind?channel_device_id=...&otp=...")
+                            bindErrorMsg = "无法识别的二维码"
+                            scanState = ScanState.Failure
+                            return@QrScannerView
+                        }
+
+                        val (cdi, otp) = parsed
+                        logs.add(0, "解析成功: cdi=$cdi, otp=$otp")
+                        scanState = ScanState.Loading
+
+                        coroutineScope.launch {
+                            logs.add(0, "正在调用绑定接口...")
+                            val result = authRepository.bindDeviceWithOtp(otp)
+                            result.fold(
+                                onSuccess = { data ->
+                                    val resultCdi = data.cdi.ifBlank { cdi }
+                                    logs.add(0, "绑定成功! cdi=$resultCdi")
+                                    boundCdi = resultCdi
+                                    scanState = ScanState.Success
+                                },
+                                onFailure = { e ->
+                                    logs.add(0, "绑定失败: ${e.message}")
+                                    bindErrorMsg = e.message ?: "绑定失败"
+                                    scanState = ScanState.Failure
+                                }
+                            )
+                        }
                     }
                 )
 
@@ -222,9 +265,18 @@ fun ScanBindChannelScreen(
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                 color = Color(0xFFB00020)
                             )
+                            if (bindErrorMsg.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = bindErrorMsg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF666666)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(10.dp))
                             Button(
                                 onClick = {
+                                    bindErrorMsg = ""
                                     scanState = ScanState.Idle
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF222222))
