@@ -791,35 +791,35 @@ class SdkSessionManager(
         // 监听启动成功，重置重试计数
         observerRestartAttempts = 0
 
-        consumerJob?.invokeOnCompletion { throwable ->
-            if (throwable is CancellationException) return@invokeOnCompletion
-            if (throwable == null) {
-                logSdkEvent("[Consumer] 消费者正常结束（不应发生），restartAttempts=$observerRestartAttempts")
-                _consumerLog.value = "监听意外结束，准备恢复..."
-                scheduleObserverRestart("消费者正常结束")
-                return@invokeOnCompletion
-            }
-            handleObserverFailure(
-                throwable = throwable,
-                logLabel = "监听",
-                logUpdater = { _consumerLog.value = it },
-            )
-        }
+//        consumerJob?.invokeOnCompletion { throwable ->
+//            if (throwable is CancellationException) return@invokeOnCompletion
+//            if (throwable == null) {
+//                logSdkEvent("[Consumer] 消费者正常结束（不应发生），restartAttempts=$observerRestartAttempts")
+//                _consumerLog.value = "监听意外结束，准备恢复..."
+//                scheduleObserverRestart("消费者正常结束")
+//                return@invokeOnCompletion
+//            }
+//            handleObserverFailure(
+//                throwable = throwable,
+//                logLabel = "监听",
+//                logUpdater = { _consumerLog.value = it },
+//            )
+//        }
 
-        deviceObserverJob?.invokeOnCompletion { throwable ->
-            if (throwable is CancellationException) return@invokeOnCompletion
-            if (throwable == null) {
-                logSdkEvent("[DeviceObserver] 设备监听正常结束（不应发生），restartAttempts=$observerRestartAttempts")
-                _deviceLog.value = "设备监听意外结束，准备恢复..."
-                scheduleObserverRestart("设备监听正常结束")
-                return@invokeOnCompletion
-            }
-            handleObserverFailure(
-                throwable = throwable,
-                logLabel = "设备监听",
-                logUpdater = { _deviceLog.value = it },
-            )
-        }
+//        deviceObserverJob?.invokeOnCompletion { throwable ->
+//            if (throwable is CancellationException) return@invokeOnCompletion
+//            if (throwable == null) {
+//                logSdkEvent("[DeviceObserver] 设备监听正常结束（不应发生），restartAttempts=$observerRestartAttempts")
+//                _deviceLog.value = "设备监听意外结束，准备恢复..."
+//                scheduleObserverRestart("设备监听正常结束")
+//                return@invokeOnCompletion
+//            }
+//            handleObserverFailure(
+//                throwable = throwable,
+//                logLabel = "设备监听",
+//                logUpdater = { _deviceLog.value = it },
+//            )
+//        }
 
         _consumerLog.value = "监听已启动"
         _deviceLog.value = "设备监听已启动"
