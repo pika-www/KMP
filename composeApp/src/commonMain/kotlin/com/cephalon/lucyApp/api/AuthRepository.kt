@@ -7,6 +7,7 @@ import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
 
 /**
  * 适配通用 AuthApi 后的 AuthRepository，支持动态 Map 数据访问。
@@ -277,8 +278,43 @@ class AuthRepository(
         }
     }
 
+    // ---- 模型配置 ----
+
+    private val modelConfigJson = Json { ignoreUnknownKeys = true }
+
+    private val _modelConfig = MutableStateFlow<ModelConfigData?>(null)
+    val modelConfig: StateFlow<ModelConfigData?> = _modelConfig.asStateFlow()
+
+    init {
+        // 延迟加载本地缓存的模型配置
+        val raw = settings.getStringOrNull(KEY_MODEL_CONFIG)
+        if (raw != null) {
+            _modelConfig.value = runCatching { modelConfigJson.decodeFromString<ModelConfigData>(raw) }.getOrNull()
+        }
+    }
+
+
+    private fun persistModelConfig(data: ModelConfigData) {
+        val raw = modelConfigJson.encodeToString(ModelConfigData.serializer(), data)
+        settings.putString(KEY_MODEL_CONFIG, raw)
+    }
+
+    /**
+     * 获取当前用户模型配置 GET /channels/lucy/current-user/model-config
+     */
+    suspend fun getModelConfig(): BaseResponse<ModelConfigData> {
+        val response = authApi.get<ModelConfigData>("/channels/lucy/current-user/model-config")
+        if (response.code == 20000 && response.data != null) {
+            _modelConfig.value = response.data
+            persistModelConfig(response.data)
+        }
+        return response
+    }
+
     fun logout() {
         _userInfo.value = null
+        _modelConfig.value = null
+        settings.remove(KEY_MODEL_CONFIG)
         settings.remove(KEY_CONNECTION_FLAG)
         settings.remove(KEY_DAILY_REWARD_DATE)
         tokenStore.clear()
@@ -289,5 +325,6 @@ class AuthRepository(
     private companion object {
         const val KEY_CONNECTION_FLAG = "lucy_app.has_connected"
         const val KEY_DAILY_REWARD_DATE = "lucy_app.daily_reward_date"
+        const val KEY_MODEL_CONFIG = "lucy_app.model_config"
     }
 }

@@ -481,10 +481,10 @@ fun AgentModelScreen(
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
             }
 
-            val imageAttachment = attachments.firstOrNull { it.type == DraftAttachmentType.Image }
+            val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
             val outgoingText =
                 text.ifBlank {
-                    if (imageAttachment != null) "" else ""
+                    if (imageAttachments.isNotEmpty()) "" else ""
                 }
             val targetCdi = initialTargetCdi
                 ?: onlineDeviceCdis.firstOrNull()
@@ -497,7 +497,7 @@ fun AgentModelScreen(
                 return@Unit
             }
 
-            println("[Chat] 发送消息: text=\"$outgoingText\", targetCdi=$targetCdi, initialTargetCdi=$initialTargetCdi, onlineDeviceCdis=$onlineDeviceCdis, hasImage=${imageAttachment != null}")
+            println("[Chat] 发送消息: text=\"$outgoingText\", targetCdi=$targetCdi, initialTargetCdi=$initialTargetCdi, onlineDeviceCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}")
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -515,55 +515,59 @@ fun AgentModelScreen(
                     return@launch
                 }
 
-                val sendResult = if (imageAttachment != null) {
-                    // 等待预上传完成
-                    var uploadState = imageUploadStates[imageAttachment.uri]
-                    while (uploadState is ImageUploadState.Uploading) {
-                        delay(100)
-                        uploadState = imageUploadStates[imageAttachment.uri]
-                    }
+                val sendResult = if (imageAttachments.isNotEmpty()) {
+                    // 收集所有图片的 MediaItem
+                    val mediaItems = mutableListOf<SdkSessionManager.MediaItem>()
+                    for (att in imageAttachments) {
+                        // 等待预上传完成
+                        var uploadState = imageUploadStates[att.uri]
+                        while (uploadState is ImageUploadState.Uploading) {
+                            delay(100)
+                            uploadState = imageUploadStates[att.uri]
+                        }
 
-                    if (uploadState is ImageUploadState.Success) {
-                        sdkSessionManager.publishTextWithImageToNpc(
-                            cdi = targetCdi,
-                            text = outgoingText,
-                            blobRef = uploadState.blobRef,
-                            contentType = uploadState.contentType,
-                            size = uploadState.size,
-                            fileName = uploadState.fileName,
-                        )
-                    } else {
-                        // 预上传失败或未开始，回退到发送时上传
-                        val imageBytes = mediaAccessController.readUriToBytes(imageAttachment.uri)
-                        if (imageBytes == null) {
-                            removeAssistantPlaceholderInConversation(targetConversationId)
-                            appendMessageToConversation(
-                                targetConversationId,
-                                ChatItem.System("读取图片失败，无法发送")
-                            )
-                            return@launch
+                        if (uploadState is ImageUploadState.Success) {
+                            mediaItems.add(SdkSessionManager.MediaItem(
+                                blobRef = uploadState.blobRef,
+                                contentType = uploadState.contentType,
+                                size = uploadState.size,
+                                fileName = uploadState.fileName,
+                            ))
+                        } else {
+                            // 预上传失败或未开始，回退到发送时上传
+                            val imageBytes = mediaAccessController.readUriToBytes(att.uri)
+                            if (imageBytes == null) {
+                                removeAssistantPlaceholderInConversation(targetConversationId)
+                                appendMessageToConversation(
+                                    targetConversationId,
+                                    ChatItem.System("读取图片失败，无法发送")
+                                )
+                                return@launch
+                            }
+                            val fileName = att.displayName()
+                            val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
+                            if (uploadResult.isFailure) {
+                                removeAssistantPlaceholderInConversation(targetConversationId)
+                                appendMessageToConversation(
+                                    targetConversationId,
+                                    ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
+                                )
+                                return@launch
+                            }
+                            val putResult = uploadResult.getOrThrow()
+                            mediaItems.add(SdkSessionManager.MediaItem(
+                                blobRef = putResult.blobRef,
+                                contentType = inferImageContentType(fileName),
+                                size = imageBytes.size.toLong(),
+                                fileName = fileName,
+                            ))
                         }
-                        val fileName = imageAttachment.displayName()
-                        val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
-                        if (uploadResult.isFailure) {
-                            removeAssistantPlaceholderInConversation(targetConversationId)
-                            appendMessageToConversation(
-                                targetConversationId,
-                                ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
-                            )
-                            return@launch
-                        }
-                        val putResult = uploadResult.getOrThrow()
-                        val contentType = inferImageContentType(fileName)
-                        sdkSessionManager.publishTextWithImageToNpc(
-                            cdi = targetCdi,
-                            text = outgoingText,
-                            blobRef = putResult.blobRef,
-                            contentType = contentType,
-                            size = imageBytes.size.toLong(),
-                            fileName = fileName,
-                        )
                     }
+                    sdkSessionManager.publishTextWithAttachmentsToNpc(
+                        cdi = targetCdi,
+                        text = outgoingText,
+                        mediaItems = mediaItems,
+                    )
                 } else {
                     println("[Chat] 发送消息: publishTextToNpc cdi=$targetCdi text=$outgoingText")
                     sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = outgoingText)

@@ -61,6 +61,7 @@ class RootComponentImpl(
             balanceWsManager.start()
             sdkSessionManager.reconnectOnAppStartIfTokenExists()
             scope.launch { authRepository.getUserInfo() }
+            scope.launch { authRepository.getModelConfig() }
             // 本地缓存未命中时，异步查询接口并跳转
             if (!authRepository.isConnectionFlagCached()) {
                 scope.launch {
@@ -110,6 +111,7 @@ class RootComponentImpl(
                         sdkSessionManager.connectAfterLogin()
                         scope.launch {
                             authRepository.getUserInfo()
+                            authRepository.getModelConfig()
                             val connected = authRepository.checkConnectionFlag()
                             if (connected) {
                                 navigation.replaceAll(Config.AgentModel())

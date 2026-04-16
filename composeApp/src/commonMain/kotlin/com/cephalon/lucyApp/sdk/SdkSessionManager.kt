@@ -609,32 +609,60 @@ class SdkSessionManager(
         }
     }
 
-    suspend fun publishTextWithImageToNpc(
+    data class MediaItem(
+        val blobRef: String,
+        val contentType: String,
+        val size: Long,
+        val fileName: String,
+    )
+
+    suspend fun publishTextWithAttachmentsToNpc(
         cdi: String,
         text: String,
-        blobRef: String,
-        contentType: String,
-        size: Long,
-        fileName: String,
+        mediaItems: List<MediaItem>,
+        kind: String = "chat",
+        mediaMaxMb: Int = 20,
+        maxAttachments: Int = 10,
     ): Result<String> {
+        if (mediaItems.isEmpty()) {
+            return Result.failure(IllegalArgumentException("attachments 不能为空"))
+        }
+        val maxBytes = mediaMaxMb.toLong() * 1024 * 1024
+        val oversized = mediaItems.filter { it.size > maxBytes }
+        if (oversized.isNotEmpty()) {
+            return Result.failure(
+                IllegalArgumentException(
+                    "附件超过 ${mediaMaxMb}MB 限制: ${oversized.joinToString { it.fileName }}"
+                )
+            )
+        }
+        val clampedMax = maxAttachments.coerceIn(1, 20)
+        val truncated = mediaItems.take(clampedMax)
+        if (truncated.size < mediaItems.size) {
+            appLogD(TAG, "附件数量 ${mediaItems.size} 超过上限 $clampedMax，截断为 ${truncated.size}")
+        }
         val messageId = generateMessageId19()
         val escapedText = text.trim().escapeForJson()
-        val escapedBlobRef = blobRef.escapeForJson()
-        val escapedFileName = fileName.escapeForJson()
+        val attachmentsArray = truncated.joinToString(",") { item ->
+            val escapedBlobRef = item.blobRef.escapeForJson()
+            val escapedFileName = item.fileName.escapeForJson()
+            """{"transport":"iroh-blob","blob_ref":"$escapedBlobRef","kind":"image","contentType":"${item.contentType}","size":${item.size},"fileName":"$escapedFileName"}"""
+        }
         val payload =
-            """${'{'}"version":2,"messageId":"$messageId","text":"$escapedText","media":{"transport":"iroh-blob","blob_ref":"$escapedBlobRef","kind":"image","contentType":"$contentType","size":$size,"fileName":"$escapedFileName"},"timestamp":${currentTimeMillis()}}"""
-        appLogD(TAG, "发送图片消息 cdi=$cdi fileName=$fileName")
+            """{"version":4,"kind":"${kind.escapeForJson()}","messageId":"$messageId","text":"$escapedText","attachments":[$attachmentsArray],"timestamp":${currentTimeMillis()}}"""
+        appLogD(TAG, "发送附件消息 cdi=$cdi kind=$kind count=${truncated.size} payload=$payload")
         return publishToNpc(cdi = cdi, payload = payload).map { messageId }
     }
 
-    suspend fun publishTextToNpc(cdi: String, text: String): Result<String> {
+    suspend fun publishTextToNpc(cdi: String, text: String, kind: String = "chat"): Result<String> {
         val trimmedText = text.trim()
         if (trimmedText.isBlank()) {
             return Result.failure(IllegalArgumentException("消息不能为空"))
         }
         val messageId = generateMessageId19()
         val payload =
-            """{"version":2,"messageId":"$messageId","text":"${trimmedText.escapeForJson()}","timestamp":${currentTimeMillis()}}"""
+            """{"version":4,"kind":"${kind.escapeForJson()}","messageId":"$messageId","text":"${trimmedText.escapeForJson()}","timestamp":${currentTimeMillis()}}"""
+        appLogD(TAG, "发送文本消息 cdi=$cdi kind=$kind payload=$payload")
         return publishToNpc(cdi = cdi, payload = payload).map { messageId }
     }
 
@@ -773,11 +801,11 @@ class SdkSessionManager(
                 if (!sourceMatched) {
                     appLogD(
                         TAG,
-                        "[Consumer] 过滤掉消息: sourceId=${incomingSourceMessageId ?: "none"}, activeIds=$activeIds, matched=false",
+                        "[Consumer] 过滤掉消息: sourceId=${incomingSourceMessageId ?: "none"}, activeIds=$activeIds, matched=false, msg=${messageText.take(500)}",
                     )
                     return@startUserChannelConsumer
                 }
-                appLogD(TAG, "[Consumer] 接受消息 subject=$subject sourceId=$incomingSourceMessageId")
+                appLogD(TAG, "[Consumer] 接受消息 subject=$subject sourceId=$incomingSourceMessageId msg=${messageText.take(500)}")
                 recordReceivedMessage(subject, messageText)
                 handleMachineEvent(machineEvent, incomingSourceMessageId)
                 _lastReplyMessageId.value = incomingSourceMessageId

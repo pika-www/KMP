@@ -139,7 +139,6 @@
 /* Begin PBXShellScriptBuildPhase section */
 		08B277BDAF2813AA119B94EF /* Compile Kotlin Framework */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -244,6 +243,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_ASSET_PATHS = "\"iosApp/Preview Content\"";
+				DEVELOPMENT_TEAM = 986GGG32VP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;
@@ -275,7 +275,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.cephalon.lucyApp.lucy;
+				PRODUCT_BUNDLE_IDENTIFIER = cloud.cephalon.naohua;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -290,6 +290,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_ASSET_PATHS = "\"iosApp/Preview Content\"";
+				DEVELOPMENT_TEAM = 986GGG32VP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosApp/Info.plist;
@@ -321,7 +322,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.cephalon.lucyApp.lucy;
+				PRODUCT_BUNDLE_IDENTIFIER = cloud.cephalon.naohua;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

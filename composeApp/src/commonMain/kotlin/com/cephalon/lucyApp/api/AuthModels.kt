@@ -244,6 +244,33 @@ data class VerifyTransactionData(
     val error: String? = null
 )
 
+/**
+ * GET /v1/channels/lucy/current-user/model-config
+ */
+@Serializable
+data class ModelConfigData(
+    val channel: String = "",
+    @SerialName("provider_id")
+    val providerId: String = "",
+    @SerialName("api_key")
+    val apiKey: String = "",
+    @SerialName("base_url")
+    val baseUrl: String = "",
+    @SerialName("default_model_id")
+    val defaultModelId: String = "",
+    val created: Boolean = false,
+    val models: List<ModelItem> = emptyList(),
+)
+
+@Serializable
+data class ModelItem(
+    val id: String = "",
+    val label: String = "",
+    val enabled: Boolean = true,
+    @SerialName("is_default")
+    val isDefault: Boolean = false,
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 
