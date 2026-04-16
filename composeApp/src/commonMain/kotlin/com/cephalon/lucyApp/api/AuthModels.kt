@@ -213,6 +213,37 @@ data class DeviceBindingData(
     var serverMsg: String = ""
 }
 
+/**
+ * /v1/orders/transfers 创建充值订单请求
+ */
+@Serializable
+data class CreateRechargeOrderRequest(
+    val type: String = "recharge_apple_iap",
+    val amount: Long
+)
+
+/**
+ * /v1/orders/transfers 创建充值订单响应数据
+ */
+@Serializable
+data class RechargeOrderData(
+    @SerialName("order_id")
+    val orderId: String,
+    @SerialName("product_id")
+    val productId: String
+)
+
+/**
+ * /v1/orders/apple/verify 验证交易响应数据
+ */
+@Serializable
+data class VerifyTransactionData(
+    val verified: Boolean,
+    @SerialName("order_id")
+    val orderId: String? = null,
+    val error: String? = null
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

@@ -1,0 +1,204 @@
+{
+  "identifier" : "F8A1B2C3-D4E5-6F78-9A0B-1C2D3E4F5678",
+  "nonRenewableSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "9.9",
+      "familyShareable" : false,
+      "internalID" : "IAP001",
+      "localizations" : [
+        {
+          "description" : "充值 9.9 元脑力值",
+          "displayName" : "脑力值 9.9",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.9.9",
+      "referenceName" : "CEP 9.9",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "39.9",
+      "familyShareable" : false,
+      "internalID" : "IAP002",
+      "localizations" : [
+        {
+          "description" : "充值 39.9 元脑力值",
+          "displayName" : "脑力值 39.9",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.39.9",
+      "referenceName" : "CEP 39.9",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "69.9",
+      "familyShareable" : false,
+      "internalID" : "IAP003",
+      "localizations" : [
+        {
+          "description" : "充值 69.9 元脑力值",
+          "displayName" : "脑力值 69.9",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.69.9",
+      "referenceName" : "CEP 69.9",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "99",
+      "familyShareable" : false,
+      "internalID" : "IAP004",
+      "localizations" : [
+        {
+          "description" : "充值 99 元脑力值",
+          "displayName" : "脑力值 99",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.99",
+      "referenceName" : "CEP 99",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "299",
+      "familyShareable" : false,
+      "internalID" : "IAP005",
+      "localizations" : [
+        {
+          "description" : "充值 299 元脑力值",
+          "displayName" : "脑力值 299",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.299",
+      "referenceName" : "CEP 299",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "499",
+      "familyShareable" : false,
+      "internalID" : "IAP006",
+      "localizations" : [
+        {
+          "description" : "充值 499 元脑力值",
+          "displayName" : "脑力值 499",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.499",
+      "referenceName" : "CEP 499",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "699",
+      "familyShareable" : false,
+      "internalID" : "IAP007",
+      "localizations" : [
+        {
+          "description" : "充值 699 元脑力值",
+          "displayName" : "脑力值 699",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.699",
+      "referenceName" : "CEP 699",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "899",
+      "familyShareable" : false,
+      "internalID" : "IAP008",
+      "localizations" : [
+        {
+          "description" : "充值 899 元脑力值",
+          "displayName" : "脑力值 899",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.899",
+      "referenceName" : "CEP 899",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "999",
+      "familyShareable" : false,
+      "internalID" : "IAP009",
+      "localizations" : [
+        {
+          "description" : "充值 999 元脑力值",
+          "displayName" : "脑力值 999",
+          "locale" : "zh_CN"
+        }
+      ],
+      "productID" : "com.cephalon.lucyApp.999",
+      "referenceName" : "CEP 999",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "1234567890",
+    "_developerTeamID" : "XXXXXXXXXX",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "zh_CN",
+    "_storefront" : "CHN",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

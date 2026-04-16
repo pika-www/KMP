@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		24FF6B6E41BAC7488004382D /* lucy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = lucy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B04CDF652F90EA8300EFE5E8 /* Products.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; name = Products.storekit; path = iosApp/Products.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -58,6 +59,7 @@
 		A9E07C2B1F337EF3782A7151 = {
 			isa = PBXGroup;
 			children = (
+				B04CDF652F90EA8300EFE5E8 /* Products.storekit */,
 				FF7A8DED362F842980E69CFD /* Configuration */,
 				8A338DAC28D1B25590758771 /* iosApp */,
 				648394C65FA7E7E260FAD374 /* Products */,

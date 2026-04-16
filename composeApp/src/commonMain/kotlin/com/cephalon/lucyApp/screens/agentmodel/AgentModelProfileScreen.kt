@@ -75,6 +75,7 @@ import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.components.CodeInput
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.getPlatform
+import com.cephalon.lucyApp.payment.IAPManager
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.sdk.SdkConnectionState
 import com.cephalon.lucyApp.ws.BalanceWsManager
@@ -982,22 +983,85 @@ private val fixedPackages = listOf(
     FixedPackage(69.9, "¥69.9", 49000),
     FixedPackage(299.0, "¥299", 210000),
     FixedPackage(499.0, "¥499", 350000),
+    FixedPackage(500.0, "¥500", 350000),
     FixedPackage(699.0, "¥699", 490000),
     FixedPackage(899.0, "¥899", 630000),
+    FixedPackage(1000.0, "¥1000", 700000),
 )
+
+private fun FixedPackage.appleProductId(): String = when (price) {
+    9.9 -> "com.cephalon.lucyApp.9.9"
+    39.9 -> "com.cephalon.lucyApp.39.9"
+    69.9 -> "com.cephalon.lucyApp.69.9"
+    99.0 -> "com.cephalon.lucyApp.99"
+    299.0 -> "com.cephalon.lucyApp.299"
+    499.0 -> "com.cephalon.lucyApp.499"
+    500.0 -> "com.cephalon.lucyApp.500"
+    699.0 -> "com.cephalon.lucyApp.699"
+    899.0 -> "com.cephalon.lucyApp.899"
+    999.0 -> "com.cephalon.lucyApp.999"
+    1000.0 -> "com.cephalon.lucyApp.1000"
+    else -> ""
+}
 
 private fun findGiftPercent(price: Double, rules: List<RechargeRuleItem>): Int {
     return rules.firstOrNull { price >= it.littleValue && price < it.largeValue }?.giftPercent ?: 0
 }
 
+private suspend fun handleRechargePackageClick(
+    pkg: FixedPackage,
+    authRepository: AuthRepository,
+    iapManager: IAPManager,
+) {
+    val productId = pkg.appleProductId()
+    println("[IAP][UI] 点击充值卡片: tag=${pkg.tag ?: "none"}, priceLabel=${pkg.priceLabel}, amount=${pkg.price}, base=${pkg.base}, productId=$productId")
+    if (productId.isBlank()) {
+        println("[IAP][UI] 未找到对应商品ID, amount=${pkg.price}")
+        return
+    }
+
+    println("[IAP][UI] Step 1: 调用创建订单接口 /v1/orders/transfers, amount=${pkg.base}")
+    val orderResponse = authRepository.createRechargeOrder(pkg.base)
+    println("[IAP][API] createRechargeOrder 响应: code=${orderResponse.code}, msg=${orderResponse.msg}, data=${orderResponse.data}")
+    if (orderResponse.code != 20000 || orderResponse.data == null) {
+        println("[IAP][UI] Step 1 失败: 创建订单失败")
+        return
+    }
+
+    println("[IAP][UI] Step 1.5: 确保商品已加载")
+    iapManager.loadProducts()
+    println("[IAP][UI] Step 2: 调用 Apple 购买, productId=$productId, orderData=${orderResponse.data}")
+    val transactionId = iapManager.initiatePurchase(productId)
+    println("[IAP][IAP] initiatePurchase 返回: transactionId=$transactionId")
+    if (transactionId.isNullOrBlank()) {
+        println("[IAP][UI] Step 2 失败: Apple 购买未返回有效 transactionId")
+        return
+    }
+
+    println("[IAP][UI] Step 3: 调用验单接口 /v1/orders/apple/verify, transactionId=$transactionId")
+    val verifyResponse = authRepository.verifyAppleIAPTransaction(transactionId)
+    println("[IAP][API] verifyAppleIAPTransaction 响应: code=${verifyResponse.code}, msg=${verifyResponse.msg}, data=${verifyResponse.data}")
+    if (verifyResponse.code != 20000) {
+        println("[IAP][UI] Step 3 失败: 验单失败, transactionId=$transactionId")
+        return
+    }
+
+    println("[IAP][UI] Step 4: finishTransaction, transactionId=$transactionId")
+    iapManager.finishTransaction(transactionId)
+    println("[IAP][UI] Step 4 完成: 整个购买流程结束, transactionId=$transactionId")
+}
+
 @Composable
 private fun RechargePackageContent() {
     val authRepository: AuthRepository = koinInject()
+    val iapManager: IAPManager = koinInject()
+    val coroutineScope = rememberCoroutineScope()
 
     var rules by remember { mutableStateOf<List<RechargeRuleItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
+        iapManager.loadProducts()
         val response = authRepository.getRechargeRules()
         if (response.code == 20000 && response.data != null) {
             rules = response.data.sortedBy { it.littleValue }
@@ -1021,7 +1085,6 @@ private fun RechargePackageContent() {
                 )
             }
         } else {
-            // 前三个：单列全宽带标签
             fixedPackages.take(3).forEach { pkg ->
                 val giftPercent = findGiftPercent(pkg.price, rules)
                 val gift = pkg.base * giftPercent / 100
@@ -1031,11 +1094,15 @@ private fun RechargePackageContent() {
                     detail = "基础${pkg.base}+${gift}奖励",
                     price = pkg.priceLabel,
                     tag = pkg.tag,
+                    onClick = {
+                        coroutineScope.launch {
+                            handleRechargePackageClick(pkg, authRepository, iapManager)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            // 后六个：两列网格
             val gridItems = fixedPackages.drop(3)
             for (i in gridItems.indices step 2) {
                 Row(
@@ -1050,6 +1117,11 @@ private fun RechargePackageContent() {
                         detail = "基础${pkg1.base}+${gift1}",
                         price = pkg1.priceLabel,
                         tag = pkg1.tag,
+                        onClick = {
+                            coroutineScope.launch {
+                                handleRechargePackageClick(pkg1, authRepository, iapManager)
+                            }
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     if (i + 1 < gridItems.size) {
@@ -1061,6 +1133,11 @@ private fun RechargePackageContent() {
                             detail = "基础${pkg2.base}+${gift2}",
                             price = pkg2.priceLabel,
                             tag = pkg2.tag,
+                            onClick = {
+                                coroutineScope.launch {
+                                    handleRechargePackageClick(pkg2, authRepository, iapManager)
+                                }
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     } else {
@@ -1104,10 +1181,11 @@ private fun PackageCard(
     detail: String,
     price: String,
     tag: String? = null,
+    onClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.clickable { onClick() },
         shape = RoundedCornerShape(14.dp),
         color = Color(0xFFF5F5F5),
     ) {

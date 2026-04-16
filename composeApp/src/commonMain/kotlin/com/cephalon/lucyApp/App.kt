@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.foundation.interaction.InteractionSource
@@ -24,6 +25,7 @@ import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.navigation.RootComponent
 import com.cephalon.lucyApp.navigation.RootComponentImpl
 import com.cephalon.lucyApp.navigation.createDefaultComponentContext
+import com.cephalon.lucyApp.payment.IAPManager
 import com.cephalon.lucyApp.screens.BrainBoxGuideScreen
 import com.cephalon.lucyApp.screens.HomeScreen
 import com.cephalon.lucyApp.screens.AgentModelScreen
@@ -49,7 +51,18 @@ object HomeDestination
 object WsTestDestination
 
 @Composable
-fun App() {
+fun App(
+    modifier: Modifier = Modifier,
+    iapManager: IAPManager? = null
+) {
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Initialize IAP if manager is provided (iOS platform)
+    LaunchedEffect(Unit) {
+        iapManager?.handleUnfinishedTransactions()
+        iapManager?.loadProducts()
+    }
+    
     MaterialTheme(
         colorScheme = lightColorScheme()
     ) {

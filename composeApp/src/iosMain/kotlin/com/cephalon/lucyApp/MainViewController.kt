@@ -1,6 +1,9 @@
 package com.cephalon.lucyApp
 
 import androidx.compose.ui.window.ComposeUIViewController
+import com.cephalon.lucyApp.payment.IAPManager
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 import platform.UIKit.UIViewController
 import kotlin.experimental.ExperimentalNativeApi
 import kotlin.native.setUnhandledExceptionHook
@@ -8,6 +11,8 @@ import kotlin.native.setUnhandledExceptionHook
 object IOSViewControllerHolder {
     var rootViewController: UIViewController? = null
 }
+
+private object IOSKoinComponent : KoinComponent
 
 @OptIn(ExperimentalNativeApi::class)
 fun MainViewController(): UIViewController {
@@ -17,7 +22,11 @@ fun MainViewController(): UIViewController {
         throwable.printStackTrace()
     }
 
-    val controller = ComposeUIViewController { App() }
+    val iapManager = runCatching { IOSKoinComponent.get<IAPManager>() }
+        .onFailure { println("MainViewController: failed to resolve IAPManager from Koin: ${it.message}") }
+        .getOrNull()
+
+    val controller = ComposeUIViewController { App(iapManager = iapManager) }
     IOSViewControllerHolder.rootViewController = controller
     return controller
 }

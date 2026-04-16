@@ -13,7 +13,9 @@ import com.cephalon.lucyApp.settings.createSettings
 import com.cephalon.lucyApp.ws.WsApi
 import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.ws.WsRepository
+import com.cephalon.lucyApp.payment.IAPManager
 import org.koin.core.context.startKoin
+import org.koin.dsl.KoinAppDeclaration
 import org.koin.dsl.module
 
 /**
@@ -37,17 +39,24 @@ val appModule = module {
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
     single { BalanceWsManager(get(), get(), get(), get()) }
-
-    // 在这里添加您的其他依赖注入配置，例如 ViewModel
+    // IAPManager is provided by platform modules
 }
 
 fun initKoin() {
+    initKoin {}
+}
+
+fun initKoin(appDeclaration: KoinAppDeclaration) {
     // 使用 startKoin 的变体或手动检查，防止重复启动
     try {
         startKoin {
+            appDeclaration()
             modules(appModule)
+            modules(platformModule())
         }
     } catch (e: Exception) {
         println("Koin 已经启动或初始化失败: ${e.message}")
     }
 }
+
+expect fun platformModule(): org.koin.core.module.Module

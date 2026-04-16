@@ -105,6 +105,24 @@ class AuthRepository(
         )
     }
 
+    /**
+     * 创建充值订单 POST /orders/transfers
+     */
+    suspend fun createRechargeOrder(amount: Long): BaseResponse<RechargeOrderData> {
+        val request = CreateRechargeOrderRequest(amount = amount)
+        return authApi.post("/orders/transfers", request)
+    }
+
+    /**
+     * 验证 Apple IAP 交易 POST /orders/apple/verify
+     */
+    suspend fun verifyAppleIAPTransaction(transactionId: String): BaseResponse<VerifyTransactionData> {
+        val request = mapOf(
+            "transaction_id" to transactionId
+        )
+        return authApi.post("/orders/apple/verify", request)
+    }
+
     // ---- Lucy 设备 ----
 
     private val devicesPath = "/channels/lucy-app/current-user/devices"
