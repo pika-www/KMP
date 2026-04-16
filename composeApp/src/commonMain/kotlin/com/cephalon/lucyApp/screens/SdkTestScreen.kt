@@ -39,7 +39,7 @@ import org.koin.compose.koinInject
 fun SdkTestScreen(onBack: () -> Unit) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val scope = rememberCoroutineScope()
-    var targetCdi by remember { mutableStateOf(SdkSessionManager.DEFAULT_TARGET_CDI) }
+    var targetCdi by remember { mutableStateOf("") }
     var textMessage by remember { mutableStateOf("你好") }
     var actionText by remember { mutableStateOf("") }
     var typedAssistantReply by remember { mutableStateOf("") }
@@ -47,6 +47,13 @@ fun SdkTestScreen(onBack: () -> Unit) {
     val onlineDevices by sdkSessionManager.onlineDevices.collectAsState()
     val assistantReplyText by sdkSessionManager.assistantReplyText.collectAsState()
     val assistantReplyStreaming by sdkSessionManager.assistantReplyStreaming.collectAsState()
+
+    // 自动设置第一个可用设备的 CDI
+    LaunchedEffect(onlineDevices) {
+        if (targetCdi.isBlank() && onlineDevices.isNotEmpty()) {
+            targetCdi = onlineDevices.first().cdi
+        }
+    }
 
     LaunchedEffect(actionText) {
         if (actionText.isNotBlank()) {

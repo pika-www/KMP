@@ -134,8 +134,7 @@ fun AgentModelScreen(
     val currentUserId = userInfo?.userId ?: "anonymous"
     val currentCdi = initialTargetCdi
         ?: onlineDeviceCdis.firstOrNull()
-        ?: SdkSessionManager.DEFAULT_TARGET_CDI
-    val cacheKey = "${currentUserId}_${currentCdi}"
+    val cacheKey = "${currentUserId}_${currentCdi ?: "no_device"}"
 
     val logs = remember {
         mutableStateListOf(
@@ -433,7 +432,7 @@ fun AgentModelScreen(
         lastPickedFilesSize = size
     }
 
-    val sendMessage = {
+    val sendMessage = Unit@{
         val text = inputText.text.trim()
         val attachments = draftAttachments.toList()
 
@@ -459,7 +458,15 @@ fun AgentModelScreen(
                 }
             val targetCdi = initialTargetCdi
                 ?: onlineDeviceCdis.firstOrNull()
-                ?: SdkSessionManager.DEFAULT_TARGET_CDI
+
+            if (targetCdi == null) {
+                appendMessageToConversation(
+                    targetConversationId,
+                    ChatItem.System("没有可用的设备，请等待设备上线后重试")
+                )
+                return@Unit
+            }
+
             println("[Chat] 发送消息: text=\"$outgoingText\", targetCdi=$targetCdi, initialTargetCdi=$initialTargetCdi, onlineDeviceCdis=$onlineDeviceCdis, hasImage=${imageAttachment != null}")
             appendMessageToConversation(
                 targetConversationId,
@@ -535,8 +542,8 @@ fun AgentModelScreen(
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
                             it is ChatItem.Assistant &&
-                                it.messageId == null &&
-                                it.text == STREAMING_PLACEHOLDER_TEXT
+                                    it.messageId == null &&
+                                    it.text == STREAMING_PLACEHOLDER_TEXT
                         }
                         if (idx >= 0) {
                             msgs[idx] = ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT, messageId)

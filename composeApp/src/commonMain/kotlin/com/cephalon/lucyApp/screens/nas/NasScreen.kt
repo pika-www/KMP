@@ -102,7 +102,7 @@ fun NasScreen(onBack: () -> Unit) {
             it.status == NasUploadTaskStatus.Registering ||
             it.status == NasUploadTaskStatus.Waiting
     }
-    val targetCdi = onlineDeviceCdis.firstOrNull() ?: SdkSessionManager.DEFAULT_TARGET_CDI
+    val targetCdi = onlineDeviceCdis.firstOrNull() ?: ""
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )

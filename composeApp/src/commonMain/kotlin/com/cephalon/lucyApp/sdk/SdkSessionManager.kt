@@ -134,6 +134,7 @@ class SdkSessionManager(
     private var reconnectJob: Job? = null
     private var tokenExpiryJob: Job? = null
     private var authReconnectAttempts = 0
+    private var observerRestartAttempts = 0
 
     private val _connectionState = MutableStateFlow(SdkConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SdkConnectionState> = _connectionState.asStateFlow()
@@ -230,9 +231,11 @@ class SdkSessionManager(
         appLogD(TAG, "应用在后台，主动断开 NATS 连接")
         scope.launch {
             connectMutex.withLock {
+                logSdkEvent("后台触发断开连接, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
                 _connectionLog.value = "应用在后台，已主动断开"
+                logSdkEvent("后台断开连接完成")
                 appLogD(TAG, _connectionLog.value)
             }
         }
@@ -283,7 +286,18 @@ class SdkSessionManager(
             appLogD(TAG, "connect: token=${token.take(20)}..., tokenLen=${token.length}")
 
             appLogD(TAG, "connect: 调用 sdkClient.connect() ...")
-            val connectResult = runCatching { sdkClient.connect(token) }
+            val connectResult =
+                runCatching {
+                    appLogD(TAG, "connect: runCatching 内开始执行 sdkClient.connect()")
+                    val connectedSession =
+                        withTimeoutOrNull(SDK_CONNECT_TIMEOUT_MS) {
+                            sdkClient.connect(token)
+                        } ?: throw IllegalStateException("sdkClient.connect timeout (${SDK_CONNECT_TIMEOUT_MS}ms)")
+                    appLogD(TAG, "connect: runCatching 内 sdkClient.connect() 成功")
+                    connectedSession
+                }.onFailure { error ->
+                    appLogD(TAG, "connect: runCatching 内 sdkClient.connect() 失败 ${error::class.simpleName}: ${error.message}")
+                }
             appLogD(TAG, "connect: sdkClient.connect() 返回 isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
 
             connectResult.onSuccess { newSession ->
@@ -293,6 +307,7 @@ class SdkSessionManager(
                 authReconnectAttempts = 0
                 _connectionState.value = SdkConnectionState.CONNECTED
                 _connectionLog.value = "连接成功，userId=${newSession.userId}"
+                logSdkEvent("连接成功 userId=${newSession.userId}")
                 appLogD(TAG, _connectionLog.value)
                 appLogD(TAG, "connect: 即将启动 observers...")
                 startObservers(newSession)
@@ -322,6 +337,7 @@ class SdkSessionManager(
     fun disconnect() {
         scope.launch {
             connectMutex.withLock {
+                logSdkEvent("断开连接 requested, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
                 _connectionLog.value = "连接已关闭"
@@ -334,6 +350,7 @@ class SdkSessionManager(
                 _latestRequestId = null
                 _assistantReplyText.value = ""
                 _assistantReplyStreaming.value = false
+                logSdkEvent("断开连接完成")
                 appLogD(TAG, _connectionLog.value)
                 appLogD(TAG, _consumerLog.value)
                 appLogD(TAG, _deviceLog.value)
@@ -344,6 +361,10 @@ class SdkSessionManager(
     suspend fun publishToNpc(cdi: String, payload: String): Result<Unit> {
         val activeSession = session
             ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        // 发送前打印 CDI 和对话 JSON
+        logSdkEvent("publishToNpc CDI=$cdi")
+        logSdkEvent("publishToNpc payload=$payload")
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
@@ -670,6 +691,7 @@ class SdkSessionManager(
         deviceObserver = newObserver
         deviceObserverJob =
             newObserver.collectDevices(scope) { devices ->
+                logSdkEvent("collectDevices devices.size=${devices.size}, devices=$devices")
                 appLogD(TAG, "[DeviceObserver] collectDevices 回调, devices.size=${devices.size}, devices=$devices")
                 _onlineDevices.value = devices
                 val cdis = devices.map { it.cdi }
@@ -766,10 +788,13 @@ class SdkSessionManager(
                 appLogD(TAG, _consumerLog.value)
             }
 
+        // 监听启动成功，重置重试计数
+        observerRestartAttempts = 0
+
         consumerJob?.invokeOnCompletion { throwable ->
             if (throwable is CancellationException) return@invokeOnCompletion
             if (throwable == null) {
-                appLogD(TAG, "[Consumer] 消费者正常结束（不应发生），准备重建监听")
+                logSdkEvent("[Consumer] 消费者正常结束（不应发生），restartAttempts=$observerRestartAttempts")
                 _consumerLog.value = "监听意外结束，准备恢复..."
                 scheduleObserverRestart("消费者正常结束")
                 return@invokeOnCompletion
@@ -784,7 +809,7 @@ class SdkSessionManager(
         deviceObserverJob?.invokeOnCompletion { throwable ->
             if (throwable is CancellationException) return@invokeOnCompletion
             if (throwable == null) {
-                appLogD(TAG, "[DeviceObserver] 设备监听正常结束（不应发生），准备重建")
+                logSdkEvent("[DeviceObserver] 设备监听正常结束（不应发生），restartAttempts=$observerRestartAttempts")
                 _deviceLog.value = "设备监听意外结束，准备恢复..."
                 scheduleObserverRestart("设备监听正常结束")
                 return@invokeOnCompletion
@@ -840,6 +865,7 @@ class SdkSessionManager(
         _assistantReplyStreaming.value = false
         _streamingStatusText.value = null
         _reasoningText.value = ""
+        logSdkEvent("resetSessionResources")
     }
 
     private fun handleObserverFailure(
@@ -920,18 +946,31 @@ class SdkSessionManager(
 
     private fun scheduleObserverRestart(logLabel: String) {
         if (observerRestartJob?.isActive == true) return
+        observerRestartAttempts++
+        if (observerRestartAttempts > MAX_OBSERVER_RESTART_ATTEMPTS) {
+            logSdkEvent("$logLabel 重建监听已达上限($MAX_OBSERVER_RESTART_ATTEMPTS)，停止重试")
+            _deviceLog.value = "设备监听重建失败，已达重试上限"
+            _consumerLog.value = "消费者重建失败，已达重试上限"
+            return
+        }
+        val delayMs = OBSERVER_RESTART_DELAY_MS * observerRestartAttempts.coerceAtMost(5)
+        logSdkEvent("$logLabel 准备重建监听 attempt=$observerRestartAttempts/$MAX_OBSERVER_RESTART_ATTEMPTS, delay=${delayMs}ms")
         observerRestartJob =
             scope.launch {
-                delay(OBSERVER_RESTART_DELAY_MS)
+                delay(delayMs)
                 connectMutex.withLock {
                     val activeSession = session
                     if (activeSession == null || _connectionState.value != SdkConnectionState.CONNECTED) {
                         appLogD(TAG, "${logLabel}重建监听跳过：当前无可用连接")
                         return@withLock
                     }
-                    restartObservers(session = activeSession, reason = "${logLabel}订阅超时")
+                    restartObservers(session = activeSession, reason = "${logLabel}重建")
                 }
             }
+    }
+
+    private fun logSdkEvent(message: String) {
+        appLogD(TAG, "[SdkEvent] $message")
     }
 
     private fun scheduleReconnect(reason: String) {
@@ -942,7 +981,7 @@ class SdkSessionManager(
                 connectMutex.withLock {
                     _connectionState.value = SdkConnectionState.DISCONNECTED
                     _connectionLog.value = "$reason，正在重连..."
-                    appLogD(TAG, _connectionLog.value)
+                    logSdkEvent(_connectionLog.value)
                     resetSessionResources()
                 }
                 ensureConnectedIfTokenValid()
@@ -950,7 +989,7 @@ class SdkSessionManager(
     }
 
     private fun restartObservers(session: ConnectedSession, reason: String) {
-        appLogD(TAG, "$reason，开始重建监听")
+        logSdkEvent("$reason，开始重建监听")
         consumerJob?.cancel()
         deviceObserverJob?.cancel()
         deviceObserver?.stop()
@@ -1337,11 +1376,12 @@ class SdkSessionManager(
         private const val OBSERVER_RESTART_DELAY_MS = 800L
         private const val RECONNECT_DELAY_MS = 800L
         private const val BACKGROUND_DISCONNECT_DELAY_MS = 3000L
+        private const val SDK_CONNECT_TIMEOUT_MS = 20_000L
         private const val TOKEN_REFRESH_BUFFER_MS = 60_000L   // 过期前 60s 触发重连
         private const val TOKEN_CHECK_MIN_INTERVAL_MS = 30_000L  // 最少 30s 检查一次
         private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
         private const val MAX_AUTH_RECONNECT_ATTEMPTS = 3       // NATS 鉴权重连最多尝试次数
-        const val DEFAULT_TARGET_CDI = "2042541809425543168"
+        private const val MAX_OBSERVER_RESTART_ATTEMPTS = 5      // observer 重建最多尝试次数
     }
 }
 
