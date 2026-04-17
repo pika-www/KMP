@@ -63,6 +63,7 @@ import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
 /* ═══════════════ Color tokens ═══════════════ */
 private val TextDefault = Color(0xFF12192B)
 private val TextLinkGrey = Color(0xFF595E6B)
+private val TextDisabledGrey = Color(0xFFA6ABB5)
 private val BlueLink = Color(0xFF1A73E9)
 private val StopRed = Color(0xFFE84026)
 private val StepActiveColor = Color(0xFF12192B)
@@ -305,9 +306,9 @@ internal fun BrainBoxScanStep(
     onSelectDevice: (BrainBoxBleDevice) -> Unit,
     onRequestPermission: () -> Unit,
     onNext: () -> Unit,
+    probeStates: Map<String, DeviceProbeState> = emptyMap(),
     connectingDeviceId: String? = null,
     onStopScan: () -> Unit = {},
-    deviceBindingMap: Map<String, String> = emptyMap(),
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (!controller.bluetoothPermissionGranted || !controller.bluetoothEnabled) {
@@ -392,13 +393,10 @@ internal fun BrainBoxScanStep(
                         verticalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
                         items(devices, key = { it.id }) { device ->
-                            val bindingStatus = deviceBindingMap[device.id]
-                            val isBound = bindingStatus.equals("bound", ignoreCase = true)
                             BrainBoxBleDeviceRow(
                                 device = device,
                                 isConnecting = connectingDeviceId == device.id,
-                                isBound = isBound,
-                                isProbing = bindingStatus == null,
+                                probeState = probeStates[device.id],
                                 onConnect = {
                                     onSelectDevice(device)
                                     onNext()
@@ -418,10 +416,14 @@ internal fun BrainBoxScanStep(
 private fun BrainBoxBleDeviceRow(
     device: BrainBoxBleDevice,
     isConnecting: Boolean,
-    isBound: Boolean = false,
-    isProbing: Boolean = false,
+    probeState: DeviceProbeState?,
     onConnect: () -> Unit,
 ) {
+    // 未放入 map（null）或 Probing：后台还在读 pairing_info
+    val isProbing = probeState == null || probeState is DeviceProbeState.Probing
+    val isOccupied = probeState is DeviceProbeState.Occupied
+    val nameColor = if (isOccupied) TextDisabledGrey else TextDefault
+    val metaColor = if (isOccupied) TextDisabledGrey else TextLinkGrey
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -433,7 +435,7 @@ private fun BrainBoxBleDeviceRow(
                 text = device.name,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (isBound) TextLinkGrey else TextDefault,
+                color = nameColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -442,45 +444,47 @@ private fun BrainBoxBleDeviceRow(
                 text = "RSSI${device.rssi ?: "--"}",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Normal,
-                color = TextLinkGrey,
+                color = metaColor,
             )
         }
         when {
-            isConnecting -> {
-                CircularProgressIndicator(
-                    color = BlueLink,
-                    strokeWidth = 1.5.dp,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            isBound -> {
-                Text(
-                    text = "已占用",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = Color(0xFFFF6B6B),
-                    lineHeight = 16.sp,
-                    textAlign = TextAlign.End,
-                )
-            }
-            isProbing -> {
+            isConnecting -> CircularProgressIndicator(
+                color = BlueLink,
+                strokeWidth = 1.5.dp,
+                modifier = Modifier.size(16.dp),
+            )
+            isProbing -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(
                     color = TextLinkGrey,
-                    strokeWidth = 1.dp,
-                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 1.2.dp,
+                    modifier = Modifier.size(12.dp),
                 )
-            }
-            else -> {
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "连接",
+                    text = "检测中…",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Normal,
-                    color = BlueLink,
+                    color = TextLinkGrey,
                     lineHeight = 16.sp,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.clickable(onClick = onConnect),
                 )
             }
+            isOccupied -> Text(
+                text = "已占用",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
+                color = TextDisabledGrey,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.End,
+            )
+            else -> Text(
+                text = "连接",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Normal,
+                color = BlueLink,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.End,
+                modifier = Modifier.clickable(onClick = onConnect),
+            )
         }
     }
 }

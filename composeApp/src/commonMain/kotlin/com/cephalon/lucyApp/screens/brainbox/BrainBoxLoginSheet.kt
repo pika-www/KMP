@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LucyDevice
 import com.cephalon.lucyApp.api.channelDeviceId
+import com.cephalon.lucyApp.time.currentTimeMillis
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiMode
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
@@ -40,8 +41,6 @@ import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage
 import com.cephalon.lucyApp.deviceaccess.gatt.rememberProvisionManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.koin.compose.koinInject
 
 private enum class BrainBoxStep(
@@ -62,6 +61,22 @@ private enum class BrainBoxStep(
     ),
 }
 
+/**
+ * 扫描列表里每一台 BLE 设备的探测结果。
+ * - [Probing]：正在后台 GATT 读取 pairing_info。
+ * - [Free]：未绑定（binding_status != "bound"），可正常走绑定流程。
+ * - [OwnedByMe]：固件已绑定且 cdi 属于当前账号，可直接进入。
+ * - [Occupied]：固件已绑定但 cdi 不属于当前账号，置灰不可点。
+ * - [Failed]：探测失败（断开 / 超时等），允许用户手动点连接重试。
+ */
+internal sealed interface DeviceProbeState {
+    data object Probing : DeviceProbeState
+    data object Free : DeviceProbeState
+    data class OwnedByMe(val cdi: String) : DeviceProbeState
+    data object Occupied : DeviceProbeState
+    data object Failed : DeviceProbeState
+}
+
 @Composable
 fun BrainBoxLoginSheet(
     isVisible: Boolean,
@@ -80,9 +95,12 @@ fun BrainBoxLoginSheet(
     val wifiNetworks = provisionState.wifiNetworks.map { it.toBrainBoxWifiNetwork() }
     val isWifiLoading = provisionState.stage == ProvisionFlowStage.Connecting ||
         provisionState.stage == ProvisionFlowStage.Discovering ||
+        provisionState.stage == ProvisionFlowStage.ReadingDeviceInfo ||
+        provisionState.stage == ProvisionFlowStage.ReadingNetworkStatus ||
         provisionState.stage == ProvisionFlowStage.ReadingPairingInfo ||
         provisionState.stage == ProvisionFlowStage.RequestingOtp ||
-        provisionState.stage == ProvisionFlowStage.ScanningWifi
+        provisionState.stage == ProvisionFlowStage.ScanningWifi ||
+        provisionState.stage == ProvisionFlowStage.Reconnecting
 
     var currentStep by remember { mutableStateOf(BrainBoxStep.Scan) }
     var selectedBleDevice by remember { mutableStateOf<BrainBoxBleDevice?>(null) }
@@ -93,10 +111,13 @@ fun BrainBoxLoginSheet(
     var isConnectingWifi by remember { mutableStateOf(false) }
     var isBinding by remember { mutableStateOf(false) }
     var connectingDeviceId by remember { mutableStateOf<String?>(null) }
-    val deviceBindingMap = remember { mutableStateMapOf<String, String>() }
-    val probeMutex = remember { Mutex() }
     var isLoadingDevices by remember { mutableStateOf(false) }
     val serverDevices = remember { mutableStateListOf<LucyDevice>() }
+    // 按 device.id 记录每台蓝牙设备的探测结果；缺省（map 中无 key）表示尚未探测或正在等待下次重试。
+    val probeStates = remember { mutableStateMapOf<String, DeviceProbeState>() }
+    // 按 device.id 记录失败重试次数（用于指数退避）和下次允许重试的时间戳。
+    val probeAttempts = remember { mutableStateMapOf<String, Int>() }
+    val probeNextRetryAtMs = remember { mutableStateMapOf<String, Long>() }
 
     fun resetState() {
         currentStep = BrainBoxStep.Scan
@@ -108,9 +129,11 @@ fun BrainBoxLoginSheet(
         isConnectingWifi = false
         isBinding = false
         connectingDeviceId = null
-        deviceBindingMap.clear()
         isLoadingDevices = false
         serverDevices.clear()
+        probeStates.clear()
+        probeAttempts.clear()
+        probeNextRetryAtMs.clear()
         provisionManager.stopScan()
         scope.launch { provisionManager.cancel() }
     }
@@ -157,37 +180,90 @@ fun BrainBoxLoginSheet(
         }
     }
 
-    // 20 秒自动停止扫描
-    LaunchedEffect(isVisible, currentStep, isBleScanning) {
-        if (!isVisible || currentStep != BrainBoxStep.Scan || !isBleScanning) return@LaunchedEffect
-        delay(20_000L)
-        provisionManager.stopScan()
-    }
-
-    // 扫描结束后，逐个连接设备探测 binding_status（扫描期间不探测，避免干扰）
+    // 扫描步骤后台探测调度器：
+    // - 扫描全程不停，probe 与 scan 并行运行（iOS Core Bluetooth 天然支持，Android 亦允许）；
+    // - probe 之间仍然串行（共用 provisionManager.gattMutex），一次只连一台；
+    // - 用户点"连接"后 connectingDeviceId 非空，调度器暂停 probe 让出 GATT 通道；
+    // - 失败自动重试：指数退避 500ms → 1s → 2s → 4s → 8s，只延迟这一台，不阻塞其他设备；
+    //   UI 在重试期间仍显示"检测中…"，直到拿到 Free/Occupied/OwnedByMe 等确定结果。
+    // - key 只盯 (isVisible, currentStep)，蓝牙开关/权限在 loop 内动态查，避免广播抖动重启循环。
     LaunchedEffect(isVisible, currentStep) {
         if (!isVisible || currentStep != BrainBoxStep.Scan) return@LaunchedEffect
-        var wasScanning = false
-        provisionManager.scanState.collect { snapshot ->
-            val scanning = snapshot.isScanning
-            if (wasScanning && !scanning && snapshot.devices.isNotEmpty()) {
-                // 扫描刚停止，开始探测所有尚未探测的设备
-                val devicesToProbe = snapshot.devices.filter { it.id !in deviceBindingMap }
-                println("[BLE_PROBE] 扫描结束，开始探测 ${devicesToProbe.size} 个设备")
-                for (device in devicesToProbe) {
-                    if (connectingDeviceId != null) break
-                    probeMutex.withLock {
-                        provisionManager.checkBindingStatus(device)
-                            .onSuccess { status ->
-                                deviceBindingMap[device.id] = status
-                                println("[BLE_PROBE] ${device.name}(${device.id}) → $status")
-                            }
-                            .onFailure { println("[BLE_PROBE] ${device.id} 探测失败: ${it.message}") }
-                    }
-                }
-                println("[BLE_PROBE] 探测完成")
+        while (true) {
+            if (connectingDeviceId != null ||
+                !controller.bluetoothPermissionGranted ||
+                !controller.bluetoothEnabled
+            ) {
+                delay(300L)
+                continue
             }
-            wasScanning = scanning
+            val now = currentTimeMillis()
+            val next = provisionManager.scanState.value.devices.firstOrNull { dev ->
+                probeStates[dev.id] == null && (probeNextRetryAtMs[dev.id] ?: 0L) <= now
+            }
+            if (next == null) {
+                delay(300L)
+                continue
+            }
+            probeStates[next.id] = DeviceProbeState.Probing
+            val attempt = (probeAttempts[next.id] ?: 0) + 1
+            probeAttempts[next.id] = attempt
+            println("[BrainBox] probe for ${next.id} (${next.name}) attempt #$attempt")
+            val probeResult = provisionManager.probeDevice(next)
+            val resolved: DeviceProbeState = probeResult.fold(
+                onSuccess = { info ->
+                    when {
+                        !info.isBound || info.channelDeviceId.isBlank() -> DeviceProbeState.Free
+                        else -> {
+                            val cdi = info.channelDeviceId
+                            val lookup = runCatching { authRepository.findDeviceByChannelDeviceId(cdi) }
+                            val owned = lookup.getOrNull()
+                            when {
+                                lookup.isFailure -> {
+                                    println("[BrainBox] probe owner lookup failed for $cdi: ${lookup.exceptionOrNull()?.message}")
+                                    DeviceProbeState.Failed
+                                }
+                                owned != null -> DeviceProbeState.OwnedByMe(cdi)
+                                else -> DeviceProbeState.Occupied
+                            }
+                        }
+                    }
+                },
+                onFailure = { DeviceProbeState.Failed },
+            )
+            if (resolved is DeviceProbeState.Failed) {
+                // 未拿到确定结果：安排下次重试，UI 仍显示"检测中…"（probeStates 清掉即回到 null 态）
+                val shiftBits = (attempt - 1).coerceAtMost(4)
+                val backoff = (500L shl shiftBits).coerceAtMost(8_000L)
+                probeNextRetryAtMs[next.id] = currentTimeMillis() + backoff
+                probeStates.remove(next.id)
+                println("[BrainBox] probe failed for ${next.id} (attempt #$attempt), retry after ${backoff}ms")
+            } else {
+                probeStates[next.id] = resolved
+                probeAttempts.remove(next.id)
+                probeNextRetryAtMs.remove(next.id)
+                println("[BrainBox] probe resolved ${next.id} -> $resolved (attempts=$attempt)")
+            }
+        }
+    }
+
+    // 当发现当前账号无权使用这台盒子（固件已绑给别人 / 查询失败）时，干净地断开 BLE、
+    // 清空 UI 状态、回到扫描步并重新开始扫描。必须在 scope.launch 内调用。
+    suspend fun goBackToScanAfterRejection(message: String) {
+        toastState.show(message)
+        provisionManager.cancel()
+        currentStep = BrainBoxStep.Scan
+        selectedBleDevice = null
+        selectedWifiSsid = ""
+        wifiPassword = ""
+        wifiConnectedSsid = null
+        isConnectingWifi = false
+        connectingDeviceId = null
+        isBinding = false
+        if (controller.bluetoothPermissionGranted && controller.bluetoothEnabled) {
+            provisionManager.startScan().onFailure {
+                toastState.show(it.message ?: "重新扫描失败")
+            }
         }
     }
 
@@ -204,12 +280,28 @@ fun BrainBoxLoginSheet(
                 return@launch
             }
 
-            // 设备已绑定（无需 OTP），直接用 CDI 跳转
+            // 固件侧已绑定：必须校验 cdi 是否属于当前账号，避免把别人绑的盒子误当自己的打开。
             if (pairingInfo.isBound && pairingInfo.channelDeviceId.isNotBlank()) {
-                println("[BrainBox] 设备已绑定，直接跳转 cdi=${pairingInfo.channelDeviceId}")
-                toastState.show("设备已绑定")
-                onBindSuccess(pairingInfo.channelDeviceId)
-                isBinding = false
+                val cdi = pairingInfo.channelDeviceId
+                println("[BrainBox] 固件侧已绑定 cdi=$cdi，校验是否属于当前账号…")
+                val lookup = runCatching { authRepository.findDeviceByChannelDeviceId(cdi) }
+                val ownedDevice = lookup.getOrNull()
+                if (lookup.isFailure) {
+                    println("[BrainBox] 查询当前账号设备列表失败: ${lookup.exceptionOrNull()?.message}")
+                    val msg = lookup.exceptionOrNull()?.message ?: "校验设备归属失败，请检查网络后重试"
+                    goBackToScanAfterRejection(msg)
+                    return@launch
+                }
+                if (ownedDevice != null) {
+                    println("[BrainBox] 设备属于当前账号 (name=${ownedDevice.name})，直接跳转 cdi=$cdi")
+                    toastState.show("设备已绑定")
+                    onBindSuccess(cdi)
+                    isBinding = false
+                    return@launch
+                }
+                // 固件 bound 但当前账号没有这个 cdi → 是别人绑的盒子，固件不允许再发 OTP，只能提示并退出。
+                println("[BrainBox] cdi=$cdi 不在当前账号设备列表，拒绝跳转并回到扫描步")
+                goBackToScanAfterRejection("此设备已被其他账号绑定，请联系原持有人解绑后再试")
                 return@launch
             }
 
@@ -222,9 +314,18 @@ fun BrainBoxLoginSheet(
             println("[BrainBox] OTP 获取成功: otp=$otp, 开始调用绑定接口...")
             authRepository.bindDeviceWithOtp(otp)
                 .onSuccess { bindingData ->
-                    println("[BrainBox] UI: 绑定成功 cdi=${bindingData.cdi}, status=${bindingData.status}, msg=${bindingData.serverMsg}")
-                    toastState.show(bindingData.serverMsg.ifBlank { "绑定成功" })
-                    onBindSuccess(bindingData.cdi)
+                    println("[BrainBox] UI: 服务端绑定接口返回成功 cdi=${bindingData.cdi}, status=${bindingData.status}, msg=${bindingData.serverMsg}")
+                    // 按协议再读一次 lucy_pairing_info，确认 binding_status == "bound" 后再跳转。
+                    provisionManager.verifyBindingStatus()
+                        .onSuccess { verifiedInfo ->
+                            println("[BrainBox] UI: 绑定确认成功 binding_status=${verifiedInfo.bindingStatus}, cdi=${verifiedInfo.channelDeviceId}")
+                            toastState.show(bindingData.serverMsg.ifBlank { "绑定成功" })
+                            onBindSuccess(verifiedInfo.channelDeviceId.ifBlank { bindingData.cdi })
+                        }
+                        .onFailure { verifyError ->
+                            println("[BrainBox] UI: 绑定确认失败 - ${verifyError.message}")
+                            toastState.show(verifyError.message ?: "读取 pairing_info 失败，绑定未确认")
+                        }
                 }
                 .onFailure { error ->
                     toastState.show(error.message ?: "绑定失败，请稍后重试")
@@ -242,28 +343,63 @@ fun BrainBoxLoginSheet(
                 provisionManager.stopScan()
                 val device = selectedBleDevice?.toBleScanDevice()
                 if (device != null) {
-                    // 先连接设备读取 device_info，判断是否已联网
-                    provisionManager.connectDevice(device).onSuccess {
-                        val deviceInfo = provisionManager.state.value.deviceInfo
-                        println("[BrainBox] WiFi步骤检查: isConnected=${deviceInfo?.isConnected}, ip=${deviceInfo?.ip}, ssid=${deviceInfo?.ssid}, state=${deviceInfo?.state}")
-                        if (deviceInfo != null && deviceInfo.isConnected && deviceInfo.ip.isNotBlank() && deviceInfo.ssid.isNotBlank()) {
-                            println("[BrainBox] 设备已联网 (ssid=${deviceInfo.ssid}, ip=${deviceInfo.ip})，跳过配网，请求 OTP 并绑定...")
-                            wifiConnectedSsid = deviceInfo.ssid
-                            currentStep = BrainBoxStep.Bind
-                            requestOtpAndBind()
-                        } else {
-                            // 设备未联网，正常扫描 WiFi
-                            provisionManager.refreshWifiNetworks(device).onFailure {
-                                toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
-                            }
+                    // connectDevice 内部已经读过 device_info / network_status / pairing_info。
+                    // 如果设备已经联网 (network_status.state == "connected") 则跳过 Wi‑Fi 步骤直接请求 OTP。
+                    val networkStatus = provisionManager.state.value.networkStatus
+                    println("[BrainBox] WiFi步骤检查: networkStatus=${networkStatus?.state}, ssid=${networkStatus?.ssid}, ip=${networkStatus?.ip}")
+                    if (networkStatus != null && networkStatus.isConnected) {
+                        println("[BrainBox] 设备已联网 (state=${networkStatus.state}, ssid=${networkStatus.ssid}, ip=${networkStatus.ip})，跳过配网，请求 OTP 并绑定...")
+                        wifiConnectedSsid = networkStatus.ssid.ifBlank { "已连接" }
+                        currentStep = BrainBoxStep.Bind
+                        requestOtpAndBind()
+                    } else {
+                        // 设备未联网，执行协议步骤 5：写入 wifi_scan → 等待 5s → 读取
+                        provisionManager.refreshWifiNetworks(device).onFailure {
+                            toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
                         }
-                    }.onFailure {
-                        toastState.show(it.message ?: "连接设备失败")
                     }
                 }
             }
             BrainBoxStep.Bind -> {
                 provisionManager.stopScan()
+            }
+        }
+    }
+
+    // 首次 BLE 断开由 ProvisionManager 自动重连；重连成功后 UI 重新请求 OTP 并继续绑定。
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        provisionManager.reconnectedEvents.collect {
+            println("[BrainBox] 收到自动重连成功事件，重新请求 OTP 并继续绑定")
+            toastState.show("设备已重连，正在重新请求 OTP…")
+            // 确保 UI 停留在/切换到绑定步骤，并重置状态以允许再次触发 requestOtpAndBind。
+            if (currentStep != BrainBoxStep.Bind) {
+                currentStep = BrainBoxStep.Bind
+            }
+            isBinding = false
+            requestOtpAndBind()
+        }
+    }
+
+    // 再次 BLE 断开（重连配额已用尽），回到扫描步骤。
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        provisionManager.disconnectEvents.collect { message ->
+            println("[BrainBox] 收到 BLE 断开事件: $message，UI 回到扫描步骤")
+            toastState.show(message)
+            currentStep = BrainBoxStep.Scan
+            selectedBleDevice = null
+            selectedWifiSsid = ""
+            wifiPassword = ""
+            wifiConnectedSsid = null
+            isConnectingWifi = false
+            isBinding = false
+            connectingDeviceId = null
+            // 自动重新开始扫描
+            if (controller.bluetoothPermissionGranted && controller.bluetoothEnabled) {
+                provisionManager.startScan().onFailure {
+                    toastState.show(it.message ?: "重新扫描失败")
+                }
             }
         }
     }
@@ -393,6 +529,8 @@ fun BrainBoxLoginSheet(
                             onRequestPermission = ::requestBluetoothAgain,
                             onNext = {
                                 val device = selectedBleDevice?.toBleScanDevice() ?: return@BrainBoxScanStep
+                                // 已占用的设备 UI 层根本点不到，这里再做一次 guard，避免竞态
+                                if (probeStates[device.id] is DeviceProbeState.Occupied) return@BrainBoxScanStep
                                 connectingDeviceId = device.id
                                 scope.launch {
                                     provisionManager.stopScan()
@@ -414,9 +552,9 @@ fun BrainBoxLoginSheet(
                                         }
                                 }
                             },
+                            probeStates = probeStates,
                             connectingDeviceId = connectingDeviceId,
                             onStopScan = { provisionManager.stopScan() },
-                            deviceBindingMap = deviceBindingMap,
                         )
                     }
                     BrainBoxStep.Wifi -> {

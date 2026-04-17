@@ -151,10 +151,10 @@ actual fun rememberBleClient(): BleClient {
                     scanState.update { it.copy(isScanning = false) }
                     return
                 }
-                discoveredDevices.clear()
+                // 不再清空 discoveredDevices：同一次 Sheet 会话里 startScan 可能被反复调用
+                // (例如探测 pairing_info 结束后恢复扫描)，若每次清空会导致 UI 列表闪烁。
                 scanState.update {
                     it.copy(
-                        devices = emptyList(),
                         isScanning = true,
                         errorMessage = null,
                     )

@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -28,7 +29,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,6 +54,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -67,7 +72,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.account_bg
-import androidios.composeapp.generated.resources.ic_skill_knowledge
+import androidios.composeapp.generated.resources.ic_device_storage
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.channelDeviceId
@@ -365,7 +370,7 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.Account -> {
-                    ProfilePageContainer {
+                    ProfilePageContainer(showBackground = false) {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
                             title = "账号",
@@ -393,7 +398,7 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.Recharge -> {
-                    ProfilePageContainer {
+                    ProfilePageContainer(showBackground = false) {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
                             title = "脑力值用量",
@@ -418,7 +423,7 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.RechargePackage -> {
-                    ProfilePageContainer {
+                    ProfilePageContainer(showBackground = false) {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
                             title = "选择套餐",
@@ -441,14 +446,42 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.Feedback -> {
-                    ProfilePageContainer {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        ProfileTopBar(
-                            title = "意见反馈",
-                            showBack = true,
-                            onBack = { currentPage = ProfilePage.Settings },
-                            onClose = onDismiss
+                    ProfilePageContainer(showBackground = false) {
+                        // 仅返回按钮
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(
+                                onClick = { currentPage = ProfilePage.Settings },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color(0xFF12192B),
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                        }
+
+                        // 意见反馈标题，距离顶部（返回按钮下）32dp
+                        Spacer(modifier = Modifier.height(32.dp))
+                        Text(
+                            text = "意见反馈",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF12192B),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp),
                         )
+
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Column(
@@ -466,21 +499,36 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.MyDevices -> {
-                    ProfilePageContainer {
+                    ProfilePageContainer(showBackground = false) {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
-                            title = "当前设备",
+                            title = null,
                             showBack = true,
                             onBack = { currentPage = ProfilePage.Settings },
-                            onClose = onDismiss
+                            onClose = onDismiss,
+                            showClose = false,
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        // "当前设备" 标题
+                        Text(
+                            text = "当前设备",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF12192B),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp),
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
 
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = 18.dp)
+                                .padding(horizontal = 20.dp)
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             MyDevicesContent(
@@ -500,14 +548,48 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.SwitchDevice -> {
-                    ProfilePageContainer {
-                        Spacer(modifier = Modifier.height(20.dp))
-                        ProfileTopBar(
-                            title = "切换设备",
-                            showBack = true,
-                            onBack = { currentPage = ProfilePage.MyDevices },
-                            onClose = onDismiss
+                    ProfilePageContainer(showBackground = false) {
+                        val sdkSessionManager = koinInject<SdkSessionManager>()
+                        // 点击待确认的设备 cdi；默认为当前使用的设备
+                        var pendingCdi by remember(switchDeviceCurrentCdi) {
+                            mutableStateOf(switchDeviceCurrentCdi)
+                        }
+
+                        // 仅返回按钮（无标题、无关闭按钮）
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(
+                                onClick = { currentPage = ProfilePage.MyDevices },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color(0xFF12192B),
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                        }
+
+                        // 标题距离顶部 32dp（back button 之后 ~32dp 间距，视觉上对齐设计稿）
+                        Spacer(modifier = Modifier.height(32.dp))
+                        Text(
+                            text = "选择要使用的设备",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF12192B),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp),
                         )
+
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Column(
@@ -517,24 +599,54 @@ internal fun AgentModelProfileScreen(
                                 .padding(horizontal = 18.dp)
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            val sdkSessionManager = koinInject<SdkSessionManager>()
                             SwitchDeviceContent(
                                 devices = switchDeviceList,
-                                currentCdi = switchDeviceCurrentCdi,
-                                onDeviceSelected = { selectedDevice ->
-                                    val cdi = selectedDevice.channelDeviceId
-                                    sdkSessionManager.selectDevice(cdi)
-                                    switchDeviceCurrentCdi = cdi
-                                    currentPage = ProfilePage.MyDevices
-                                    println("[MyDevices] 选择设备: ${selectedDevice.name} cdi=$cdi")
-                                }
+                                pendingCdi = pendingCdi,
+                                onDeviceClicked = { selectedDevice ->
+                                    pendingCdi = selectedDevice.channelDeviceId
+                                },
+                            )
+                        }
+
+                        // ── 底部确认切换按钮 ──
+                        val confirmEnabled = pendingCdi.isNotEmpty() &&
+                            switchDeviceList.any { it.channelDeviceId == pendingCdi }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 16.dp)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(100.dp))
+                                .background(
+                                    if (confirmEnabled) Color(0xFF1F2535)
+                                    else Color(0xFF1F2535).copy(alpha = 0.5f)
+                                )
+                                .clickable(enabled = confirmEnabled) {
+                                    val selected = switchDeviceList.firstOrNull {
+                                        it.channelDeviceId == pendingCdi
+                                    }
+                                    if (selected != null) {
+                                        sdkSessionManager.selectDevice(pendingCdi)
+                                        switchDeviceCurrentCdi = pendingCdi
+                                        currentPage = ProfilePage.MyDevices
+                                        println("[MyDevices] 确认切换设备: ${selected.name} cdi=$pendingCdi")
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "确认切换",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Normal,
+                                textAlign = TextAlign.Center,
                             )
                         }
                     }
                 }
 
                 ProfilePage.WifiConfig -> {
-                    ProfilePageContainer {
+                    ProfilePageContainer(showBackground = false) {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
                             title = "配置WI-FI",
@@ -560,7 +672,7 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.DeleteAccount -> {
-                    ProfilePageContainer {
+                    ProfilePageContainer(showBackground = false) {
                         Spacer(modifier = Modifier.height(20.dp))
                         ProfileTopBar(
                             title = "删除账号",
@@ -680,6 +792,8 @@ private fun roundTo2(value: Double): String {
 @Composable
 private fun ProfilePageContainer(
     modifier: Modifier = Modifier,
+    showBackground: Boolean = true,
+    backgroundColor: Color = Color.White.copy(alpha = 0.80f),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(
@@ -690,16 +804,18 @@ private fun ProfilePageContainer(
                 clip = true
                 shadowElevation = 0f
             }
-            .background(Color(0xFFF5F5F7))
+            .background(backgroundColor)
     ) {
-        Image(
-            painter = painterResource(Res.drawable.account_bg),
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter),
-            contentScale = ContentScale.FillWidth,
-        )
+        if (showBackground) {
+            Image(
+                painter = painterResource(Res.drawable.account_bg),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter),
+                contentScale = ContentScale.FillWidth,
+            )
+        }
         Column(modifier = Modifier.fillMaxWidth()) { content() }
     }
 }
@@ -712,6 +828,7 @@ private fun ProfileTopBar(
     showBack: Boolean,
     onBack: (() -> Unit)?,
     onClose: () -> Unit,
+    showClose: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -753,16 +870,20 @@ private fun ProfileTopBar(
             Spacer(modifier = Modifier.weight(1f))
         }
 
-        IconButton(
-            onClick = onClose,
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Close",
-                tint = Color(0xFF2D2D2D),
-                modifier = Modifier.size(22.dp)
-            )
+        if (showClose) {
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color(0xFF2D2D2D),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        } else {
+            Spacer(modifier = Modifier.size(40.dp))
         }
     }
 }
@@ -1392,42 +1513,54 @@ private fun FeedbackContent(
         lastPickedImagesSize = size
     }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    val labelColor = Color(0xFF1F2535)
+    val asteriskColor = Color(0xFFE84026)
+    val inputTextColor = Color(0xFF1F2535)
+    val placeholderColor = Color(0xFFBBBBBB)
+    val labelTextStyle = TextStyle(
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium,
+        color = labelColor,
+    )
+    val inputTextStyle = TextStyle(
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Normal,
+        color = inputTextColor,
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text(
-                text = "标题",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF111111)
-            )
+            // ── 反馈标题 label ──
+            Row {
+                Text(text = "反馈标题", style = labelTextStyle)
+                Text(
+                    text = "*",
+                    style = labelTextStyle.copy(color = asteriskColor),
+                )
+            }
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFF5F5F5),
-            ) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── 反馈标题 输入框 ──
+            FeedbackInputBox {
                 androidx.compose.foundation.text.BasicTextField(
                     value = title,
                     onValueChange = { title = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF111111)),
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = inputTextStyle,
                     singleLine = true,
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(inputTextColor),
                     decorationBox = { innerTextField ->
                         Box {
                             if (title.isEmpty()) {
                                 Text(
-                                    text = "请输入标题",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFBBBBBB)
+                                    text = "请输入反馈标题",
+                                    style = inputTextStyle.copy(color = placeholderColor),
                                 )
                             }
                             innerTextField()
@@ -1436,32 +1569,34 @@ private fun FeedbackContent(
                 )
             }
 
-            Text(
-                text = "描述",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF111111)
-            )
+            Spacer(modifier = Modifier.height(20.dp))
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFF5F5F5),
-            ) {
+            // ── 反馈描述 label ──
+            Row {
+                Text(text = "反馈描述", style = labelTextStyle)
+                Text(
+                    text = "*",
+                    style = labelTextStyle.copy(color = asteriskColor),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── 反馈描述 输入框（高度随内容增长） ──
+            FeedbackInputBox {
                 androidx.compose.foundation.text.BasicTextField(
                     value = description,
                     onValueChange = { description = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                        .padding(14.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF111111)),
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = inputTextStyle,
+                    minLines = 3,
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(inputTextColor),
                     decorationBox = { innerTextField ->
                         Box {
                             if (description.isEmpty()) {
                                 Text(
-                                    text = "请描述您遇到的问题或建议",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFBBBBBB)
+                                    text = "请输入反馈描述",
+                                    style = inputTextStyle.copy(color = placeholderColor),
                                 )
                             }
                             innerTextField()
@@ -1470,13 +1605,34 @@ private fun FeedbackContent(
                 )
             }
 
-            Text(
-                text = "附件",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = Color(0xFF111111)
-            )
+            Spacer(modifier = Modifier.height(20.dp))
 
+            // ── 添加附件 ──
+            Row(
+                modifier = Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                ) { mediaController.openGallery() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AttachFile,
+                    contentDescription = null,
+                    tint = Color(0xFF1A73E9),
+                    modifier = Modifier.size(22.dp),
+                )
+                Text(
+                    text = "添加附件",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF1A73E9),
+                )
+            }
+
+            // ── 已选图片预览 ──
             if (attachedImages.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
                 androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1511,7 +1667,9 @@ private fun FeedbackContent(
                 }
             }
 
+            // ── 已选文件列表 ──
             if (attachedFiles.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     attachedFiles.forEach { file ->
                         Surface(
@@ -1546,25 +1704,8 @@ private fun FeedbackContent(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = { mediaController.openGallery() },
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
-                ) {
-                    Text("添加图片", color = Color(0xFF666666))
-                }
-
-                OutlinedButton(
-                    onClick = { mediaController.openFilePicker() },
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
-                ) {
-                    Text("添加文件", color = Color(0xFF666666))
-                }
-            }
-
             if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = errorMessage!!,
                     style = MaterialTheme.typography.bodySmall,
@@ -1575,46 +1716,67 @@ private fun FeedbackContent(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        TextButton(
-            onClick = {
-                if (description.isBlank()) {
-                    errorMessage = "请填写反馈内容"
-                    return@TextButton
-                }
-                errorMessage = null
-                isSubmitting = true
-                coroutineScope.launch {
-                    val allImages = attachedImages.toList() + attachedFiles.map { it.uri }
-                    val request = com.cephalon.lucyApp.api.FeedbackRequest(
-                        title = title.trim(),
-                        content = description.trim(),
-                        images = allImages
-                    )
-                    val resp = authRepository.submitFeedback(request)
-                    isSubmitting = false
-                    if (resp.code == 20000) {
-                        onSubmitSuccess()
-                    } else {
-                        errorMessage = resp.msg.ifBlank { "提交失败，请稍后重试" }
-                    }
-                }
-            },
-            enabled = !isSubmitting,
+        // ── 底部 创建工单 按钮 ──
+        val canSubmit = title.isNotBlank() && description.isNotBlank() && !isSubmitting
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 32.dp, top = 8.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.textButtonColors(
-                containerColor = if (isSubmitting) Color(0xFF888888) else Color(0xFF111111)
-            )
+                .padding(vertical = 16.dp)
+                .height(48.dp)
+                .clip(RoundedCornerShape(100.dp))
+                .background(
+                    if (canSubmit) Color(0xFF1F2535)
+                    else Color(0xFF1F2535).copy(alpha = 0.5f)
+                )
+                .clickable(enabled = canSubmit) {
+                    errorMessage = null
+                    isSubmitting = true
+                    coroutineScope.launch {
+                        val allImages = attachedImages.toList() + attachedFiles.map { it.uri }
+                        val request = com.cephalon.lucyApp.api.FeedbackRequest(
+                            title = title.trim(),
+                            content = description.trim(),
+                            images = allImages
+                        )
+                        val resp = authRepository.submitFeedback(request)
+                        isSubmitting = false
+                        if (resp.code == 20000) {
+                            onSubmitSuccess()
+                        } else {
+                            errorMessage = resp.msg.ifBlank { "提交失败，请稍后重试" }
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = if (isSubmitting) "提交中..." else "创建工单",
                 color = Color.White,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                modifier = Modifier.padding(vertical = 6.dp)
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Normal,
+                textAlign = TextAlign.Center,
             )
         }
+    }
+}
+
+/* 反馈表单输入框容器：白底、12dp 圆角、14dp 纵向 + 12dp 横向 padding、柔和阴影 */
+@Composable
+private fun FeedbackInputBox(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 4.dp,
+                shape = RoundedCornerShape(12.dp),
+                ambientColor = Color.Black.copy(alpha = 0.02f),
+                spotColor = Color.Black.copy(alpha = 0.04f),
+            )
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+    ) {
+        content()
     }
 }
 
@@ -2048,98 +2210,104 @@ private fun DeviceCard(
     onAddNewDevice: () -> Unit = {},
     onConfigureWifi: () -> Unit = {},
 ) {
-    val displayName = device.name.ifBlank { null }
-        ?: device.serialNumber.ifBlank { null }
-        ?: device.id
+    // 主标题显示设备 id（按设计稿要求，取 channelDeviceId → serialNumber → id 兜底）
+    val deviceIdDisplay = device.channelDeviceId.ifBlank {
+        device.serialNumber.ifBlank { device.id }
+    }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = Color.White,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+    // ── 设备盒子 ──
+    // padding 15/16/17、圆角 16、1dp 白边、阴影（无纯色底，透出容器背景）
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 15.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = Color.Black.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.3f),
+            )
+            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, Color.White, RoundedCornerShape(16.dp))
+            .padding(start = 16.dp, top = 15.dp, end = 16.dp, bottom = 17.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
+        // 56x56 深色图标容器
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1F2535)),
+            contentAlignment = Alignment.Center
         ) {
-            // ── 设备信息行 ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFF1F2535),
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_skill_knowledge),
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFF111111),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (isOnline) "设备在线" else "设备离线",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isOnline) Color(0xFF999999) else Color(0xFFCC3333)
-                    )
-                }
-
-                Text(
-                    text = if (isOnline) "已连接" else "离线",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                    color = if (isOnline) Color(0xFF3478F6) else Color(0xFFCC3333),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // ── 切换设备 + 添加新设备 按钮行 ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                DeviceActionButton(
-                    text = "切换设备",
-                    filled = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = onSwitchDevice
-                )
-                DeviceActionButton(
-                    text = "添加新设备",
-                    filled = true,
-                    modifier = Modifier.weight(1f),
-                    onClick = onAddNewDevice
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── 配置 WIFI 按钮 ──
-            DeviceActionButton(
-                text = "配置 WIFI",
-                filled = false,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onConfigureWifi
+            Icon(
+                painter = painterResource(Res.drawable.ic_device_storage),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(width = 26.dp, height = 21.dp)
             )
         }
+
+        // 设备 ID + 在线状态
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = deviceIdDisplay,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF12192B),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (isOnline) "设备在线" else "设备离线",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF595E6B),
+            )
+        }
+
+        // 右侧连接状态
+        Text(
+            text = if (isOnline) "已连接" else "离线",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Normal,
+            lineHeight = 16.sp,
+            color = if (isOnline) Color(0xFF1A73E9) else Color(0xFFCC3333),
+            textAlign = TextAlign.End,
+        )
     }
+
+    Spacer(modifier = Modifier.height(20.dp))
+
+    // ── 切换设备 + 添加新设备 ──
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        DeviceActionButton(
+            text = "切换设备",
+            filled = false,
+            modifier = Modifier.weight(1f),
+            onClick = onSwitchDevice
+        )
+        DeviceActionButton(
+            text = "添加新设备",
+            filled = true,
+            modifier = Modifier.weight(1f),
+            onClick = onAddNewDevice
+        )
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // ── 配置 WIFI ──
+    DeviceActionButton(
+        text = "配置 WIFI",
+        filled = false,
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onConfigureWifi
+    )
 }
 
 @Composable
@@ -2149,24 +2317,45 @@ private fun DeviceActionButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
-    val bgColor = if (filled) Color(0xFF1F2535) else Color(0xFFF5F5F7)
-    val textColor = if (filled) Color.White else Color(0xFF111111)
-
-    Surface(
-        modifier = modifier.clickable { onClick() },
-        shape = RoundedCornerShape(99.dp),
-        color = bgColor
-    ) {
-        Box(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = textColor
+    val shape = RoundedCornerShape(100.dp)
+    val bgBrush = if (filled) {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF2A3244),
+                Color(0xFF1F2535),
             )
-        }
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.35f),
+                Color.Black.copy(alpha = 0.05f),
+            )
+        )
+    }
+    val textColor = if (filled) Color.White else Color(0xFF1F2535)
+
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = 15.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.3f),
+            )
+            .clip(shape)
+            .background(bgBrush)
+            .border(1.dp, Color.White, shape)
+            .clickable { onClick() }
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Normal,
+            color = textColor
+        )
     }
 }
 
@@ -2175,8 +2364,8 @@ private fun DeviceActionButton(
 @Composable
 private fun SwitchDeviceContent(
     devices: List<com.cephalon.lucyApp.api.LucyDevice>,
-    currentCdi: String,
-    onDeviceSelected: (com.cephalon.lucyApp.api.LucyDevice) -> Unit,
+    pendingCdi: String,
+    onDeviceClicked: (com.cephalon.lucyApp.api.LucyDevice) -> Unit,
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
@@ -2189,19 +2378,19 @@ private fun SwitchDeviceContent(
             Text("暂无可用设备", color = Color(0xFF999999))
         }
     } else {
-        devices.forEach { device ->
+        devices.forEachIndexed { index, device ->
             val deviceCdi = device.channelDeviceId
-            val isCurrent = deviceCdi == currentCdi
+            val isSelected = deviceCdi.isNotEmpty() && deviceCdi == pendingCdi
             val isOnline = deviceCdi.isNotEmpty() && deviceCdi in onlineCdis
             SwitchDeviceItem(
                 device = device,
-                isCurrent = isCurrent,
+                isSelected = isSelected,
                 isOnline = isOnline,
-                onClick = {
-                    if (!isCurrent) onDeviceSelected(device)
-                }
+                onClick = { onDeviceClicked(device) }
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            if (index != devices.lastIndex) {
+                Spacer(modifier = Modifier.height(20.dp))
+            }
         }
     }
 }
@@ -2316,64 +2505,102 @@ private fun WifiConfigContent(
 @Composable
 private fun SwitchDeviceItem(
     device: com.cephalon.lucyApp.api.LucyDevice,
-    isCurrent: Boolean,
+    isSelected: Boolean,
     isOnline: Boolean,
     onClick: () -> Unit,
 ) {
-    val displayName = device.name.ifBlank { device.serialNumber.ifBlank { device.id } }
+    // 主标题显示设备 id（channelDeviceId → serialNumber → id 兜底）
+    val deviceIdDisplay = device.channelDeviceId.ifBlank {
+        device.serialNumber.ifBlank { device.id }
+    }
 
-    Surface(
+    val shape = RoundedCornerShape(16.dp)
+    // 选中：深色 #1F2535；默认：浅色半透明白（页面底色为白，故用轻微灰色呈现玻璃质感）
+    val cardBgBrush = if (isSelected) {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF1F2535),
+                Color(0xFF1F2535),
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.60f),
+                Color(0xFFE9ECF2).copy(alpha = 0.60f),
+            )
+        )
+    }
+    val idColor = if (isSelected) Color.White else Color(0xFF12192B)
+    val statusColor = if (isSelected) Color.White.copy(alpha = 0.70f) else Color(0xFF595E6B)
+    // 选中：右侧显示 "当前选择"（白色）；未选中：显示连接状态
+    val rightText = if (isSelected) "当前选择" else if (isOnline) "已连接" else "离线"
+    val rightColor = if (isSelected) Color.White else Color(0xFF1A73E9)
+    // 选中态图标盒变为白色，图标 tint 变为深色 #1F2535（与设计稿 SVG fill 一致）
+    val iconBoxColor = if (isSelected) Color.White else Color(0xFF1F2535)
+    val iconTint = if (isSelected) Color(0xFF1F2535) else Color.White
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !isCurrent) { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White
+            .shadow(
+                elevation = 15.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.3f),
+            )
+            .clip(shape)
+            .background(cardBgBrush)
+            .border(1.dp, Color.White, shape)
+            .clickable { onClick() }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
+        // 56x56 图标容器（选中态为白色，默认为深色）
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .size(56.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(iconBoxColor),
+            contentAlignment = Alignment.Center,
         ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1F2535),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_skill_knowledge),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = displayName,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFF111111),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = if (isOnline) "设备在线" else "设备离线",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isOnline) Color(0xFF999999) else Color(0xFFCC3333)
-                )
-            }
-
-            if (isCurrent) {
-                Text(
-                    text = "当前",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                    color = Color(0xFF3478F6),
-                )
-            }
+            Icon(
+                painter = painterResource(Res.drawable.ic_device_storage),
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(width = 26.dp, height = 21.dp),
+            )
         }
+
+        // 设备 ID + 在线状态
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = deviceIdDisplay,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = idColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (isOnline) "设备在线" else "设备离线",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = statusColor,
+            )
+        }
+
+        // 右侧状态标签（选中时显示 "当前选择"）
+        Text(
+            text = rightText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Normal,
+            lineHeight = 16.sp,
+            color = rightColor,
+            textAlign = TextAlign.End,
+        )
     }
 }
 

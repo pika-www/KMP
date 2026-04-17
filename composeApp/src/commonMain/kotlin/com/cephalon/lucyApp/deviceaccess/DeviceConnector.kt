@@ -104,15 +104,22 @@ class DeviceConnector(
             statusMessage = "正在通过 BLE GATT 连接设备并下发网络配置",
         )
 
-        val provisionResult = provisionManager.provision(
-            device = selectedBleDevice,
-            ssid = ssid,
-            password = password,
-        ).getOrElse { error ->
-            return fail(error.message ?: "BLE 配网失败")
+        // 协议步骤 2–4：连接 + 读 device_info / network_status / pairing_info。
+        provisionManager.connectDevice(selectedBleDevice).getOrElse { error ->
+            return fail(error.message ?: "BLE 连接或读取设备信息失败")
         }
 
-        val normalizedCdi = provisionResult.pairingInfo.channelDeviceId.trim()
+        // 协议步骤 6：写入 wifi_config → 等待 5s → 读取 network_status 验证。
+        provisionManager.configureWifi(ssid = ssid, password = password).getOrElse { error ->
+            return fail(error.message ?: "Wi‑Fi 配置失败")
+        }
+
+        // 协议步骤 7：写入 lucy_pairing_request → 等待 3s → 读取 pairing_info 获取 OTP / CDI。
+        val pairingInfo = provisionManager.requestOtpAfterWifi().getOrElse { error ->
+            return fail(error.message ?: "请求 OTP 失败")
+        }
+
+        val normalizedCdi = pairingInfo.channelDeviceId.trim()
         if (normalizedCdi.isBlank()) {
             return fail("设备未返回有效 channel_device_id")
         }

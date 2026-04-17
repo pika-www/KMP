@@ -1,11 +1,8 @@
 package com.cephalon.lucyApp.deviceaccess.gatt
 
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
 class GattRouter(
@@ -29,71 +26,33 @@ class GattRouter(
         return readRoute(GattRoute.LucyPairingInfo)
     }
 
-    suspend fun requestOtp(): Result<Unit> {
+    /**
+     * 协议步骤 7：向 lucy_pairing_request 写入 {"request_id": "<millis>"}，等待 [delayMillis] 后单次读取 pairing_info。
+     * 不做多轮轮询；如果读回的 pairing_info 没有 OTP（且设备未 bound），由调用方决定是否重试。
+     */
+    suspend fun requestOtpAndReadPairingInfo(
+        delayMillis: Long = OTP_READ_DELAY_MS,
+    ): Result<LucyPairingInfoPayload> {
         val requestId = kotlinx.datetime.Clock.System.now().toEpochMilliseconds().toString()
         val payload = LucyPairingRequestPayload(requestId = requestId)
-        println("[BrainBox] requestOtp write: request_id=$requestId")
-        return writeRoute(
+        println("[BrainBox] lucy_pairing_request write: request_id=$requestId")
+        writeRoute(
             route = GattRoute.LucyPairingRequest,
             payload = dispatcher.toJsonObject(payload),
-        )
+        ).getOrElse { return Result.failure(it) }
+        println("[BrainBox] lucy_pairing_request: 等待 ${delayMillis}ms 后读取 pairing_info...")
+        delay(delayMillis)
+        return readLucyPairingInfo().onSuccess { info ->
+            println("[BrainBox] pairing_info after OTP: state=${info.state}, bindingStatus=${info.bindingStatus}, otp=${info.otp}, otpExpiresAtMs=${info.otpExpiresAtMs}, cdi=${info.channelDeviceId}")
+        }
     }
 
-    suspend fun requestOtpAndAwaitPairingInfo(
-        delayMillis: Long = OTP_READ_DELAY_MS,
-        maxRetries: Int = OTP_POLL_MAX_RETRIES,
-    ): Result<LucyPairingInfoPayload> {
-        // 先读取当前 pairing_info 和 network_status，确认设备状态
-        val preInfo = readLucyPairingInfo().getOrNull()
-        println("[BrainBox] requestOtp 前状态: state=${preInfo?.state}, bindingStatus=${preInfo?.bindingStatus}, otp=${preInfo?.otp}, cdi=${preInfo?.channelDeviceId}")
-        val netStatus = readRoute<NetworkStatusPayload>(GattRoute.NetworkStatus).getOrNull()
-        println("[BrainBox] requestOtp 前网络: state=${netStatus?.state}, ssid=${netStatus?.ssid}, ip=${netStatus?.ip}")
-
-        // 如果已有有效 OTP，直接返回
-        if (preInfo != null && preInfo.otp.isNotBlank() && !preInfo.isOtpExpired) {
-            println("[BrainBox] 设备已有有效 OTP，直接返回")
-            return Result.success(preInfo)
-        }
-
-        // 设备已绑定且无 OTP → 固件不允许再次请求 OTP，直接返回（上层用 CDI 跳转）
-        if (preInfo != null && preInfo.isBound && preInfo.channelDeviceId.isNotBlank()) {
-            println("[BrainBox] 设备已绑定 (bindingStatus=${preInfo.bindingStatus}, cdi=${preInfo.channelDeviceId})，跳过 OTP 请求")
-            return Result.success(preInfo)
-        }
-
-        // Write With Response: 写入阻塞直到服务端处理完成，OTP 已注入 pairing_info
-        requestOtp().getOrElse { return Result.failure(it) }
-        println("[BrainBox] requestOtp 写入成功（Write With Response），立即读取 pairing_info...")
-        val immediateInfo = readLucyPairingInfo().getOrNull()
-        println("[BrainBox] requestOtp 写入后 pairing_info: state=${immediateInfo?.state}, otp=${immediateInfo?.otp}, otpExpiresAtMs=${immediateInfo?.otpExpiresAtMs}, bindingStatus=${immediateInfo?.bindingStatus}, cdi=${immediateInfo?.channelDeviceId}")
-        if (immediateInfo != null && immediateInfo.otp.isNotBlank()) {
-            return Result.success(immediateInfo)
-        }
-
-        // 轮询读取 pairing_info，直到获取到有效 OTP 或达到最大重试次数
-        repeat(maxRetries) { attempt ->
-            val pairingInfo = readLucyPairingInfo().getOrElse { return Result.failure(it) }
-            println("[BrainBox] requestOtp result (attempt ${attempt + 1}/$maxRetries): otp=${pairingInfo.otp}, otpExpiresAtMs=${pairingInfo.otpExpiresAtMs}, bindingStatus=${pairingInfo.bindingStatus}")
-            if (pairingInfo.otp.isNotBlank()) {
-                return Result.success(pairingInfo)
-            }
-            if (attempt < maxRetries - 1) {
-                println("[BrainBox] requestOtp: OTP 为空，等待 ${OTP_POLL_INTERVAL_MS}ms 后重试...")
-                delay(OTP_POLL_INTERVAL_MS)
-            }
-        }
-        // 最后一次兜底读取
-        val finalInfo = readLucyPairingInfo().getOrElse { return Result.failure(it) }
-        println("[BrainBox] requestOtp final: otp=${finalInfo.otp}, otpExpiresAtMs=${finalInfo.otpExpiresAtMs}")
-        if (finalInfo.otp.isBlank()) {
-            return Result.failure(IllegalStateException("写入 request_id 后多次读取 pairing_info 仍未获取到 OTP"))
-        }
-        return Result.success(finalInfo)
-    }
-
+    /**
+     * 协议步骤 5：向 wifi_scan 写入 {"action":"scan"}，等待 [waitMillis]（默认 5s）后单次读取。
+     * 不循环轮询。
+     */
     suspend fun scanWifi(
-        timeoutMillis: Long = DEFAULT_WIFI_SCAN_TIMEOUT_MS,
-        pollIntervalMillis: Long = DEFAULT_WIFI_SCAN_POLL_INTERVAL_MS,
+        waitMillis: Long = WIFI_SCAN_WAIT_MS,
     ): Result<List<GattWifiNetwork>> {
         val scanCmd = WifiScanCommand()
         println("[BrainBox] wifi_scan write: ${dispatcher.toJsonObject(scanCmd)}")
@@ -101,12 +60,13 @@ class GattRouter(
             route = GattRoute.WifiScan,
             payload = dispatcher.toJsonObject(scanCmd),
         ).getOrElse { return Result.failure(it) }
-        println("[BrainBox] wifi_scan: 等待 ${INITIAL_DELAY_BEFORE_READ_MS}ms 后开始轮询...")
-        delay(INITIAL_DELAY_BEFORE_READ_MS)
-        val response = awaitWifiScanResult(
-            timeoutMillis = timeoutMillis,
-            pollIntervalMillis = pollIntervalMillis,
-        ).getOrElse { return Result.failure(it) }
+        println("[BrainBox] wifi_scan: 等待 ${waitMillis}ms 后读取结果...")
+        delay(waitMillis)
+        val response = readRoute<WifiScanResponse>(GattRoute.WifiScan).getOrElse { return Result.failure(it) }
+        println("[BrainBox] wifi_scan result: state=${response.state}, networks=${response.networks.size}, error=${response.error}")
+        if (response.isFailed) {
+            return Result.failure(IllegalStateException(response.error.ifBlank { "设备 Wi‑Fi 扫描失败" }))
+        }
         return Result.success(response.networks)
     }
 
@@ -114,6 +74,9 @@ class GattRouter(
         return readRoute(GattRoute.WifiScan)
     }
 
+    /**
+     * 协议步骤 6：向 wifi_config 写入凭证。调用方负责等待 5s 后读取 network_status。
+     */
     suspend fun writeWifiConfig(
         ssid: String,
         password: String,
@@ -121,15 +84,10 @@ class GattRouter(
     ): Result<Unit> {
         val cmd = WifiConfigCommand(ssid = ssid, password = password, hidden = hidden)
         println("[BrainBox] wifi_config write: ${dispatcher.toJsonObject(cmd)}")
-        val result = writeRoute(
+        return writeRoute(
             route = GattRoute.WifiConfig,
             payload = dispatcher.toJsonObject(cmd),
         )
-        if (result.isSuccess) {
-            println("[BrainBox] wifi_config: 写入成功，等待 ${WIFI_CONFIG_READ_DELAY_MS}ms 后轮询 network_status...")
-            delay(WIFI_CONFIG_READ_DELAY_MS)
-        }
-        return result
     }
 
     suspend fun readNetworkStatus(): Result<NetworkStatusPayload> {
@@ -199,55 +157,14 @@ class GattRouter(
         )
     }
 
-    private suspend fun awaitWifiScanResult(
-        timeoutMillis: Long,
-        pollIntervalMillis: Long,
-    ): Result<WifiScanResponse> {
-        val response = withTimeoutOrNull(timeoutMillis) {
-            pollWifiScanUntilReady(pollIntervalMillis)
-        }
-        return if (response != null) {
-            Result.success(response)
-        } else {
-            Result.failure(IllegalStateException("等待设备 Wi‑Fi 扫描结果超时"))
-        }
-    }
-
-    private suspend fun pollWifiScanUntilReady(
-        pollIntervalMillis: Long,
-    ): WifiScanResponse {
-        var consecutiveReadFailures = 0
-        while (true) {
-            currentCoroutineContext().ensureActive()
-            val current = readRoute<WifiScanResponse>(GattRoute.WifiScan).getOrElse { error ->
-                consecutiveReadFailures++
-                println("[BrainBox] wifi_scan read 失败 ($consecutiveReadFailures/3): ${error.message}")
-                if (consecutiveReadFailures >= 3) throw error
-                delay(pollIntervalMillis)
-                return@getOrElse null
-            } ?: continue
-            consecutiveReadFailures = 0
-            println("[BrainBox] wifi_scan read: state=${current.state}, networks=${current.networks.size}, error=${current.error}")
-            if (current.isReady) {
-                current.networks.forEach { net ->
-                    println("[BrainBox]   network: ssid=${net.ssid}, signal=${net.signal}, security=${net.security}, active=${net.active}")
-                }
-                return current
-            }
-            if (current.isFailed) {
-                throw IllegalStateException(current.error.ifBlank { "设备 Wi‑Fi 扫描失败" })
-            }
-            delay(pollIntervalMillis)
-        }
-    }
-
     companion object {
-        private const val DEFAULT_WIFI_SCAN_TIMEOUT_MS = 15_000L
-        private const val DEFAULT_WIFI_SCAN_POLL_INTERVAL_MS = 500L
-        private const val INITIAL_DELAY_BEFORE_READ_MS = 1_000L
-        private const val WIFI_CONFIG_READ_DELAY_MS = 5_000L
-        private const val OTP_READ_DELAY_MS = 5_000L
-        private const val OTP_POLL_INTERVAL_MS = 2_000L
-        private const val OTP_POLL_MAX_RETRIES = 5
+        /** 协议步骤 5：写入 wifi_scan 后等待 5s 再读取一次。 */
+        const val WIFI_SCAN_WAIT_MS = 5_000L
+
+        /** 协议步骤 6：写入 wifi_config 后等待 5s 再读取 network_status。 */
+        const val WIFI_CONFIG_WAIT_MS = 5_000L
+
+        /** 协议步骤 7：写入 lucy_pairing_request 后等待 3s 再读取 pairing_info。 */
+        const val OTP_READ_DELAY_MS = 3_000L
     }
 }

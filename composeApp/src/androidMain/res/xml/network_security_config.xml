@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  解决 java.security.cert.CertPathValidatorException:
+  "Trust anchor for certification path not found"。
+
+  后端接口 test.unicorn.org.cn / prod.unicorn.org.cn 的证书链：
+    leaf → TrustAsia DV TLS RSA CA 2025 → DigiCert Global Root G2
+  一些国产 / 老旧 / 精简 ROM 的系统 CA 包里缺失 DigiCert Global Root G2，
+  或设备时间异常导致链路校验失败。这里显式把该根证书作为 trust anchor
+  打包进 APK，保证无论设备系统 CA 状态如何，链路都能通过。
+
+  同时保留 system + user，使抓包代理 / 企业 MDM 等场景仍可使用。
+  cleartextTrafficPermitted=false 维持 HTTPS-only 基线。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="@raw/digicert_global_root_g2" />
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

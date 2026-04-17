@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import platform.CoreBluetooth.CBAdvertisementDataLocalNameKey
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
@@ -162,10 +163,10 @@ actual fun rememberBleClient(): BleClient {
 
             override fun startScan(serviceUuid: String?) {
                 val manager = ensureCentralManager()
-                discoveredDevices.clear()
+                // 不再清空 discoveredDevices：同一次 Sheet 会话里 startScan 可能被反复调用
+                // (例如探测 pairing_info 结束后恢复扫描)，若每次清空会导致 UI 列表闪烁。
                 scanState.update {
                     it.copy(
-                        devices = emptyList(),
                         isScanning = manager.state == CBManagerStatePoweredOn,
                         errorMessage = null,
                     )
@@ -198,6 +199,11 @@ actual fun rememberBleClient(): BleClient {
         }
     }
 }
+
+private const val CONNECT_TIMEOUT_MS = 15_000L
+private const val DISCOVER_TIMEOUT_MS = 15_000L
+private const val READ_TIMEOUT_MS = 10_000L
+private const val WRITE_TIMEOUT_MS = 10_000L
 
 private class IosBleGattConnection(
     private val manager: CBCentralManager,
@@ -312,12 +318,23 @@ private class IosBleGattConnection(
     }
 
     suspend fun connect(): Result<BleGattConnection> {
-        return suspendCancellableCoroutine { continuation ->
-            connectContinuation = continuation
-            state.value = BleGattConnectionState.Connecting
-            peripheral.delegate = delegate
-            manager.connectPeripheral(peripheral, options = null)
+        val result = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Result<BleGattConnection>> { continuation ->
+                connectContinuation = continuation
+                state.value = BleGattConnectionState.Connecting
+                peripheral.delegate = delegate
+                manager.connectPeripheral(peripheral, options = null)
+                continuation.invokeOnCancellation {
+                    connectContinuation = null
+                    runCatching { manager.cancelPeripheralConnection(peripheral) }
+                }
+            }
         }
+        if (result != null) return result
+        connectContinuation = null
+        runCatching { manager.cancelPeripheralConnection(peripheral) }
+        state.value = BleGattConnectionState.Error
+        return Result.failure(IllegalStateException("BLE 连接超时断开"))
     }
 
     fun onConnected(connectedPeripheral: CBPeripheral) {
@@ -347,20 +364,38 @@ private class IosBleGattConnection(
     }
 
     override suspend fun discoverServices(): Result<List<BleGattService>> {
-        return suspendCancellableCoroutine { continuation ->
-            discoverContinuation = continuation
-            state.value = BleGattConnectionState.Discovering
-            peripheral.discoverServices(listOf(CBUUID.UUIDWithString(BrainBoxGattProtocol.SERVICE_UUID)))
+        val result = withTimeoutOrNull(DISCOVER_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Result<List<BleGattService>>> { continuation ->
+                discoverContinuation = continuation
+                state.value = BleGattConnectionState.Discovering
+                peripheral.discoverServices(listOf(CBUUID.UUIDWithString(BrainBoxGattProtocol.SERVICE_UUID)))
+                continuation.invokeOnCancellation {
+                    discoverContinuation = null
+                }
+            }
         }
+        if (result != null) return result
+        discoverContinuation = null
+        state.value = BleGattConnectionState.Error
+        return Result.failure(IllegalStateException("发现 GATT Service 超时断开"))
     }
 
     override suspend fun readCharacteristic(serviceUuid: String, characteristicUuid: String): Result<ByteArray> {
         val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
-        return suspendCancellableCoroutine { continuation ->
-            readContinuations[characteristicUuid.normalizedUuid()] = continuation
-            peripheral.readValueForCharacteristic(characteristic)
+        val key = characteristicUuid.normalizedUuid()
+        val result = withTimeoutOrNull(READ_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Result<ByteArray>> { continuation ->
+                readContinuations[key] = continuation
+                peripheral.readValueForCharacteristic(characteristic)
+                continuation.invokeOnCancellation {
+                    readContinuations.remove(key)
+                }
+            }
         }
+        if (result != null) return result
+        readContinuations.remove(key)
+        return Result.failure(IllegalStateException("读取特征 $characteristicUuid 超时断开"))
     }
 
     override suspend fun writeCharacteristic(
@@ -370,10 +405,19 @@ private class IosBleGattConnection(
     ): Result<Unit> {
         val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
-        return suspendCancellableCoroutine { continuation ->
-            writeContinuations[characteristicUuid.normalizedUuid()] = continuation
-            peripheral.writeValue(payload.toNSData(), forCharacteristic = characteristic, type = CBCharacteristicWriteWithResponse)
+        val key = characteristicUuid.normalizedUuid()
+        val result = withTimeoutOrNull(WRITE_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Result<Unit>> { continuation ->
+                writeContinuations[key] = continuation
+                peripheral.writeValue(payload.toNSData(), forCharacteristic = characteristic, type = CBCharacteristicWriteWithResponse)
+                continuation.invokeOnCancellation {
+                    writeContinuations.remove(key)
+                }
+            }
         }
+        if (result != null) return result
+        writeContinuations.remove(key)
+        return Result.failure(IllegalStateException("写入特征 $characteristicUuid 超时断开"))
     }
 
     override suspend fun writeCharacteristicNoResponse(
