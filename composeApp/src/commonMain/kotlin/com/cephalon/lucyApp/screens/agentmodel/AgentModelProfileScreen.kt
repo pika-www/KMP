@@ -2148,6 +2148,7 @@ private fun MyDevicesContent(
     val authRepository = koinInject<AuthRepository>()
     val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
     val selectedCdi by sdkSessionManager.selectedDeviceCdi.collectAsState()
+    val observerHasEmitted by sdkSessionManager.deviceObserverHasEmitted.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
     var backendDevices by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
@@ -2189,6 +2190,7 @@ private fun MyDevicesContent(
     DeviceCard(
         device = currentDevice,
         isOnline = currentIsOnline,
+        isCheckingOnline = !observerHasEmitted,
         onSwitchDevice = {
             coroutineScope.launch {
                 backendDevices = authRepository.getDevices()
@@ -2206,6 +2208,7 @@ private fun MyDevicesContent(
 private fun DeviceCard(
     device: com.cephalon.lucyApp.api.LucyDevice,
     isOnline: Boolean,
+    isCheckingOnline: Boolean = false,
     onSwitchDevice: () -> Unit = {},
     onAddNewDevice: () -> Unit = {},
     onConfigureWifi: () -> Unit = {},
@@ -2213,6 +2216,23 @@ private fun DeviceCard(
     // 主标题显示设备 id（按设计稿要求，取 channelDeviceId → serialNumber → id 兜底）
     val deviceIdDisplay = device.channelDeviceId.ifBlank {
         device.serialNumber.ifBlank { device.id }
+    }
+
+    // 在首次 runPingAndEmit 结果到达前，展示 "检测中..." 中性灰色，避免从"离线"瞬间跳到"在线"
+    val statusText = when {
+        isCheckingOnline -> "检测中…"
+        isOnline -> "设备在线"
+        else -> "设备离线"
+    }
+    val rightText = when {
+        isCheckingOnline -> "检测中…"
+        isOnline -> "已连接"
+        else -> "离线"
+    }
+    val rightColor = when {
+        isCheckingOnline -> Color(0xFF999999)
+        isOnline -> Color(0xFF1A73E9)
+        else -> Color(0xFFCC3333)
     }
 
     // ── 设备盒子 ──
@@ -2260,7 +2280,7 @@ private fun DeviceCard(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = if (isOnline) "设备在线" else "设备离线",
+                text = statusText,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF595E6B),
@@ -2269,11 +2289,11 @@ private fun DeviceCard(
 
         // 右侧连接状态
         Text(
-            text = if (isOnline) "已连接" else "离线",
+            text = rightText,
             fontSize = 12.sp,
             fontWeight = FontWeight.Normal,
             lineHeight = 16.sp,
-            color = if (isOnline) Color(0xFF1A73E9) else Color(0xFFCC3333),
+            color = rightColor,
             textAlign = TextAlign.End,
         )
     }
@@ -2369,6 +2389,8 @@ private fun SwitchDeviceContent(
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+    val observerHasEmitted by sdkSessionManager.deviceObserverHasEmitted.collectAsState()
+    val isCheckingOnline = !observerHasEmitted
 
     if (devices.isEmpty()) {
         Box(
@@ -2386,6 +2408,7 @@ private fun SwitchDeviceContent(
                 device = device,
                 isSelected = isSelected,
                 isOnline = isOnline,
+                isCheckingOnline = isCheckingOnline,
                 onClick = { onDeviceClicked(device) }
             )
             if (index != devices.lastIndex) {
@@ -2507,6 +2530,7 @@ private fun SwitchDeviceItem(
     device: com.cephalon.lucyApp.api.LucyDevice,
     isSelected: Boolean,
     isOnline: Boolean,
+    isCheckingOnline: Boolean = false,
     onClick: () -> Unit,
 ) {
     // 主标题显示设备 id（channelDeviceId → serialNumber → id 兜底）
@@ -2533,9 +2557,23 @@ private fun SwitchDeviceItem(
     }
     val idColor = if (isSelected) Color.White else Color(0xFF12192B)
     val statusColor = if (isSelected) Color.White.copy(alpha = 0.70f) else Color(0xFF595E6B)
-    // 选中：右侧显示 "当前选择"（白色）；未选中：显示连接状态
-    val rightText = if (isSelected) "当前选择" else if (isOnline) "已连接" else "离线"
-    val rightColor = if (isSelected) Color.White else Color(0xFF1A73E9)
+    // 状态文本：在 observer 尚未 emit 时显示"检测中..."，否则按在线/离线
+    val statusText = when {
+        isCheckingOnline -> "检测中…"
+        isOnline -> "设备在线"
+        else -> "设备离线"
+    }
+    val rightText = when {
+        isSelected -> "当前选择"
+        isCheckingOnline -> "检测中…"
+        isOnline -> "已连接"
+        else -> "离线"
+    }
+    val rightColor = when {
+        isSelected -> Color.White
+        isCheckingOnline -> Color(0xFF999999)
+        else -> Color(0xFF1A73E9)
+    }
     // 选中态图标盒变为白色，图标 tint 变为深色 #1F2535（与设计稿 SVG fill 一致）
     val iconBoxColor = if (isSelected) Color.White else Color(0xFF1F2535)
     val iconTint = if (isSelected) Color(0xFF1F2535) else Color.White
@@ -2585,7 +2623,7 @@ private fun SwitchDeviceItem(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = if (isOnline) "设备在线" else "设备离线",
+                text = statusText,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Normal,
                 color = statusColor,

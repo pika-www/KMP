@@ -183,6 +183,14 @@ class SdkSessionManager(
     private val _lastOnlineCdi = MutableStateFlow<String?>(null)
     val lastOnlineCdi: StateFlow<String?> = _lastOnlineCdi.asStateFlow()
 
+    /**
+     * 指示设备在线监听器是否已经完成至少一次 ping + emit。
+     * UI 可以在此值为 false 时展示"检测中..." 的 loading 态，避免在订阅刚启动时
+     * 把设备误显示为"离线"。在 startObservers 开始时重置为 false，首次 emit 后变 true。
+     */
+    private val _deviceObserverHasEmitted = MutableStateFlow(false)
+    val deviceObserverHasEmitted: StateFlow<Boolean> = _deviceObserverHasEmitted.asStateFlow()
+
     private val _selectedDeviceCdi = MutableStateFlow<String?>(null)
     val selectedDeviceCdi: StateFlow<String?> = _selectedDeviceCdi.asStateFlow()
 
@@ -855,6 +863,8 @@ class SdkSessionManager(
         reconnectJob?.cancel()
         reconnectJob = null
         _receivedMessages.value = emptyList()
+        // 新 observer 启动前重置首次 emit 标志，让 UI 进入"检测中..." loading 态
+        _deviceObserverHasEmitted.value = false
 
         appLogD(TAG, "[DeviceObserver] 启动在线设备订阅, userId=${newSession.userId}")
         val newObserver = newSession.startOnlineNpcDeviceObserver(scope = scope)
@@ -864,6 +874,7 @@ class SdkSessionManager(
                 _onlineDevices.value = devices
                 val cdis = devices.map { it.cdi }
                 _onlineDeviceCdis.value = cdis
+                _deviceObserverHasEmitted.value = true
                 if (cdis.isNotEmpty()) {
                     _lastOnlineCdi.value = cdis.first()
                 }
@@ -993,6 +1004,7 @@ class SdkSessionManager(
         session = null
         _onlineDevices.value = emptyList()
         _onlineDeviceCdis.value = emptyList()
+        _deviceObserverHasEmitted.value = false
         _lastReplyMessageId.value = null
         _activeRequestIds.value = emptySet()
         _replyStateMap.value = emptyMap()
