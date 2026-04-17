@@ -135,7 +135,9 @@ fun AgentModelScreen(
     val selectedDeviceCdi by sdkSessionManager.selectedDeviceCdi.collectAsState()
     val authRepository = koinInject<AuthRepository>()
     val userInfo by authRepository.userInfo.collectAsState()
-    val currentCdi = selectedDeviceCdi ?: initialTargetCdi
+    // 解析优先级：用户显式选择 > 路由传入 > 当前首个在线设备
+    // 避免"设备在线但未被显式选过" → 发送时误报"没有可用的设备"
+    val currentCdi = selectedDeviceCdi ?: initialTargetCdi ?: onlineDeviceCdis.firstOrNull()
 
     val logs = remember {
         mutableStateListOf(
@@ -504,8 +506,11 @@ fun AgentModelScreen(
                 text.ifBlank {
                     if (imageAttachments.isNotEmpty()) "" else ""
                 }
+            // 解析优先级：用户显式选择 > 路由传入 > 当前首个在线设备
+            // 避免"设备在线但未被显式选过" → 发送时误报"没有可用的设备"
             val targetCdi = selectedDeviceCdi
                 ?: initialTargetCdi
+                ?: onlineDeviceCdis.firstOrNull()
 
             if (targetCdi == null) {
                 appendMessageToConversation(
