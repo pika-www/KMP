@@ -34,6 +34,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -528,21 +531,7 @@ fun AgentModelScreen(
                 text.ifBlank {
                     if (imageAttachments.isNotEmpty()) "" else ""
                 }
-            // 解析优先级：用户显式选择 > 路由传入 > 当前首个在线设备
-            // 避免"设备在线但未被显式选过" → 发送时误报"没有可用的设备"
-            val targetCdi = selectedDeviceCdi
-                ?: initialTargetCdi
-                ?: onlineDeviceCdis.firstOrNull()
-
-            if (targetCdi == null) {
-                appendMessageToConversation(
-                    targetConversationId,
-                    ChatItem.System("没有可用的设备，请等待设备上线后重试")
-                )
-                return@Unit
-            }
-
-            println("[Chat] 发送消息: text=\"$outgoingText\", targetCdi=$targetCdi, initialTargetCdi=$initialTargetCdi, onlineDeviceCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}")
+            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}")
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -559,6 +548,39 @@ fun AgentModelScreen(
                     )
                     return@launch
                 }
+
+                // 解析发送目标 CDI（放在连接完成后、且必要时等待 observer 首次 emit）：
+                // 优先级：用户显式选择 > 路由传入 > 当前首个在线设备；
+                // 若 observer 尚未完成第一次 ping（刚进入页面），最多等 6s，避免"设备其实在线但刚进页面瞬发即报离线"。
+                val targetCdi = run {
+                    fun immediate(): String? =
+                        sdkSessionManager.selectedDeviceCdi.value
+                            ?: initialTargetCdi
+                            ?: sdkSessionManager.onlineDeviceCdis.value.firstOrNull()
+
+                    immediate() ?: run {
+                        if (!sdkSessionManager.deviceObserverHasEmitted.value) {
+                            println("[Chat] CDI 暂不可用，等待 observer 首次 emit (<= 6s)...")
+                            withTimeoutOrNull(6_000L) {
+                                sdkSessionManager.deviceObserverHasEmitted
+                                    .filter { it }
+                                    .first()
+                            }
+                        }
+                        immediate()
+                    }
+                }
+
+                if (targetCdi == null) {
+                    println("[Chat] 解析 CDI 失败: observerHasEmitted=${sdkSessionManager.deviceObserverHasEmitted.value}, onlineCdis=${sdkSessionManager.onlineDeviceCdis.value}")
+                    removeAssistantPlaceholderInConversation(targetConversationId)
+                    appendMessageToConversation(
+                        targetConversationId,
+                        ChatItem.System("没有可用的设备，请等待设备上线后重试")
+                    )
+                    return@launch
+                }
+                println("[Chat] 解析到 targetCdi=$targetCdi")
 
                 val sendResult = if (imageAttachments.isNotEmpty()) {
                     // 收集所有图片的 MediaItem
