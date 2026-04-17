@@ -33,7 +33,6 @@ import lucy.im.sdk.LucyImAppConfig
 import lucy.im.sdk.OnlineDevice
 import lucy.im.sdk.OnlineNpcDeviceHandle
 import lucy.im.sdk.blob.BlobPutResult
-import lucy.im.sdk.blob.BlobTransfer
 import lucy.im.sdk.collectDevices
 import lucy.im.sdk.filetransfer.ProgressFrame
 import lucy.im.sdk.filetransfer.SendFileOutcome
@@ -191,7 +190,7 @@ class SdkSessionManager(
         _selectedDeviceCdi.value = cdi?.trim()?.takeIf { it.isNotEmpty() }
     }
 
-    private val blobTransfer = BlobTransfer()
+    private val blobTransfer by lazy { createPlatformBlobTransfer() }
     private val blobBytesCache = linkedMapOf<String, ByteArray>()
     private val blobFetchingSet = mutableSetOf<String>()
     private val blobCacheLock = Mutex()

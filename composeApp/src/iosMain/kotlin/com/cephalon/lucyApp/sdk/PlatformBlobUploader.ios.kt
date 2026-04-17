@@ -20,3 +20,12 @@ private val blobTransfer: BlobTransfer by lazy {
 internal actual suspend fun platformUploadBlob(data: ByteArray, entryName: String): BlobPutResult {
     return blobTransfer.put(data, entryName)
 }
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun createPlatformBlobTransfer(): BlobTransfer {
+    val caches = (NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, true)
+        .firstOrNull() as? String) ?: ""
+    val storeDir = "$caches/lucy_blob"
+    setenv("lucy.blob.store_dir", storeDir, 1)
+    return BlobTransfer()
+}

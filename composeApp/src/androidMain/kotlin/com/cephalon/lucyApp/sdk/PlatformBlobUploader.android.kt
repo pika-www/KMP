@@ -14,3 +14,9 @@ private val blobTransfer by lazy {
 internal actual suspend fun platformUploadBlob(data: ByteArray, entryName: String): BlobPutResult {
     return blobTransfer.put(data, entryName)
 }
+
+internal actual fun createPlatformBlobTransfer(): BlobTransfer {
+    val dir = File(AndroidAppContextHolder.appContext.filesDir, "lucy_blob")
+    BlobTransfer.initStoreDir(dir.absolutePath)
+    return BlobTransfer()
+}
