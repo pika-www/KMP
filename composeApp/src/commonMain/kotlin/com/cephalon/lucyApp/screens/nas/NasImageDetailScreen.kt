@@ -31,8 +31,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import com.cephalon.lucyApp.components.decodeImageBytes
+import com.cephalon.lucyApp.sdk.SdkSessionManager
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -44,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
@@ -52,6 +64,7 @@ import kotlin.math.abs
 internal fun NasImageDetailScreen(
     images: List<NasImageItem>,
     initialImageId: String,
+    targetCdi: String,
     onBack: () -> Unit,
     onShare: (NasImageItem) -> Unit,
     onDownload: (NasImageItem) -> Unit,
@@ -64,6 +77,10 @@ internal fun NasImageDetailScreen(
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+    val sdkSessionManager = koinInject<SdkSessionManager>()
+    val coroutineScope = rememberCoroutineScope()
+    val fullImageCache = remember { mutableStateMapOf<Long, ImageBitmap?>() }
+    val fullImageLoading = remember { mutableStateMapOf<Long, Boolean>() }
 
     val initialPage = images.indexOfFirst { it.id == initialImageId }.takeIf { it >= 0 } ?: 0
     val pagerState = rememberPagerState(initialPage = initialPage) { images.size }
@@ -106,12 +123,80 @@ internal fun NasImageDetailScreen(
             pageSpacing = ds.sm(12.dp),
             beyondViewportPageCount = 1
         ) { page ->
-            Image(
-                painter = painterResource(Res.drawable.img_demo),
-                contentDescription = images[page].name,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
+            val pageImage = images[page]
+            val fid = pageImage.fileId
+            val cachedBitmap = fid?.let { fullImageCache[it] }
+
+            LaunchedEffect(fid) {
+                if (fid == null || fid in fullImageCache || fullImageLoading[fid] == true) return@LaunchedEffect
+                fullImageLoading[fid] = true
+                coroutineScope.launch {
+                    sdkSessionManager.getFileFromNas(
+                        targetCdi = targetCdi,
+                        fileId = fid,
+                    ).onSuccess { response ->
+                        val blobRef = response.item?.blobRef
+                        if (!blobRef.isNullOrBlank()) {
+                            sdkSessionManager.fetchBlobBytes(blobRef)
+                                .onSuccess { bytes ->
+                                    fullImageCache[fid] = decodeImageBytes(bytes)
+                                }
+                                .onFailure {
+                                    fullImageCache[fid] = null
+                                }
+                        } else {
+                            fullImageCache[fid] = null
+                        }
+                    }.onFailure {
+                        fullImageCache[fid] = null
+                    }
+                    fullImageLoading[fid] = false
+                }
+            }
+
+            when {
+                cachedBitmap != null -> {
+                    Image(
+                        painter = BitmapPainter(cachedBitmap),
+                        contentDescription = pageImage.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                fullImageLoading[fid] == true -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(32.dp),
+                            color = Color.White.copy(alpha = 0.7f),
+                            strokeWidth = 3.dp,
+                        )
+                    }
+                }
+                pageImage.path.isNotBlank() -> {
+                    BlobImage(
+                        blobRef = pageImage.path,
+                        contentDescription = pageImage.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                        errorContent = {
+                            Image(
+                                painter = painterResource(Res.drawable.img_demo),
+                                contentDescription = pageImage.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    )
+                }
+                else -> {
+                    Image(
+                        painter = painterResource(Res.drawable.img_demo),
+                        contentDescription = pageImage.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
         }
 
         // 顶部浮层：返回 | 时间地点 | 删除

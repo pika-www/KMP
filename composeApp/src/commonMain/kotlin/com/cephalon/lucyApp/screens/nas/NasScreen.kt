@@ -69,6 +69,7 @@ fun NasScreen(onBack: () -> Unit) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
     val onlineDeviceCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+    val selectedDeviceCdi by sdkSessionManager.selectedDeviceCdi.collectAsState()
 
     var selectedCategory by remember { mutableStateOf(NasCategory.Photos) }
     var isSearchMode by remember { mutableStateOf(false) }
@@ -102,7 +103,7 @@ fun NasScreen(onBack: () -> Unit) {
             it.status == NasUploadTaskStatus.Registering ||
             it.status == NasUploadTaskStatus.Waiting
     }
-    val targetCdi = onlineDeviceCdis.firstOrNull() ?: ""
+    val targetCdi = selectedDeviceCdi ?: onlineDeviceCdis.firstOrNull() ?: ""
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
@@ -462,6 +463,7 @@ fun NasScreen(onBack: () -> Unit) {
         NasImageDetailScreen(
             images = allImages,
             initialImageId = image.id,
+            targetCdi = targetCdi,
             onBack = ::handleNasBack,
             onShare = { currentImage ->
                 println("分享图片: ${currentImage.name}")
@@ -1044,6 +1046,7 @@ private fun NasFileListItem.toNasImageItem(): NasImageItem {
     val name = fileName.orEmpty().ifBlank { "图片-${id ?: currentTimeMillisSafe()}" }
     return NasImageItem(
         id = (id?.toString() ?: name).ifBlank { "image-${currentTimeMillisSafe()}" },
+        fileId = id,
         name = name,
         type = "图片",
         format = name.substringAfterLast('.', "png").ifBlank { "png" },

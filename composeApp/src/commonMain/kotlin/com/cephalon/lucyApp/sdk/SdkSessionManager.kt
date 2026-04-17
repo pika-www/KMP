@@ -33,6 +33,7 @@ import lucy.im.sdk.LucyImAppConfig
 import lucy.im.sdk.OnlineDevice
 import lucy.im.sdk.OnlineNpcDeviceHandle
 import lucy.im.sdk.blob.BlobPutResult
+import lucy.im.sdk.blob.BlobTransfer
 import lucy.im.sdk.collectDevices
 import lucy.im.sdk.filetransfer.ProgressFrame
 import lucy.im.sdk.filetransfer.SendFileOutcome
@@ -94,6 +95,31 @@ data class NasFileListResponse(
     val error: String?,
 )
 
+data class NasFileGetItem(
+    val id: Long?,
+    val time: String?,
+    val location: String?,
+    val kind: String?,
+    val contentType: String?,
+    val size: Long?,
+    val fileName: String?,
+    val desc: String?,
+    val blobRef: String?,
+)
+
+data class NasFileGetResponse(
+    val cmd: String,
+    val requestId: String?,
+    val item: NasFileGetItem?,
+    val error: String?,
+)
+
+private data class PendingNasFileGetRequest(
+    val requestId: String,
+    val fileId: Long,
+    val waiter: CompletableDeferred<NasFileGetResponse>,
+)
+
 private data class PendingNasRegisterRequest(
     val requestId: String,
     val blobRefs: List<String>,
@@ -128,6 +154,7 @@ class SdkSessionManager(
 
     private var session: ConnectedSession? = null
     private var consumerJob: Job? = null
+    private var nasConsumerJob: Job? = null
     private var deviceObserver: OnlineNpcDeviceHandle? = null
     private var deviceObserverJob: Job? = null
     private var observerRestartJob: Job? = null
@@ -164,6 +191,41 @@ class SdkSessionManager(
         _selectedDeviceCdi.value = cdi?.trim()?.takeIf { it.isNotEmpty() }
     }
 
+    private val blobTransfer = BlobTransfer()
+    private val blobBytesCache = linkedMapOf<String, ByteArray>()
+    private val blobFetchingSet = mutableSetOf<String>()
+    private val blobCacheLock = Mutex()
+    private val BLOB_CACHE_MAX_SIZE = 100
+
+    suspend fun fetchBlobBytes(blobRef: String): Result<ByteArray> {
+        if (blobRef.isBlank()) return Result.failure(IllegalArgumentException("blobRef 为空"))
+
+        blobCacheLock.withLock {
+            blobBytesCache[blobRef]?.let { return Result.success(it) }
+            if (!blobFetchingSet.add(blobRef)) {
+                // 已在请求中，等待
+            }
+        }
+
+        return runCatching {
+            appLogD(TAG, "[BlobFetch] 开始下载 blobRef=${blobRef.take(40)}...")
+            val bytes = blobTransfer.fetch(blobRef)
+            appLogD(TAG, "[BlobFetch] 下载完成 blobRef=${blobRef.take(40)} size=${bytes.size}")
+            blobCacheLock.withLock {
+                if (blobBytesCache.size >= BLOB_CACHE_MAX_SIZE) {
+                    val oldest = blobBytesCache.keys.first()
+                    blobBytesCache.remove(oldest)
+                }
+                blobBytesCache[blobRef] = bytes
+                blobFetchingSet.remove(blobRef)
+            }
+            bytes
+        }.onFailure { e ->
+            appLogD(TAG, "[BlobFetch] 下载失败 blobRef=${blobRef.take(40)} error=${e.message}")
+            blobCacheLock.withLock { blobFetchingSet.remove(blobRef) }
+        }
+    }
+
     private val _receivedMessages = MutableStateFlow<List<String>>(emptyList())
     val receivedMessages: StateFlow<List<String>> = _receivedMessages.asStateFlow()
 
@@ -190,6 +252,7 @@ class SdkSessionManager(
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
+    private val pendingNasFileGetRequests = MutableStateFlow<Map<String, PendingNasFileGetRequest>>(emptyMap())
     private val _activeFileTransferCount = MutableStateFlow(0)
 
     private var _latestRequestId: String? = null
@@ -283,11 +346,14 @@ class SdkSessionManager(
     private suspend fun ensureConnectedIfTokenValidLocked(): Result<Unit> {
             if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
                 val observersActive = areObserversActive()
-                appLogD(TAG, "SDK 已连接(复用), userId=${session!!.userId}, observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}, consumerJob=${consumerJob?.isActive}, deviceObserverJob=${deviceObserverJob?.isActive}")
-                if (!observersActive) {
-                    appLogD(TAG, "检测到连接存在但监听未激活，重建监听")
+                appLogD(TAG, "SDK 已连接(复用), userId=${session!!.userId}, observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}, consumerJob=${consumerJob?.isActive}, nasConsumerJob=${nasConsumerJob?.isActive}, deviceObserverJob=${deviceObserverJob?.isActive}")
+                if (!observersActive && observerRestartAttempts <= MAX_OBSERVER_RESTART_ATTEMPTS) {
+                    appLogD(TAG, "检测到连接存在但监听未激活，重建监听 (attempt=$observerRestartAttempts)")
                     _connectionLog.value = "连接正常，正在恢复监听..."
+                    observerRestartAttempts++
                     restartObservers(session = session!!, reason = "主动恢复监听")
+                } else if (!observersActive) {
+                    appLogD(TAG, "监听未激活但重建已达上限($MAX_OBSERVER_RESTART_ATTEMPTS)，跳过重建")
                 }
                 return Result.success(Unit)
             }
@@ -303,7 +369,7 @@ class SdkSessionManager(
             _connectionState.value = SdkConnectionState.CONNECTING
             _connectionLog.value = "连接中..."
             appLogD(TAG, _connectionLog.value)
-            appLogD(TAG, "connect: token=${token.take(20)}..., tokenLen=${token.length}")
+            appLogD(TAG, "connect: token=${token}")
 
             appLogD(TAG, "connect: 调用 sdkClient.connect() ...")
             val connectResult = withTimeoutOrNull(20_000L) {
@@ -507,7 +573,7 @@ class SdkSessionManager(
             ?: return Result.failure(IllegalStateException("请先连接 SDK"))
 
         val requestId = generateMessageId19()
-        val rspSubject = "cephalon.im.user.${activeSession.userId}"
+        val rspSubject = "cephalon.nas.user.${activeSession.userId}"
         val waiter = CompletableDeferred<NasRegisterBlobsResponse>()
         val resolvedTargetCdi = targetCdi.trim()
         pendingNasRegisterRequests.update { current ->
@@ -556,8 +622,11 @@ class SdkSessionManager(
         kind: String,
         pageSize: Int = 20,
         cursor: String? = null,
-        timeoutMs: Long = 60_000L,
+        timeoutMs: Long = 180_000L,
     ): Result<NasFileListResponse> {
+        if (targetCdi.isBlank()) {
+            return Result.failure(IllegalArgumentException("targetCdi 为空，无可用设备"))
+        }
         val normalizedKind = kind.trim()
         if (normalizedKind.isBlank()) {
             return Result.failure(IllegalArgumentException("kind 不能为空"))
@@ -575,7 +644,7 @@ class SdkSessionManager(
 
         val requestId = generateMessageId19()
         val waiter = CompletableDeferred<NasFileListResponse>()
-        val rspSubject = "cephalon.im.user.${activeSession.userId}"
+        val rspSubject = "cephalon.nas.user.${activeSession.userId}"
         val resolvedTargetCdi = targetCdi.trim()
         pendingNasFileListRequests.update { current ->
             current + (requestId to PendingNasFileListRequest(requestId, normalizedKind, cursor, waiter))
@@ -586,23 +655,27 @@ class SdkSessionManager(
             "开始获取 NAS 文件列表 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind pageSize=$pageSize cursor=${cursor ?: "null"}",
         )
 
+        val nasPayload = buildNasFileListPayload(
+            rspSubject = rspSubject,
+            kind = normalizedKind,
+            pageSize = pageSize,
+            cursor = cursor,
+        )
+        appLogD(TAG, "NAS 文件列表请求 payload=$nasPayload")
+
         return runCatching {
+            appLogD(TAG, "publishToNas 发送中 subject=${rspSubject}.${activeSession.userId}.$resolvedTargetCdi")
             activeSession.publishToNas(
                 cdi = resolvedTargetCdi,
-                payload = buildNasFileListPayload(
-                    requestId = requestId,
-                    rspSubject = rspSubject,
-                    kind = normalizedKind,
-                    pageSize = pageSize,
-                    cursor = cursor,
-                ),
+                payload = nasPayload,
             )
+            appLogD(TAG, "publishToNas 发送成功")
             withTimeoutOrNull(timeoutMs) { waiter.await() }
                 ?: throw IllegalStateException("等待 NAS 文件列表响应超时")
         }.onSuccess { response ->
             appLogD(
                 TAG,
-                "获取 NAS 文件列表成功 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind count=${response.items.size} nextCursor=${response.nextCursor ?: "null"} error=${response.error ?: "null"}",
+                "获取 NAS 文件列表成功 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind count=${response.items.size} nextCursor=${response.nextCursor ?: "null"} error=${response.error ?: "null"} response=$response",
             )
         }.onFailure { error ->
             appLogD(
@@ -612,6 +685,62 @@ class SdkSessionManager(
             waiter.cancel(error as? CancellationException)
         }.also {
             pendingNasFileListRequests.update { current -> current - requestId }
+            scheduleBackgroundDisconnectIfNeeded()
+        }
+    }
+
+    suspend fun getFileFromNas(
+        targetCdi: String,
+        fileId: Long,
+        timeoutMs: Long = 60_000L,
+    ): Result<NasFileGetResponse> {
+        if (targetCdi.isBlank()) {
+            return Result.failure(IllegalArgumentException("targetCdi 为空，无可用设备"))
+        }
+
+        ensureConnectedIfTokenValid()
+            .exceptionOrNull()
+            ?.let { error -> return Result.failure(error) }
+
+        val activeSession = session
+            ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        val requestId = generateMessageId19()
+        val rspSubject = "cephalon.nas.user.${activeSession.userId}"
+        val waiter = CompletableDeferred<NasFileGetResponse>()
+        val resolvedTargetCdi = targetCdi.trim()
+        pendingNasFileGetRequests.update { current ->
+            current + (requestId to PendingNasFileGetRequest(requestId, fileId, waiter))
+        }
+
+        appLogD(TAG, "开始获取 NAS 文件详情 cdi=$resolvedTargetCdi requestId=$requestId fileId=$fileId")
+
+        val nasPayload = buildNasFileGetPayload(
+            rspSubject = rspSubject,
+            fileId = fileId,
+        )
+        appLogD(TAG, "NAS 文件详情请求 payload=$nasPayload")
+
+        return runCatching {
+            activeSession.publishToNas(
+                cdi = resolvedTargetCdi,
+                payload = nasPayload,
+            )
+            withTimeoutOrNull(timeoutMs) { waiter.await() }
+                ?: throw IllegalStateException("等待 NAS 文件详情响应超时")
+        }.onSuccess { response ->
+            appLogD(
+                TAG,
+                "获取 NAS 文件详情成功 cdi=$resolvedTargetCdi requestId=$requestId fileId=$fileId blobRef=${response.item?.blobRef?.take(40) ?: "null"}",
+            )
+        }.onFailure { error ->
+            appLogD(
+                TAG,
+                "获取 NAS 文件详情失败 cdi=$resolvedTargetCdi requestId=$requestId fileId=$fileId error=${error.message ?: "unknown"}",
+            )
+            waiter.cancel(error as? CancellationException)
+        }.also {
+            pendingNasFileGetRequests.update { current -> current - requestId }
             scheduleBackgroundDisconnectIfNeeded()
         }
     }
@@ -728,24 +857,23 @@ class SdkSessionManager(
         reconnectJob = null
         _receivedMessages.value = emptyList()
 
-        appLogD(TAG, "[DeviceObserver] 启动在线设备订阅, userId=${newSession.userId}, subscribeChannel=cephalon.im.user.${newSession.userId}")
+        appLogD(TAG, "[DeviceObserver] 启动在线设备订阅, userId=${newSession.userId}")
         val newObserver = newSession.startOnlineNpcDeviceObserver(scope = scope)
         deviceObserver = newObserver
         deviceObserverJob =
             newObserver.collectDevices(scope) { devices ->
-                logSdkEvent("collectDevices devices.size=${devices.size}, devices=$devices")
-                appLogD(TAG, "[DeviceObserver] collectDevices 回调, devices.size=${devices.size}, devices=$devices")
                 _onlineDevices.value = devices
                 val cdis = devices.map { it.cdi }
                 _onlineDeviceCdis.value = cdis
                 if (cdis.isNotEmpty()) {
                     _lastOnlineCdi.value = cdis.first()
                 }
+                val effectiveCdi = _selectedDeviceCdi.value ?: cdis.firstOrNull()
                 _deviceLog.value =
                     if (cdis.isEmpty()) {
                         "[DeviceObserver] 当前无在线设备（userId=${newSession.userId}, lastOnlineCdi=${_lastOnlineCdi.value ?: "none"}）"
                     } else {
-                        "[DeviceObserver] 在线设备更新: ${cdis.size} 台, cdis=[${cdis.joinToString(", ")}], userId=${newSession.userId}"
+                        "[DeviceObserver] 在线设备更新: ${cdis.size} 台, cdis=[${cdis.joinToString(", ")}], 当前使用=$effectiveCdi (selected=${_selectedDeviceCdi.value ?: "null"}, firstOnline=${cdis.firstOrNull() ?: "null"}), userId=${newSession.userId}"
                     }
                 appLogD(TAG, _deviceLog.value)
             }
@@ -756,51 +884,9 @@ class SdkSessionManager(
                     runCatching { messagePayload.decodeToString() }.getOrDefault(
                         "<binary payload ${messagePayload.size} bytes>",
                     )
-                appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject len=${messageText.length}")
-                val nasFileListResponse = parseNasFileListResponse(messageText)
-                if (nasFileListResponse != null) {
-                    val matchedRequestId = findMatchingNasFileListRequestId(nasFileListResponse)
-                    if (matchedRequestId != null) {
-                        appLogD(
-                            TAG,
-                            "[Consumer] 接受 NAS 文件列表响应 requestId=$matchedRequestId kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
-                        )
-                        recordReceivedMessage(subject, messageText)
-                        pendingNasFileListRequests.value[matchedRequestId]?.waiter?.complete(nasFileListResponse)
-                        pendingNasFileListRequests.update { current -> current - matchedRequestId }
-                    } else {
-                        appLogD(
-                            TAG,
-                            "[Consumer] 收到未匹配的 NAS 文件列表响应 requestId=${nasFileListResponse.requestId ?: "none"} kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
-                        )
-                    }
-                    return@startUserChannelConsumer
-                }
-                val nasRegisterResponse = parseNasRegisterBlobsResponse(messageText)
-                if (nasRegisterResponse != null) {
-                    val matchedRequestId = findMatchingNasRegisterRequestId(nasRegisterResponse)
-                    if (matchedRequestId != null) {
-                        appLogD(
-                            TAG,
-                            "[Consumer] 接受 NAS 登记响应 requestId=$matchedRequestId ok=${nasRegisterResponse.ok} results=${nasRegisterResponse.results.size}",
-                        )
-                        recordReceivedMessage(subject, messageText)
-                        pendingNasRegisterRequests.value[matchedRequestId]?.waiter?.complete(nasRegisterResponse)
-                        pendingNasRegisterRequests.update { current -> current - matchedRequestId }
-                    } else {
-                        appLogD(
-                            TAG,
-                            "[Consumer] 收到未匹配的 NAS 登记响应 requestId=${nasRegisterResponse.requestId ?: "none"} results=${nasRegisterResponse.results.size}",
-                        )
-                    }
-                    return@startUserChannelConsumer
-                }
                 val machineEvent = parseMachineEvent(messageText)
-                if (machineEvent != null) {
-                    appLogD(TAG, "[Consumer] 解析事件 type=${machineEvent.type}, text=${machineEvent.text?.take(80) ?: "null"}, sourceId=${machineEvent.sourceMessageId ?: "null"}")
-                } else {
-                    appLogD(TAG, "[Consumer] 未解析为事件，原始: ${messageText.take(200)}")
-                }
+                appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject messageText=${messageText} machineEvent=${machineEvent}")
+
                 val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
                 val activeIds = _activeRequestIds.value
                 val sourceMatched = !incomingSourceMessageId.isNullOrBlank() &&
@@ -808,48 +894,72 @@ class SdkSessionManager(
                 if (!sourceMatched) {
                     appLogD(
                         TAG,
-                        "[Consumer] 过滤掉消息: sourceId=${incomingSourceMessageId ?: "none"}, activeIds=$activeIds, matched=false, msg=${messageText.take(500)}",
+                        "[Consumer] 过滤掉消息: incomingSourceMessageId=${incomingSourceMessageId ?: "none"}, activeIds=$activeIds, matched=false, msg=${messageText}",
                     )
                     return@startUserChannelConsumer
                 }
-                appLogD(TAG, "[Consumer] 接受消息 subject=$subject sourceId=$incomingSourceMessageId msg=${messageText.take(500)}")
+                appLogD(TAG, "[Consumer] 接受消息 subject=$subject incomingSourceMessageId=$incomingSourceMessageId msg=${messageText}")
                 recordReceivedMessage(subject, messageText)
                 handleMachineEvent(machineEvent, incomingSourceMessageId)
                 _lastReplyMessageId.value = incomingSourceMessageId
             }
 
-        // 监听启动成功，重置重试计数
-        observerRestartAttempts = 0
+        try {
+            nasConsumerJob =
+                newSession.startNasUserChannelConsumer(scope) { subject, messagePayload ->
+                    val messageText =
+                        runCatching { messagePayload.decodeToString() }.getOrDefault(
+                            "<binary payload ${messagePayload.size} bytes>",
+                        )
+                    appLogD(TAG, "[NasConsumer] 收到 NAS 消息 subject=$subject payload=$messageText")
+                    if (!handleNasResponse(subject, messageText)) {
+                        appLogD(TAG, "[NasConsumer] 收到未识别消息 subject=$subject msg=${messageText.take(500)}")
+                    }
+                }
+            appLogD(TAG, "[NasConsumer] NAS consumer 启动成功")
+        } catch (e: Throwable) {
+            appLogD(TAG, "[NasConsumer] NAS consumer 启动失败(非关键): ${e.message}")
+            nasConsumerJob = null
+        }
 
-//        consumerJob?.invokeOnCompletion { throwable ->
-//            if (throwable is CancellationException) return@invokeOnCompletion
-//            if (throwable == null) {
-//                logSdkEvent("[Consumer] 消费者正常结束（不应发生），restartAttempts=$observerRestartAttempts")
-//                _consumerLog.value = "监听意外结束，准备恢复..."
-//                scheduleObserverRestart("消费者正常结束")
-//                return@invokeOnCompletion
-//            }
-//            handleObserverFailure(
-//                throwable = throwable,
-//                logLabel = "监听",
-//                logUpdater = { _consumerLog.value = it },
-//            )
-//        }
+        // 监听启动后，延迟重置重试计数（consumer 存活 10s 才算稳定）
+        scope.launch {
+            delay(10_000L)
+            if (consumerJob?.isActive == true) {
+                observerRestartAttempts = 0
+                appLogD(TAG, "[Observer] consumer 已稳定运行 10s，重置 restartAttempts")
+            }
+        }
 
-//        deviceObserverJob?.invokeOnCompletion { throwable ->
-//            if (throwable is CancellationException) return@invokeOnCompletion
-//            if (throwable == null) {
-//                logSdkEvent("[DeviceObserver] 设备监听正常结束（不应发生），restartAttempts=$observerRestartAttempts")
-//                _deviceLog.value = "设备监听意外结束，准备恢复..."
-//                scheduleObserverRestart("设备监听正常结束")
-//                return@invokeOnCompletion
-//            }
-//            handleObserverFailure(
-//                throwable = throwable,
-//                logLabel = "设备监听",
-//                logUpdater = { _deviceLog.value = it },
-//            )
-//        }
+        consumerJob?.invokeOnCompletion { throwable ->
+            if (throwable is CancellationException) return@invokeOnCompletion
+            if (throwable == null) {
+                logSdkEvent("[Consumer] 消费者正常结束（不应发生），restartAttempts=$observerRestartAttempts")
+                _consumerLog.value = "监听意外结束，准备恢复..."
+                scheduleObserverRestart("消费者正常结束")
+                return@invokeOnCompletion
+            }
+            handleObserverFailure(
+                throwable = throwable,
+                logLabel = "监听",
+                logUpdater = { _consumerLog.value = it },
+            )
+        }
+
+        deviceObserverJob?.invokeOnCompletion { throwable ->
+            if (throwable is CancellationException) return@invokeOnCompletion
+            if (throwable == null) {
+                logSdkEvent("[DeviceObserver] 设备监听正常结束（不应发生），restartAttempts=$observerRestartAttempts")
+                _deviceLog.value = "设备监听意外结束，准备恢复..."
+                scheduleObserverRestart("设备监听正常结束")
+                return@invokeOnCompletion
+            }
+            handleObserverFailure(
+                throwable = throwable,
+                logLabel = "设备监听",
+                logUpdater = { _deviceLog.value = it },
+            )
+        }
 
         _consumerLog.value = "监听已启动"
         _deviceLog.value = "设备监听已启动"
@@ -865,6 +975,7 @@ class SdkSessionManager(
         reconnectJob?.cancel()
         reconnectJob = null
         consumerJob?.cancel()
+        nasConsumerJob?.cancel()
         deviceObserverJob?.cancel()
         try {
             deviceObserver?.stop()
@@ -872,6 +983,7 @@ class SdkSessionManager(
             appLogD(TAG, "deviceObserver.stop() 异常: ${e.message}")
         }
         consumerJob = null
+        nasConsumerJob = null
         deviceObserverJob = null
         deviceObserver = null
         try {
@@ -891,8 +1003,12 @@ class SdkSessionManager(
         pendingNasFileListRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
+        pendingNasFileGetRequests.value.values.forEach { pending ->
+            pending.waiter.cancel()
+        }
         pendingNasRegisterRequests.value = emptyMap()
         pendingNasFileListRequests.value = emptyMap()
+        pendingNasFileGetRequests.value = emptyMap()
         _activeFileTransferCount.value = 0
         _latestRequestId = null
         _assistantReplyText.value = ""
@@ -1035,6 +1151,7 @@ class SdkSessionManager(
     private fun restartObservers(session: ConnectedSession, reason: String) {
         logSdkEvent("$reason，开始重建监听")
         consumerJob?.cancel()
+        nasConsumerJob?.cancel()
         deviceObserverJob?.cancel()
         try {
             deviceObserver?.stop()
@@ -1042,11 +1159,78 @@ class SdkSessionManager(
             appLogD(TAG, "restartObservers: deviceObserver.stop() 异常: ${e.message}")
         }
         consumerJob = null
+        nasConsumerJob = null
         deviceObserverJob = null
         deviceObserver = null
         _consumerLog.value = "监听重建中..."
         _deviceLog.value = "设备监听重建中..."
         startObservers(session)
+    }
+
+    /** 尝试解析并分发 NAS 响应，返回 true 表示已处理 */
+    private fun handleNasResponse(subject: String, messageText: String): Boolean {
+        appLogD(
+            TAG,
+            "[NAS] 订阅接受文件列表响应 ",
+        )
+        val nasFileListResponse = parseNasFileListResponse(messageText)
+        if (nasFileListResponse != null) {
+            val matchedRequestId = findMatchingNasFileListRequestId(nasFileListResponse)
+            if (matchedRequestId != null) {
+                appLogD(
+                    TAG,
+                    "[NAS] 接受文件列表响应 requestId=$matchedRequestId kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
+                )
+                recordReceivedMessage(subject, messageText)
+                pendingNasFileListRequests.value[matchedRequestId]?.waiter?.complete(nasFileListResponse)
+                pendingNasFileListRequests.update { current -> current - matchedRequestId }
+            } else {
+                appLogD(
+                    TAG,
+                    "[NAS] 收到未匹配的文件列表响应 requestId=${nasFileListResponse.requestId ?: "none"} kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
+                )
+            }
+            return true
+        }
+        val nasFileGetResponse = parseNasFileGetResponse(messageText)
+        if (nasFileGetResponse != null) {
+            val matchedRequestId = findMatchingNasFileGetRequestId(nasFileGetResponse)
+            if (matchedRequestId != null) {
+                appLogD(
+                    TAG,
+                    "[NAS] 接受文件详情响应 requestId=$matchedRequestId fileId=${nasFileGetResponse.item?.id} blobRef=${nasFileGetResponse.item?.blobRef?.take(40) ?: "null"}",
+                )
+                recordReceivedMessage(subject, messageText)
+                pendingNasFileGetRequests.value[matchedRequestId]?.waiter?.complete(nasFileGetResponse)
+                pendingNasFileGetRequests.update { current -> current - matchedRequestId }
+            } else {
+                appLogD(
+                    TAG,
+                    "[NAS] 收到未匹配的文件详情响应 requestId=${nasFileGetResponse.requestId ?: "none"} fileId=${nasFileGetResponse.item?.id}",
+                )
+            }
+            return true
+        }
+        val nasRegisterResponse = parseNasRegisterBlobsResponse(messageText)
+        if (nasRegisterResponse != null) {
+            val matchedRequestId = findMatchingNasRegisterRequestId(nasRegisterResponse)
+            if (matchedRequestId != null) {
+                appLogD(
+                    TAG,
+                    "[NAS] 接受登记响应 requestId=$matchedRequestId ok=${nasRegisterResponse.ok} results=${nasRegisterResponse.results.size}",
+                )
+                recordReceivedMessage(subject, messageText)
+                pendingNasRegisterRequests.value[matchedRequestId]?.waiter?.complete(nasRegisterResponse)
+                pendingNasRegisterRequests.update { current -> current - matchedRequestId }
+            } else {
+                appLogD(
+                    TAG,
+                    "[NAS] 收到未匹配的登记响应 requestId=${nasRegisterResponse.requestId ?: "none"} results=${nasRegisterResponse.results.size}",
+                )
+            }
+            return true
+        }
+        return false
     }
 
     private fun handleMachineEvent(event: NpcMachineEvent?, sourceMessageId: String?) {
@@ -1308,7 +1492,8 @@ class SdkSessionManager(
         return _activeRequestIds.value.isNotEmpty() ||
             _activeFileTransferCount.value > 0 ||
             pendingNasRegisterRequests.value.isNotEmpty() ||
-            pendingNasFileListRequests.value.isNotEmpty()
+            pendingNasFileListRequests.value.isNotEmpty() ||
+            pendingNasFileGetRequests.value.isNotEmpty()
     }
 
     private fun parseNasFileListResponse(payload: String): NasFileListResponse? {
@@ -1387,6 +1572,57 @@ class SdkSessionManager(
             ok = body["ok"]?.jsonPrimitive?.booleanOrNull ?: root["ok"]?.jsonPrimitive?.booleanOrNull,
             results = results,
         )
+    }
+
+    private fun parseNasFileGetResponse(payload: String): NasFileGetResponse? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        val cmd = root["cmd"]?.jsonPrimitive?.contentOrNull ?: return null
+        if (cmd != "file_get_rsp") return null
+
+        val body =
+            runCatching { root["file_get_rsp"]?.jsonObject }.getOrNull()
+                ?: root
+
+        val itemObject = runCatching { body["item"]?.jsonObject }.getOrNull()
+        val item = itemObject?.let {
+            NasFileGetItem(
+                id = it["id"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                time = it["time"]?.jsonPrimitive?.contentOrNull,
+                location = it["location"]?.jsonPrimitive?.contentOrNull,
+                kind = it["kind"]?.jsonPrimitive?.contentOrNull,
+                contentType = it["contentType"]?.jsonPrimitive?.contentOrNull,
+                size = it["size"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                fileName = it["fileName"]?.jsonPrimitive?.contentOrNull,
+                desc = it["desc"]?.jsonPrimitive?.contentOrNull,
+                blobRef = it["blobRef"]?.jsonPrimitive?.contentOrNull,
+            )
+        }
+
+        return NasFileGetResponse(
+            cmd = cmd,
+            requestId =
+                root["request_id"]?.jsonPrimitive?.contentOrNull
+                    ?: body["request_id"]?.jsonPrimitive?.contentOrNull,
+            item = item,
+            error = body["error"]?.jsonPrimitive?.contentOrNull,
+        )
+    }
+
+    private fun findMatchingNasFileGetRequestId(response: NasFileGetResponse): String? {
+        response.requestId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { requestId ->
+                if (requestId in pendingNasFileGetRequests.value) {
+                    return requestId
+                }
+            }
+
+        response.item?.id?.let { fileId ->
+            pendingNasFileGetRequests.value.values.firstOrNull { it.fileId == fileId }
+                ?.let { return it.requestId }
+        }
+
+        return pendingNasFileGetRequests.value.keys.singleOrNull()
     }
 
     private fun findMatchingNasRegisterRequestId(response: NasRegisterBlobsResponse): String? {
@@ -1518,7 +1754,6 @@ private fun buildNasRegisterBlobsPayload(
 }
 
 private fun buildNasFileListPayload(
-    requestId: String,
     rspSubject: String,
     kind: String,
     pageSize: Int,
@@ -1527,9 +1762,6 @@ private fun buildNasFileListPayload(
     return buildString {
         append("{")
         append("\"cmd\":\"file_list_req\",")
-        append("\"request_id\":\"")
-        append(requestId.escapeForJson())
-        append("\",")
         append("\"rsp_subject\":\"")
         append(rspSubject.escapeForJson())
         append("\",")
@@ -1547,6 +1779,24 @@ private fun buildNasFileListPayload(
             append(cursor.escapeForJson())
             append("\"")
         }
+        append("}")
+        append("}")
+    }
+}
+
+private fun buildNasFileGetPayload(
+    rspSubject: String,
+    fileId: Long,
+): String {
+    return buildString {
+        append("{")
+        append("\"cmd\":\"file_get_req\",")
+        append("\"rsp_subject\":\"")
+        append(rspSubject.escapeForJson())
+        append("\",")
+        append("\"file_get_req\":{")
+        append("\"id\":")
+        append(fileId)
         append("}")
         append("}")
     }

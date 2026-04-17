@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
@@ -293,6 +294,7 @@ internal data class NasImageMonthGroup(
 
 internal data class NasImageItem(
     val id: String,
+    val fileId: Long? = null,
     val name: String,
     val type: String,
     val format: String,
@@ -1024,12 +1026,29 @@ internal fun NasImageThumbnail(
                 }
             )
     ) {
-        Image(
-            painter = painterResource(Res.drawable.img_demo),
-            contentDescription = image.name,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        if (image.path.isNotBlank()) {
+            BlobImage(
+                blobRef = image.path,
+                contentDescription = image.name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                errorContent = {
+                    Image(
+                        painter = painterResource(Res.drawable.img_demo),
+                        contentDescription = image.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            )
+        } else {
+            Image(
+                painter = painterResource(Res.drawable.img_demo),
+                contentDescription = image.name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
 
         if (showSelectionIndicator && isSelected) {
             Box(
