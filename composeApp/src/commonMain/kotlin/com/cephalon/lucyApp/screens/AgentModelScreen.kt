@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -278,6 +279,23 @@ fun AgentModelScreen(
 
     val messageListState = rememberLazyListState()
 
+    // 用户是否已经在（接近）底部：允许约 32px 容差，避免浮点/间距导致误判。
+    // 在底部 → streaming 循环会继续跟随；不在底部 → 用户自由滚动，我们不再强拉回底部。
+    val isNearBottom by remember(messageListState) {
+        derivedStateOf {
+            val info = messageListState.layoutInfo
+            val visible = info.visibleItemsInfo
+            if (visible.isEmpty()) {
+                true
+            } else {
+                val lastVisible = visible.last()
+                val lastIndex = info.totalItemsCount - 1
+                lastVisible.index >= lastIndex &&
+                    lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 32
+            }
+        }
+    }
+
     // 发送 / 新增消息时动画滚动到底部
     LaunchedEffect(currentMessages.size) {
         if (currentMessages.isNotEmpty()) {
@@ -287,11 +305,15 @@ fun AgentModelScreen(
         }
     }
 
-    // streaming 期间持续跟随底部（item 高度增长时视口不会自动跟）
+    // streaming 期间持续跟随底部（item 高度增长时视口不会自动跟）。
+    // 仅当用户已经停留在底部、且当前没有在进行手势滚动时才跟随；
+    // 用户一旦向上滑动离开底部，本循环会自动停止追随，让用户可以自由浏览历史。
     LaunchedEffect(assistantReplyStreaming) {
         if (!assistantReplyStreaming) return@LaunchedEffect
-        while (true) {
+        while (isActive) {
             delay(200)
+            if (!isNearBottom) continue
+            if (messageListState.isScrollInProgress) continue
             val total = messageListState.layoutInfo.totalItemsCount
             if (total > 0) {
                 messageListState.scrollToItem(total - 1)
