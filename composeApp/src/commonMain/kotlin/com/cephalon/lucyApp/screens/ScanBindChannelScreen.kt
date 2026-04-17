@@ -4,15 +4,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -26,10 +28,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.scan.playScanBeep
@@ -109,76 +115,79 @@ fun ScanBindChannelScreen(
     }
 
     Scaffold(
-        containerColor = Color(0xFFF5F5F7)
+        containerColor = Color.Black
     ) { padding ->
+        val horizontalGutter = 18.dp
+        val subtleWhite = Color.White.copy(alpha = 0.60f)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .verticalScroll(scrollState),
         ) {
-            TextButton(
-                onClick = onBack,
-                contentPadding = PaddingValues(0.dp)
+            // ── 返回按钮（使用模态窗同款 icon，暗底版） ──
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "返回",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color(0xFF111111)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "扫码绑定Channel",
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF111111)
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE2E2E2))
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "扫描自己的 OPEN CLAW 控制台生成的绑定二维码",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF222222)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "最小接入（按顺序执行）:\n" +
-                            "openclaw plugins install @hzttt/lucy\n" +
-                            "openclaw config set channels.lucy.enabled true\n" +
-                            "openclaw config set channels.lucy.servers '[\\\"nats://chat.lucy.run:4222\\\"]' --strict-json\n\n" +
-                            "生成绑定二维码:\n" +
-                            "openclaw lucy auth-qrcode",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF1F1F1F)
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f)),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // ── 标题，距离 icon 44dp ──
+            Spacer(modifier = Modifier.height(44.dp))
+            Text(
+                text = "扫码绑定 Channel",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalGutter),
+            )
 
+            // ── 副标题，距离标题 4dp ──
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "扫描自己的OPEN CLAW 控制台生成的链接二维码",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = subtleWhite,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalGutter),
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ── 扫码区域（左右铺满屏幕） ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(360.dp)
-                    .background(Color(0xFFDCDCDC), RoundedCornerShape(24.dp)),
-                contentAlignment = Alignment.Center
+                    .background(Color(0xFF1A1A1A)),
+                contentAlignment = Alignment.Center,
             ) {
                 QrScannerView(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(0.dp),
+                    modifier = Modifier.fillMaxSize(),
                     enabled = cameraPermission.hasPermission && (scanState == ScanState.Idle || scanState == ScanState.Failure),
                     onQrCodeScanned = { content ->
                         if (scanState != ScanState.Idle && scanState != ScanState.Failure) return@QrScannerView
@@ -220,32 +229,26 @@ fun ScanBindChannelScreen(
                 if (!cameraPermission.hasPermission) {
                     Text(
                         text = "需要相机权限以扫码",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF7A7A7A)
+                        fontSize = 14.sp,
+                        color = subtleWhite,
                     )
                 }
 
                 when (scanState) {
-                    ScanState.Idle -> {
-                        Text(
-                            text = "扫码区域",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF7A7A7A)
-                        )
-                    }
+                    ScanState.Idle -> Unit
 
                     ScanState.Loading -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(
-                                color = Color(0xFF333333),
+                                color = Color.White,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(26.dp)
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = "绑定中...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFF555555)
+                                fontSize = 14.sp,
+                                color = Color.White,
                             )
                         }
                     }
@@ -254,7 +257,7 @@ fun ScanBindChannelScreen(
                         Text(
                             text = "绑定成功",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF1B5E20)
+                            color = Color(0xFF4CAF50),
                         )
                     }
 
@@ -263,14 +266,14 @@ fun ScanBindChannelScreen(
                             Text(
                                 text = "绑定失败",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFB00020)
+                                color = Color(0xFFE84026),
                             )
                             if (bindErrorMsg.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = bindErrorMsg,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF666666)
+                                    fontSize = 12.sp,
+                                    color = subtleWhite,
                                 )
                             }
                             Spacer(modifier = Modifier.height(10.dp))
@@ -279,62 +282,37 @@ fun ScanBindChannelScreen(
                                     bindErrorMsg = ""
                                     scanState = ScanState.Idle
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF222222))
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.12f))
                             ) {
-                                Text("重试")
+                                Text("重试", color = Color.White)
                             }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
+            // ── 寻找二维码帮助文案，距离扫码区 32dp ──
+            Spacer(modifier = Modifier.height(32.dp))
             Text(
-                text = "如何找到您的 OPEN CLAW 二维码",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF111111)
+                text = "如何找到您的OPEN CLAW 二维码",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = subtleWhite,
+                modifier = Modifier.padding(horizontal = horizontalGutter),
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
+            // ── 点此查看 链接，距离上方 2dp ──
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "https://github.com/HzTTT/lucy",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF111111),
-                modifier = Modifier.clickable {
-                    uriHandler.openUri("https://github.com/HzTTT/lucy")
-                }
+                text = "点此查看",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF2191EE),
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier
+                    .padding(horizontal = horizontalGutter)
+                    .clickable { uriHandler.openUri("https://github.com/HzTTT/lucy") },
             )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Text(
-                text = "日志",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF111111)
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7F7))
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    logs.take(10).forEachIndexed { index, line ->
-                        Text(
-                            text = line,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF222222)
-                        )
-                        if (index != logs.take(10).lastIndex) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-                }
-            }
 
             Spacer(modifier = Modifier.height(26.dp))
         }

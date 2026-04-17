@@ -109,6 +109,13 @@ private fun inferImageContentType(fileName: String): String {
     }
 }
 
+private fun isBrainBoxCapabilityQuery(text: String): Boolean {
+    val normalized = text.trim()
+    if (normalized.isEmpty()) return false
+    if (!normalized.contains("脑花")) return false
+    return normalized.contains("能力") || normalized.contains("功能")
+}
+
 @Composable
 fun AgentModelScreen(
     onBack: () -> Unit,
@@ -469,6 +476,16 @@ fun AgentModelScreen(
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
             val targetConversationId = selectedConversationId
+
+            // ── 特殊指令：脑花 功能/能力 → 直接展示技能卡片，不走 publishTextToNpc ──
+            if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
+                appendMessageToConversation(targetConversationId, ChatItem.User(text))
+                appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
+                inputText = TextFieldValue("")
+                attachmentsExpanded = false
+                return@Unit
+            }
+
             if (attachments.isNotEmpty()) {
                 appendMessageToConversation(
                     targetConversationId,
