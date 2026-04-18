@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Card
@@ -65,20 +66,22 @@ internal fun Bubble(
                     .wrapContentWidth()
                     .widthIn(max = bubbleMaxWidth)
             ) {
-                if (isMarkdown) {
-                    MarkdownBubbleText(
-                        markdown = text,
-                        textColor = textColor,
-                        onCopySuccess = onCopySuccess,
-                        modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
-                    )
-                } else {
-                    Text(
-                        text = text,
-                        fontSize = ds.sp(14f),
-                        color = textColor,
-                        modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
-                    )
+                SelectionContainer {
+                    if (isMarkdown) {
+                        MarkdownBubbleText(
+                            markdown = text,
+                            textColor = textColor,
+                            onCopySuccess = onCopySuccess,
+                            modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
+                        )
+                    } else {
+                        Text(
+                            text = text,
+                            fontSize = ds.sp(14f),
+                            color = textColor,
+                            modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
+                        )
+                    }
                 }
             }
         } else {
@@ -88,20 +91,22 @@ internal fun Bubble(
                     .wrapContentWidth()
                     .widthIn(max = bubbleMaxWidth)
             ) {
-                if (isMarkdown) {
-                    MarkdownBubbleText(
-                        markdown = text,
-                        textColor = textColor,
-                        onCopySuccess = onCopySuccess,
-                        modifier = Modifier
-                    )
-                } else {
-                    Text(
-                        text = text,
-                        fontSize = ds.sp(14f),
-                        color = textColor,
-                        modifier = Modifier
-                    )
+                SelectionContainer {
+                    if (isMarkdown) {
+                        MarkdownBubbleText(
+                            markdown = text,
+                            textColor = textColor,
+                            onCopySuccess = onCopySuccess,
+                            modifier = Modifier
+                        )
+                    } else {
+                        Text(
+                            text = text,
+                            fontSize = ds.sp(14f),
+                            color = textColor,
+                            modifier = Modifier
+                        )
+                    }
                 }
             }
         }

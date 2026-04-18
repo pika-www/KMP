@@ -119,6 +119,19 @@ data class NasFileGetResponse(
     val error: String?,
 )
 
+data class NasFileDeleteResponse(
+    val cmd: String,
+    val requestId: String?,
+    val ok: Boolean,
+    val error: String?,
+)
+
+private data class PendingNasFileDeleteRequest(
+    val requestId: String,
+    val fileId: Long,
+    val waiter: CompletableDeferred<NasFileDeleteResponse>,
+)
+
 private data class PendingNasFileGetRequest(
     val requestId: String,
     val fileId: Long,
@@ -296,6 +309,7 @@ class SdkSessionManager(
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
     private val pendingNasFileGetRequests = MutableStateFlow<Map<String, PendingNasFileGetRequest>>(emptyMap())
+    private val pendingNasFileDeleteRequests = MutableStateFlow<Map<String, PendingNasFileDeleteRequest>>(emptyMap())
     private val _activeFileTransferCount = MutableStateFlow(0)
 
     // ── NAS 列表缓存（跨页面持久化） ──
@@ -819,6 +833,62 @@ class SdkSessionManager(
         }
     }
 
+    suspend fun deleteFileFromNas(
+        targetCdi: String,
+        fileId: Long,
+        timeoutMs: Long = 60_000L,
+    ): Result<NasFileDeleteResponse> {
+        if (targetCdi.isBlank()) {
+            return Result.failure(IllegalArgumentException("targetCdi 为空，无可用设备"))
+        }
+
+        ensureConnectedIfTokenValid()
+            .exceptionOrNull()
+            ?.let { error -> return Result.failure(error) }
+
+        val activeSession = session
+            ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        val requestId = generateMessageId19()
+        val rspSubject = "cephalon.nas.user.${activeSession.userId}"
+        val waiter = CompletableDeferred<NasFileDeleteResponse>()
+        val resolvedTargetCdi = targetCdi.trim()
+        pendingNasFileDeleteRequests.update { current ->
+            current + (requestId to PendingNasFileDeleteRequest(requestId, fileId, waiter))
+        }
+
+        appLogD(TAG, "开始删除 NAS 文件 cdi=$resolvedTargetCdi requestId=$requestId fileId=$fileId")
+
+        val nasPayload = buildNasFileDeletePayload(
+            rspSubject = rspSubject,
+            fileId = fileId,
+        )
+        appLogD(TAG, "NAS 文件删除请求 payload=$nasPayload")
+
+        return runCatching {
+            activeSession.publishToNas(
+                cdi = resolvedTargetCdi,
+                payload = nasPayload,
+            )
+            withTimeoutOrNull(timeoutMs) { waiter.await() }
+                ?: throw IllegalStateException("等待 NAS 文件删除响应超时")
+        }.onSuccess { response ->
+            appLogD(
+                TAG,
+                "NAS 文件删除完成 cdi=$resolvedTargetCdi requestId=$requestId fileId=$fileId ok=${response.ok} error=${response.error ?: "null"}",
+            )
+        }.onFailure { error ->
+            appLogD(
+                TAG,
+                "NAS 文件删除失败 cdi=$resolvedTargetCdi requestId=$requestId fileId=$fileId error=${error.message ?: "unknown"}",
+            )
+            waiter.cancel(error as? CancellationException)
+        }.also {
+            pendingNasFileDeleteRequests.update { current -> current - requestId }
+            scheduleBackgroundDisconnectIfNeeded()
+        }
+    }
+
     data class MediaItem(
         val blobRef: String,
         val contentType: String,
@@ -1113,9 +1183,13 @@ class SdkSessionManager(
         pendingNasFileGetRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
+        pendingNasFileDeleteRequests.value.values.forEach { pending ->
+            pending.waiter.cancel()
+        }
         pendingNasRegisterRequests.value = emptyMap()
         pendingNasFileListRequests.value = emptyMap()
         pendingNasFileGetRequests.value = emptyMap()
+        pendingNasFileDeleteRequests.value = emptyMap()
         _activeFileTransferCount.value = 0
         _latestRequestId = null
         _assistantReplyText.value = ""
@@ -1321,6 +1395,25 @@ class SdkSessionManager(
                 appLogD(
                     TAG,
                     "[NAS] 收到未匹配的文件详情响应 requestId=${nasFileGetResponse.requestId ?: "none"} fileId=${nasFileGetResponse.item?.id}",
+                )
+            }
+            return true
+        }
+        val nasFileDeleteResponse = runCatching { parseNasFileDeleteResponse(messageText) }.getOrNull()
+        if (nasFileDeleteResponse != null) {
+            val matchedRequestId = findMatchingNasFileDeleteRequestId(nasFileDeleteResponse)
+            if (matchedRequestId != null) {
+                appLogD(
+                    TAG,
+                    "[NAS] 接受文件删除响应 requestId=$matchedRequestId ok=${nasFileDeleteResponse.ok} error=${nasFileDeleteResponse.error ?: "null"}",
+                )
+                recordReceivedMessage(subject, messageText)
+                pendingNasFileDeleteRequests.value[matchedRequestId]?.waiter?.complete(nasFileDeleteResponse)
+                pendingNasFileDeleteRequests.update { current -> current - matchedRequestId }
+            } else {
+                appLogD(
+                    TAG,
+                    "[NAS] 收到未匹配的文件删除响应 requestId=${nasFileDeleteResponse.requestId ?: "none"} ok=${nasFileDeleteResponse.ok}",
                 )
             }
             return true
@@ -1660,7 +1753,8 @@ class SdkSessionManager(
             _activeFileTransferCount.value > 0 ||
             pendingNasRegisterRequests.value.isNotEmpty() ||
             pendingNasFileListRequests.value.isNotEmpty() ||
-            pendingNasFileGetRequests.value.isNotEmpty()
+            pendingNasFileGetRequests.value.isNotEmpty() ||
+            pendingNasFileDeleteRequests.value.isNotEmpty()
     }
 
     private fun parseNasFileListResponse(payload: String): NasFileListResponse? {
@@ -1790,6 +1884,37 @@ class SdkSessionManager(
         }
 
         return pendingNasFileGetRequests.value.keys.singleOrNull()
+    }
+
+    private fun parseNasFileDeleteResponse(payload: String): NasFileDeleteResponse? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        val cmd = root["cmd"]?.jsonPrimitive?.contentOrNull ?: return null
+        if (cmd != "file_delete_rsp") return null
+
+        val body =
+            runCatching { root["file_delete_rsp"]?.jsonObject }.getOrNull()
+                ?: root
+
+        return NasFileDeleteResponse(
+            cmd = cmd,
+            requestId =
+                root["request_id"]?.jsonPrimitive?.contentOrNull
+                    ?: body["request_id"]?.jsonPrimitive?.contentOrNull,
+            ok = body["ok"]?.safePrimitiveBooleanOrNull ?: false,
+            error = nasJsonErrorMessage(body["error"]),
+        )
+    }
+
+    private fun findMatchingNasFileDeleteRequestId(response: NasFileDeleteResponse): String? {
+        response.requestId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { requestId ->
+                if (requestId in pendingNasFileDeleteRequests.value) {
+                    return requestId
+                }
+            }
+
+        return pendingNasFileDeleteRequests.value.keys.singleOrNull()
     }
 
     private fun findMatchingNasRegisterRequestId(response: NasRegisterBlobsResponse): String? {
@@ -1963,6 +2088,24 @@ private fun buildNasFileGetPayload(
         append(rspSubject.escapeForJson())
         append("\",")
         append("\"file_get_req\":{")
+        append("\"id\":")
+        append(fileId)
+        append("}")
+        append("}")
+    }
+}
+
+private fun buildNasFileDeletePayload(
+    rspSubject: String,
+    fileId: Long,
+): String {
+    return buildString {
+        append("{")
+        append("\"cmd\":\"file_delete_req\",")
+        append("\"rsp_subject\":\"")
+        append(rspSubject.escapeForJson())
+        append("\",")
+        append("\"file_delete_req\":{")
         append("\"id\":")
         append(fileId)
         append("}")

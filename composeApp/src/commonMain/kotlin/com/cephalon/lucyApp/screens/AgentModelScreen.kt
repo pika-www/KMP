@@ -89,6 +89,7 @@ import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
 import com.cephalon.lucyApp.screens.agentmodel.displayName
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelAttachmentPanel
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelSearchScreen
+import androidx.compose.ui.text.input.TextFieldValue
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelComposer
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelImagePreview
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelMessageList
@@ -338,11 +339,11 @@ fun AgentModelScreen(
         logs.add(0, message)
     }
 
-    var inputText by remember { mutableStateOf("") }
+    var inputText by remember { mutableStateOf(TextFieldValue("")) }
     var attachmentsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        snapshotFlow { inputText }
+        snapshotFlow { inputText.text }
             .drop(1)
             .collect { if (attachmentsExpanded) attachmentsExpanded = false }
     }
@@ -563,7 +564,7 @@ fun AgentModelScreen(
     }
 
     val sendMessage = Unit@{
-        val text = inputText.trim()
+        val text = inputText.text.trim()
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
@@ -573,7 +574,7 @@ fun AgentModelScreen(
             if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
                 appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
-                inputText = ""
+                inputText = TextFieldValue("")
                 attachmentsExpanded = false
                 return@Unit
             }
@@ -736,7 +737,7 @@ fun AgentModelScreen(
                 }
             }
 
-            inputText = ""
+            inputText = TextFieldValue("")
             attachmentsExpanded = false
             attachments.forEach { att ->
                 if (att.type == DraftAttachmentType.Image) {
@@ -758,16 +759,6 @@ fun AgentModelScreen(
                     .fillMaxSize()
                     .background(Color(0xFFF5F5F7))
                     .padding(padding)
-                    .pointerInput(attachmentsExpanded) {
-                        if (attachmentsExpanded) return@pointerInput
-                        awaitEachGesture {
-                            awaitFirstDown(pass = PointerEventPass.Initial)
-                            val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                            if (up != null) {
-                                focusManager.clearFocus()
-                            }
-                        }
-                    }
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Surface(color = Color(0xFFF5F5F7)) {
@@ -802,7 +793,14 @@ fun AgentModelScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = ds.sw(20.dp)),
+                                .padding(horizontal = ds.sw(20.dp))
+                                .pointerInput(Unit) {
+                                    awaitEachGesture {
+                                        awaitFirstDown(pass = PointerEventPass.Initial)
+                                        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                                        if (up != null) { focusManager.clearFocus() }
+                                    }
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -868,7 +866,18 @@ fun AgentModelScreen(
                             }
                         }
                     } else {
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f)
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    awaitFirstDown(pass = PointerEventPass.Initial)
+                                    val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                                    if (up != null) {
+                                        focusManager.clearFocus()
+                                        attachmentsExpanded = false
+                                    }
+                                }
+                            }
+                        ) {
                             AgentModelMessageList(
                                 messages = currentMessages,
                                 playingRecordingId = mediaAccessController.playingRecordingId,
@@ -880,7 +889,7 @@ fun AgentModelScreen(
                                     attachmentsExpanded = false
                                 },
                                 onSkillClick = { skillText ->
-                                    inputText = skillText
+                                    inputText = TextFieldValue(skillText)
                                     sendMessage()
                                 },
                                 onAttachmentClick = { attachment ->
@@ -997,9 +1006,9 @@ fun AgentModelScreen(
                                 isVoiceBusy = false
                                 val trimmedText = result.transcribedText.trim()
                                 if (trimmedText.isNotBlank()) {
-                                    val currentText = inputText.trim()
+                                    val currentText = inputText.text.trim()
                                     val newText = if (currentText.isBlank()) trimmedText else "$currentText $trimmedText"
-                                    inputText = newText
+                                    inputText = TextFieldValue(newText)
                                 }
                             }
                         },

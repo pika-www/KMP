@@ -116,6 +116,7 @@ fun NasScreen(onBack: () -> Unit) {
     var lastPickerCategory by remember { mutableStateOf<NasCategory?>(null) }
     var lastPickedImagesSize by remember { mutableIntStateOf(0) }
     var lastPickedFilesSize by remember { mutableIntStateOf(0) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val selectedPhotoIds = remember { mutableStateListOf<String>() }
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
@@ -315,6 +316,48 @@ fun NasScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+        }
+    }
+
+    /** 删除单个 NAS 文件，成功后刷新列表 */
+    fun deleteNasFile(fileId: Long?, category: NasCategory) {
+        if (fileId == null) return
+        coroutineScope.launch {
+            sdkSessionManager.deleteFileFromNas(
+                targetCdi = targetCdi,
+                fileId = fileId,
+            ).onSuccess { response ->
+                if (response.ok) {
+                    refreshNasListAfterUpload(category)
+                } else {
+                    println("NAS 删除失败: ${response.error ?: "unknown"}")
+                }
+            }.onFailure { error ->
+                println("NAS 删除异常: ${error.message ?: "unknown"}")
+            }
+        }
+    }
+
+    /** 批量删除 NAS 文件，全部完成后刷新列表 */
+    fun deleteNasFiles(fileIds: List<Long?>, category: NasCategory) {
+        val validIds = fileIds.filterNotNull()
+        if (validIds.isEmpty()) return
+        coroutineScope.launch {
+            var anySuccess = false
+            validIds.forEach { fid ->
+                sdkSessionManager.deleteFileFromNas(
+                    targetCdi = targetCdi,
+                    fileId = fid,
+                ).onSuccess { response ->
+                    if (response.ok) anySuccess = true
+                    else println("NAS 删除失败 fileId=$fid: ${response.error ?: "unknown"}")
+                }.onFailure { error ->
+                    println("NAS 删除异常 fileId=$fid: ${error.message ?: "unknown"}")
+                }
+            }
+            if (anySuccess) {
+                refreshNasListAfterUpload(category)
+            }
         }
     }
 
@@ -630,8 +673,7 @@ fun NasScreen(onBack: () -> Unit) {
                 )
             },
             onDelete = { currentImage ->
-                println("删除图片: ${currentImage.name}")
-                // TODO: 实现删除功能
+                deleteNasFile(currentImage.fileId, NasCategory.Photos)
                 selectedImage = null
             }
         )
@@ -656,8 +698,7 @@ fun NasScreen(onBack: () -> Unit) {
                 )
             },
             onDelete = {
-                println("删除音频: ${audio.name}")
-                // TODO: 实现删除功能
+                deleteNasFile(audio.fileId, NasCategory.Recordings)
                 mediaController.stopAudioPlayback()
                 selectedAudio = null
             }
@@ -682,8 +723,7 @@ fun NasScreen(onBack: () -> Unit) {
                 )
             },
             onDelete = {
-                println("删除文档: ${document.name}")
-                // TODO: 实现删除功能
+                deleteNasFile(document.fileId, NasCategory.Documents)
                 selectedDocument = null
             }
         )
@@ -956,18 +996,40 @@ fun NasScreen(onBack: () -> Unit) {
                             },
                             icon = Res.drawable.ic_download
                         )
-                        NasGlassTextButton(
-                            text = "删除",
-                            onClick = {
+                        Box {
+                            NasGlassTextButton(
+                                text = "删除",
+                                onClick = { showDeleteConfirm = true },
+                                icon = Res.drawable.ic_delete
+                            )
+                            if (showDeleteConfirm) {
                                 val count = when (selectedCategory) {
                                     NasCategory.Photos -> selectedPhotoIds.size
                                     NasCategory.Recordings -> selectedAudioIds.size
                                     NasCategory.Documents -> selectedDocumentIds.size
                                 }
-                                println("删除资源: ${count}项")
-                            },
-                            icon = Res.drawable.ic_delete
-                        )
+                                val categoryName = when (selectedCategory) {
+                                    NasCategory.Photos -> "张照片"
+                                    NasCategory.Recordings -> "个音频"
+                                    NasCategory.Documents -> "个文档"
+                                }
+                                NasDeleteConfirmPopup(
+                                    count = count,
+                                    categoryName = categoryName,
+                                    onConfirm = {
+                                        showDeleteConfirm = false
+                                        val fileIds = when (selectedCategory) {
+                                            NasCategory.Photos -> imageItems.filter { it.id in selectedPhotoIds }.map { it.fileId }
+                                            NasCategory.Recordings -> audioItems.filter { it.id in selectedAudioIds }.map { it.fileId }
+                                            NasCategory.Documents -> documentItems.filter { it.id in selectedDocumentIds }.map { it.fileId }
+                                        }
+                                        deleteNasFiles(fileIds, selectedCategory)
+                                        exitAllSelectionModes()
+                                    },
+                                    onDismiss = { showDeleteConfirm = false }
+                                )
+                            }
+                        }
                     }
                 } else {
                     Column(
@@ -1037,12 +1099,42 @@ fun NasScreen(onBack: () -> Unit) {
                                     },
                                     modifier = Modifier.size(44.dp)
                                 )
-                                NasGlassCircleButton(
-                                    imageVector = Icons.Outlined.Delete,
-                                    contentDescription = "删除",
-                                    onClick = { /* TODO: Implement delete action */ },
-                                    modifier = Modifier.size(44.dp)
-                                )
+                                Box {
+                                    NasGlassCircleButton(
+                                        imageVector = Icons.Outlined.Delete,
+                                        contentDescription = "删除",
+                                        onClick = { showDeleteConfirm = true },
+                                        modifier = Modifier.size(44.dp)
+                                    )
+                                    if (showDeleteConfirm) {
+                                        val count = when (selectedCategory) {
+                                            NasCategory.Photos -> selectedPhotoIds.size
+                                            NasCategory.Recordings -> selectedAudioIds.size
+                                            NasCategory.Documents -> selectedDocumentIds.size
+                                        }
+                                        val categoryName = when (selectedCategory) {
+                                            NasCategory.Photos -> "张照片"
+                                            NasCategory.Recordings -> "个音频"
+                                            NasCategory.Documents -> "个文档"
+                                        }
+                                        NasDeleteConfirmPopup(
+                                            count = count,
+                                            categoryName = categoryName,
+                                            onConfirm = {
+                                                showDeleteConfirm = false
+                                                val fileIds = when (selectedCategory) {
+                                                    NasCategory.Photos -> imageItems.filter { it.id in selectedPhotoIds }.map { it.fileId }
+                                                    NasCategory.Recordings -> audioItems.filter { it.id in selectedAudioIds }.map { it.fileId }
+                                                    NasCategory.Documents -> documentItems.filter { it.id in selectedDocumentIds }.map { it.fileId }
+                                                }
+                                                deleteNasFiles(fileIds, selectedCategory)
+                                                exitAllSelectionModes()
+                                                isSearchSelectionMode = false
+                                            },
+                                            onDismiss = { showDeleteConfirm = false }
+                                        )
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -1168,8 +1260,7 @@ fun NasScreen(onBack: () -> Unit) {
                 previewImage = null
             },
             onDelete = {
-                println("删除图片: ${image.name}")
-                // TODO: 实现删除功能
+                deleteNasFile(image.fileId, NasCategory.Photos)
                 previewImage = null
             }
         )

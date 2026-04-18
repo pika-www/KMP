@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -57,8 +58,8 @@ import org.jetbrains.compose.resources.painterResource
 
 @Composable
 internal fun AgentModelComposer(
-    inputText: String,
-    onInputTextChange: (String) -> Unit,
+    inputText: TextFieldValue,
+    onInputTextChange: (TextFieldValue) -> Unit,
     draftAttachments: List<DraftAttachment>,
     onRemoveDraftAttachment: (DraftAttachment) -> Unit,
     onImageClick: (ImagePreviewState) -> Unit,
@@ -136,7 +137,7 @@ internal fun AgentModelComposer(
                     .padding(vertical = ds.sm(3.dp)),
                 decorationBox = { innerTextField ->
                     Box {
-                        if (inputText.isEmpty()) {
+                        if (inputText.text.isEmpty()) {
                             Text(
                                 text = if (isRecording) "录音中..."
                                 else if (isVoiceBusy) "正在转写语音..."

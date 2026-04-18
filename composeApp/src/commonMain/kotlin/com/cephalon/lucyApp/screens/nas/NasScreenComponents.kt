@@ -61,9 +61,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.foundation.layout.IntrinsicSize
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import org.jetbrains.compose.resources.DrawableResource
@@ -1389,5 +1394,62 @@ private fun formatAudioDuration(durationSec: Int): String {
         }
     } else {
         "${seconds}秒"
+    }
+}
+
+@Composable
+internal fun NasDeleteConfirmPopup(
+    count: Int,
+    categoryName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val ds = LocalDesignScale.current
+    Popup(
+        alignment = Alignment.TopEnd,
+        offset = IntOffset(0, with(LocalDensity.current) { ds.sm(40.dp).roundToPx() }),
+        onDismissRequest = onDismiss
+    ) {
+        Surface(
+            shape = RoundedCornerShape(ds.sm(16.dp)),
+            color = Color(0xFF2C2C2E),
+            shadowElevation = 8.dp,
+            modifier = Modifier.width(IntrinsicSize.Max)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(16.dp)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(ds.sm(12.dp))
+            ) {
+                Text(
+                    text = "这 ${count} ${categoryName}确认在\nNAS 里删掉嘛",
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(ds.sm(10.dp)),
+                    color = Color(0xFF3A3A3C)
+                ) {
+                    Text(
+                        text = "确认删除",
+                        modifier = Modifier
+                            .clickable(onClick = onConfirm)
+                            .padding(horizontal = ds.sm(24.dp), vertical = ds.sm(10.dp)),
+                        style = TextStyle(
+                            color = Color(0xFFFF3B30),
+                            fontSize = ds.sp(14f),
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                    )
+                }
+            }
+        }
     }
 }
