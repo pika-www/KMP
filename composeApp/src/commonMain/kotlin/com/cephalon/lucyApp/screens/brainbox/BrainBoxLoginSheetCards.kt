@@ -78,6 +78,49 @@ internal fun BrainBoxActionCard(
     }
 }
 
+/**
+ * 纯展示卡片：只有标题 + 正文（可选内联 loading 指示），没有操作按钮。
+ * 用于不需要主按钮、又希望保持卡片视觉一致性的空/加载态，例如 Wi‑Fi 列表为空时。
+ */
+@Composable
+internal fun BrainBoxInfoCard(
+    title: String,
+    body: String,
+    showLoading: Boolean = false,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFFEDEDED),
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFF111111),
+                    modifier = Modifier.weight(1f),
+                )
+                if (showLoading) {
+                    CircularProgressIndicator(
+                        color = Color(0xFF1F2535),
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF666666),
+            )
+        }
+    }
+}
+
 @Composable
 internal fun BrainBoxBleDeviceCard(
     device: BrainBoxBleDevice,

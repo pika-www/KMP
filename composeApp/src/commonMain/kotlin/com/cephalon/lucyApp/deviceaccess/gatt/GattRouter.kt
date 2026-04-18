@@ -48,26 +48,84 @@ class GattRouter(
     }
 
     /**
-     * 协议步骤 5：向 wifi_scan 写入 {"action":"scan"}，等待 [waitMillis]（默认 5s）后单次读取。
-     * 不循环轮询。
+     * 协议步骤 5：向 wifi_scan 写入 {"action":"scan"}，然后轮询读回结果直到拿到 ready/failed
+     * 或超过 [overallTimeoutMs]。
+     *
+     * 设计原因：WifiScan 特征用 WRITE_WITHOUT_RESPONSE，Android 侧可能在链路拥塞时静默丢掉
+     * 首包，固件永远停在 idle 状态；同时不同网络环境下固件完成扫描的时间差异很大（从 <2s
+     * 到 >10s 都有可能）。所以改为：
+     *   1. 写入 scan 命令
+     *   2. 首次读取前等 [initialWaitMs]（默认 1.5s）让固件有时间进入 scanning
+     *   3. 每 [pollIntervalMs]（默认 1.5s）读一次 state
+     *   4. 若直到 [idleResendDeadlineMs]（默认 6s）state 一直是空/idle，重新写一次 scan
+     *      命令（兜底首包丢失）
+     *   5. 命中 ready 就返回网络列表；命中 failed 就报错；超时也报错
+     *
+     * 不重置"已经重发过一次"的标志——最多只会重发一次，避免无限循环。
      */
     suspend fun scanWifi(
-        waitMillis: Long = WIFI_SCAN_WAIT_MS,
+        initialWaitMs: Long = WIFI_SCAN_INITIAL_WAIT_MS,
+        pollIntervalMs: Long = WIFI_SCAN_POLL_INTERVAL_MS,
+        idleResendDeadlineMs: Long = WIFI_SCAN_IDLE_RESEND_DEADLINE_MS,
+        overallTimeoutMs: Long = WIFI_SCAN_OVERALL_TIMEOUT_MS,
     ): Result<List<GattWifiNetwork>> {
         val scanCmd = WifiScanCommand()
-        println("[BrainBox] wifi_scan write: ${dispatcher.toJsonObject(scanCmd)}")
-        writeRoute(
-            route = GattRoute.WifiScan,
-            payload = dispatcher.toJsonObject(scanCmd),
-        ).getOrElse { return Result.failure(it) }
-        println("[BrainBox] wifi_scan: 等待 ${waitMillis}ms 后读取结果...")
-        delay(waitMillis)
-        val response = readRoute<WifiScanResponse>(GattRoute.WifiScan).getOrElse { return Result.failure(it) }
-        println("[BrainBox] wifi_scan result: state=${response.state}, networks=${response.networks.size}, error=${response.error}")
-        if (response.isFailed) {
-            return Result.failure(IllegalStateException(response.error.ifBlank { "设备 Wi‑Fi 扫描失败" }))
+        val scanJson = dispatcher.toJsonObject(scanCmd)
+        println("[BrainBox] wifi_scan write (first attempt): $scanJson")
+        writeRoute(route = GattRoute.WifiScan, payload = scanJson).getOrElse {
+            println("[BrainBox] wifi_scan write failed: ${it.message}")
+            return Result.failure(it)
         }
-        return Result.success(response.networks)
+        println("[BrainBox] wifi_scan: 等待 ${initialWaitMs}ms 后开始轮询结果...")
+        delay(initialWaitMs)
+
+        val startMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        var resendDone = false
+        var attempt = 0
+
+        while (true) {
+            attempt++
+            val elapsed = kotlinx.datetime.Clock.System.now().toEpochMilliseconds() - startMs
+
+            val response = readRoute<WifiScanResponse>(GattRoute.WifiScan).getOrElse {
+                println("[BrainBox] wifi_scan poll#$attempt read failed: ${it.message}")
+                return Result.failure(it)
+            }
+            val stateLower = response.state.trim().lowercase()
+            println(
+                "[BrainBox] wifi_scan poll#$attempt (elapsed=${elapsed}ms): state=${response.state}, " +
+                    "networks=${response.networks.size}, error=${response.error}",
+            )
+
+            if (response.isReady) {
+                println("[BrainBox] wifi_scan ready，返回 ${response.networks.size} 个网络")
+                return Result.success(response.networks)
+            }
+            if (response.isFailed) {
+                return Result.failure(IllegalStateException(response.error.ifBlank { "设备 Wi‑Fi 扫描失败" }))
+            }
+
+            // 仍在 idle / scanning / 空字符串：判断是否需要重发一次 scan 命令
+            val isIdle = stateLower.isEmpty() || stateLower == "idle"
+            if (isIdle && !resendDone && elapsed >= idleResendDeadlineMs) {
+                println("[BrainBox] wifi_scan 在 ${elapsed}ms 仍是 idle，重发一次 scan 命令兜底首包丢失")
+                writeRoute(route = GattRoute.WifiScan, payload = scanJson).onFailure {
+                    println("[BrainBox] wifi_scan resend failed: ${it.message}")
+                }
+                resendDone = true
+            }
+
+            if (elapsed >= overallTimeoutMs) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Wi‑Fi 扫描超时（${overallTimeoutMs}ms），设备最后状态=${response.state.ifBlank { "idle" }}",
+                    ),
+                )
+            }
+            delay(pollIntervalMs)
+        }
+        @Suppress("UNREACHABLE_CODE")
+        return Result.failure(IllegalStateException("Wi‑Fi 扫描逻辑异常退出"))
     }
 
     suspend fun readWifiScanResult(): Result<WifiScanResponse> {
@@ -158,8 +216,20 @@ class GattRouter(
     }
 
     companion object {
-        /** 协议步骤 5：写入 wifi_scan 后等待 5s 再读取一次。 */
-        const val WIFI_SCAN_WAIT_MS = 5_000L
+        /** 协议步骤 5：写入 wifi_scan 后先等 1.5s 让固件进入 scanning，然后开始轮询。 */
+        const val WIFI_SCAN_INITIAL_WAIT_MS = 1_500L
+
+        /** 协议步骤 5：轮询间隔 1.5s（上一个 read 完成后等多久读下一次）。 */
+        const val WIFI_SCAN_POLL_INTERVAL_MS = 1_500L
+
+        /**
+         * 协议步骤 5：从首次写入到 6s 内如果 state 一直是空/idle，兜底重发一次 scan 命令
+         * （WRITE_WITHOUT_RESPONSE 首包在链路拥塞时可能静默丢失）。
+         */
+        const val WIFI_SCAN_IDLE_RESEND_DEADLINE_MS = 6_000L
+
+        /** 协议步骤 5：整体超时上限 20s；仍未 ready 就抛错，让 UI 或调用方决定重试。 */
+        const val WIFI_SCAN_OVERALL_TIMEOUT_MS = 20_000L
 
         /** 协议步骤 6：写入 wifi_config 后等待 5s 再读取 network_status。 */
         const val WIFI_CONFIG_WAIT_MS = 5_000L

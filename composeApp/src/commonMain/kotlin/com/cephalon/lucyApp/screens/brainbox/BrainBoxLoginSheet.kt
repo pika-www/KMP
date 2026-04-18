@@ -77,6 +77,12 @@ internal sealed interface DeviceProbeState {
     data object Failed : DeviceProbeState
 }
 
+// OTP 请求在 ATT / GATT 层临时错误时的自动重试次数上限（同一轮 requestOtpAndBind 内）。
+// 真正的 BLE 断开不会走到这里——那会由 ProvisionManager.attemptReconnect 接管，重连成功后
+// UI 的 reconnectedEvents 监听会再触发一轮 requestOtpAndBind，独立于这里的重试计数。
+private const val OTP_MAX_RETRY_ATTEMPTS = 3
+private const val OTP_RETRY_BACKOFF_MS = 3_000L
+
 @Composable
 fun BrainBoxLoginSheet(
     isVisible: Boolean,
@@ -272,10 +278,44 @@ fun BrainBoxLoginSheet(
         isBinding = true
         scope.launch {
             println("[BrainBox] 开始请求 OTP 并绑定...")
-            val otpResult = provisionManager.requestOtpAfterWifi()
-            val pairingInfo = otpResult.getOrNull()
-            if (otpResult.isFailure || pairingInfo == null) {
-                toastState.show(otpResult.exceptionOrNull()?.message ?: "获取 OTP 失败，请重试")
+
+            // 针对"写入 request_id 后 ATT / GATT 层临时错误（例如 'unknown ATT error'）"的自动重试：
+            // 如果 requestOtpAfterWifi 返回的错误消息含有 GATT status 或 ATT 字样，说明是 BLE 链路临
+            // 时抖动而不是真正断开；此时 ProvisionManager 的 disconnectWatcher 不会触发自动重连，需要
+            // 在 UI 层自己多试几次。真正断开时 reconnectedEvents 会接管，这里的循环也会因 ProvisionFlow
+            // 的 mutex 顺序走通，不会与 reconnect 竞争。
+            var pairingInfo: com.cephalon.lucyApp.deviceaccess.gatt.LucyPairingInfoPayload? = null
+            var attempt = 0
+            val maxAttempts = OTP_MAX_RETRY_ATTEMPTS
+            var lastError: Throwable? = null
+            while (attempt < maxAttempts) {
+                attempt++
+                val otpResult = provisionManager.requestOtpAfterWifi()
+                val info = otpResult.getOrNull()
+                if (otpResult.isSuccess && info != null) {
+                    pairingInfo = info
+                    break
+                }
+                val error = otpResult.exceptionOrNull()
+                lastError = error
+                val errorMsg = error?.message.orEmpty()
+                val isGattLayerError = errorMsg.contains("status=", ignoreCase = true) ||
+                    errorMsg.contains("att", ignoreCase = true) ||
+                    errorMsg.contains("gatt", ignoreCase = true) ||
+                    errorMsg.contains("尚未建立", ignoreCase = true)
+                println("[BrainBox] OTP 第 $attempt/$maxAttempts 次请求失败: $errorMsg (isGattLayer=$isGattLayerError)")
+                if (!isGattLayerError || attempt >= maxAttempts) {
+                    // 语义错误（如"设备未就绪"/"绑定状态异常"）不重试；或已到达上限
+                    break
+                }
+                toastState.show("设备响应异常，${OTP_RETRY_BACKOFF_MS / 1000}s 后自动重试（第 $attempt 次）")
+                delay(OTP_RETRY_BACKOFF_MS)
+            }
+
+            if (pairingInfo == null) {
+                val message = lastError?.message ?: "获取 OTP 失败，请重试"
+                println("[BrainBox] OTP 请求最终失败（共 $attempt 次）: $message")
+                toastState.show(message)
                 isBinding = false
                 return@launch
             }
@@ -343,20 +383,13 @@ fun BrainBoxLoginSheet(
                 provisionManager.stopScan()
                 val device = selectedBleDevice?.toBleScanDevice()
                 if (device != null) {
-                    // connectDevice 内部已经读过 device_info / network_status / pairing_info。
-                    // 如果设备已经联网 (network_status.state == "connected") 则跳过 Wi‑Fi 步骤直接请求 OTP。
+                    // 无论设备当前是否已联网，都强制进入完整的 Wi‑Fi 配网子流程：
+                    // 用户选 SSID → 输密码 → 写 wifi_config → 等 5s → 读 network_status 验证。
+                    // 这样即使盒子之前记住过 Wi‑Fi，也能让用户在当前网络环境下重新挑一个。
                     val networkStatus = provisionManager.state.value.networkStatus
-                    println("[BrainBox] WiFi步骤检查: networkStatus=${networkStatus?.state}, ssid=${networkStatus?.ssid}, ip=${networkStatus?.ip}")
-                    if (networkStatus != null && networkStatus.isConnected) {
-                        println("[BrainBox] 设备已联网 (state=${networkStatus.state}, ssid=${networkStatus.ssid}, ip=${networkStatus.ip})，跳过配网，请求 OTP 并绑定...")
-                        wifiConnectedSsid = networkStatus.ssid.ifBlank { "已连接" }
-                        currentStep = BrainBoxStep.Bind
-                        requestOtpAndBind()
-                    } else {
-                        // 设备未联网，执行协议步骤 5：写入 wifi_scan → 等待 5s → 读取
-                        provisionManager.refreshWifiNetworks(device).onFailure {
-                            toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
-                        }
+                    println("[BrainBox] WiFi步骤检查: networkStatus=${networkStatus?.state}, ssid=${networkStatus?.ssid}, ip=${networkStatus?.ip}（不跳过，总是刷新 Wi‑Fi 列表）")
+                    provisionManager.refreshWifiNetworks(device).onFailure {
+                        toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
                     }
                 }
             }
@@ -366,18 +399,35 @@ fun BrainBoxLoginSheet(
         }
     }
 
-    // 首次 BLE 断开由 ProvisionManager 自动重连；重连成功后 UI 重新请求 OTP 并继续绑定。
+    // 首次 BLE 断开由 ProvisionManager 自动重连；重连成功后按"断开时所在的步骤"继续执行：
+    //  - Scan 步：不做任何主动推进，让扫描逻辑自己恢复（用户还在挑设备）。
+    //  - Wifi 步：重新 refreshWifiNetworks，让用户继续在当前网络环境里挑 SSID。
+    //  - Bind 步：重新 requestOtpAndBind（协议步骤 7，写新的 request_id、读 OTP、绑定）。
     LaunchedEffect(isVisible) {
         if (!isVisible) return@LaunchedEffect
         provisionManager.reconnectedEvents.collect {
-            println("[BrainBox] 收到自动重连成功事件，重新请求 OTP 并继续绑定")
-            toastState.show("设备已重连，正在重新请求 OTP…")
-            // 确保 UI 停留在/切换到绑定步骤，并重置状态以允许再次触发 requestOtpAndBind。
-            if (currentStep != BrainBoxStep.Bind) {
-                currentStep = BrainBoxStep.Bind
+            val stepAtReconnect = currentStep
+            println("[BrainBox] 收到自动重连成功事件，currentStep=$stepAtReconnect，按当前步继续")
+            when (stepAtReconnect) {
+                BrainBoxStep.Scan -> {
+                    // 扫描步骤通常不会触发 reconnect；真到这里也不强推，交给扫描循环自愈。
+                    toastState.show("设备已重连")
+                }
+                BrainBoxStep.Wifi -> {
+                    toastState.show("设备已重连，正在重新查询附近 Wi‑Fi…")
+                    val device = selectedBleDevice?.toBleScanDevice()
+                    if (device != null) {
+                        provisionManager.refreshWifiNetworks(device).onFailure {
+                            toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
+                        }
+                    }
+                }
+                BrainBoxStep.Bind -> {
+                    toastState.show("设备已重连，正在重新请求 OTP…")
+                    isBinding = false
+                    requestOtpAndBind()
+                }
             }
-            isBinding = false
-            requestOtpAndBind()
         }
     }
 
@@ -561,7 +611,6 @@ fun BrainBoxLoginSheet(
                         BrainBoxWifiStep(
                             wifiMode = wifiMode,
                             wifiPermissionGranted = true,
-                            openWifiSettings = controller::openWifiSettings,
                             selectedDevice = selectedBleDevice,
                             wifiNetworks = wifiNetworks,
                             isWifiLoading = isWifiLoading,

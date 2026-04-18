@@ -495,7 +495,6 @@ private fun BrainBoxBleDeviceRow(
 internal fun BrainBoxWifiStep(
     wifiMode: BrainBoxWifiMode,
     wifiPermissionGranted: Boolean,
-    openWifiSettings: () -> Unit,
     selectedDevice: BrainBoxBleDevice?,
     wifiNetworks: List<BrainBoxWifiNetwork>,
     isWifiLoading: Boolean,
@@ -540,11 +539,13 @@ internal fun BrainBoxWifiStep(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 if (wifiNetworks.isEmpty()) {
-                    BrainBoxActionCard(
+                    BrainBoxInfoCard(
                         title = if (isWifiLoading) "正在查询附近 Wi‑Fi" else "暂未获取到 Wi‑Fi 列表",
-                        body = if (isWifiLoading) "请稍候…" else "你可以刷新重试，或直接去系统设置连接。",
-                        primaryText = "打开系统 Wi‑Fi",
-                        onPrimary = openWifiSettings,
+                        body = if (isWifiLoading) {
+                            "请稍候，正在读取脑花盒子扫描到的 Wi‑Fi…"
+                        } else {
+                            "请确认脑花盒子处于 2.4GHz Wi‑Fi 覆盖范围内，然后点击右上角「刷新」重试。"
+                        },
                         showLoading = isWifiLoading,
                     )
                 } else {
