@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.network
 
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpTimeout
@@ -18,6 +19,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
+expect fun createPlatformHttpClient(block: HttpClientConfig<*>.() -> Unit): HttpClient
+
 /**
  * 统一的网络客户端，HTTP 与 WebSocket 共用一套配置和拦截能力。
  */
@@ -25,7 +28,7 @@ fun createNetworkClient(
     config: NetworkConfig,
     tokenStore: AuthTokenStore
 ): HttpClient {
-    return HttpClient {
+    return createPlatformHttpClient {
         defaultRequest {
             url(config.baseUrl)
             header("Lang", "zh")
