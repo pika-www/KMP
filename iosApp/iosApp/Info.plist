@@ -4,5 +4,8 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+
+	<key>UIRequiresFullScreen</key>
+	<true/>
 </dict>
 </plist>
