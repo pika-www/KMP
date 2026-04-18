@@ -56,6 +56,7 @@ import com.cephalon.lucyApp.sdk.FileTransferDeviceKind
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.sdk.TransferUploadItem
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import kotlin.math.abs
@@ -279,7 +280,9 @@ fun NasScreen(onBack: () -> Unit) {
     LaunchedEffect(mediaController.pickedImages.size, lastPickerCategory) {
         val size = mediaController.pickedImages.size
         if (size > lastPickedImagesSize && lastPickerCategory == NasCategory.Photos) {
-            val newUris = mediaController.pickedImages.take(size - lastPickedImagesSize)
+            delay(300)
+            val latestSize = mediaController.pickedImages.size
+            val newUris = mediaController.pickedImages.takeLast(latestSize - lastPickedImagesSize)
             val items =
                 newUris
                     .filter { it.isNotBlank() }
@@ -289,15 +292,19 @@ fun NasScreen(onBack: () -> Unit) {
                 category = NasCategory.Photos,
                 items = items,
             )
+            lastPickedImagesSize = latestSize
+        } else {
+            lastPickedImagesSize = size
         }
-        lastPickedImagesSize = size
     }
 
     LaunchedEffect(mediaController.pickedFiles.size, lastPickerCategory) {
         val size = mediaController.pickedFiles.size
         val pickerCategory = lastPickerCategory
         if (size > lastPickedFilesSize && pickerCategory != null && pickerCategory != NasCategory.Photos) {
-            val newFiles = mediaController.pickedFiles.take(size - lastPickedFilesSize)
+            delay(300)
+            val latestSize = mediaController.pickedFiles.size
+            val newFiles = mediaController.pickedFiles.takeLast(latestSize - lastPickedFilesSize)
             val items =
                 newFiles
                     .filter { it.uri.isNotBlank() }
@@ -307,8 +314,10 @@ fun NasScreen(onBack: () -> Unit) {
                 category = pickerCategory,
                 items = items,
             )
+            lastPickedFilesSize = latestSize
+        } else {
+            lastPickedFilesSize = size
         }
-        lastPickedFilesSize = size
     }
 
     fun setCategoryItems(category: NasCategory, items: List<NasFileListItem>, append: Boolean) {

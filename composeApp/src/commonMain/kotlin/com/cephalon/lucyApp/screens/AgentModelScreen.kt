@@ -461,7 +461,7 @@ fun AgentModelScreen(
         val size = mediaAccessController.pickedImages.size
         if (size > lastPickedImagesSize) {
             mediaAccessController.pickedImages
-                .take(size - lastPickedImagesSize)
+                .takeLast(size - lastPickedImagesSize)
                 .forEach { uri ->
                     if (
                         uri.isNotBlank() &&
@@ -482,7 +482,7 @@ fun AgentModelScreen(
         val size = mediaAccessController.pickedFiles.size
         if (size > lastPickedFilesSize) {
             mediaAccessController.pickedFiles
-                .take(size - lastPickedFilesSize)
+                .takeLast(size - lastPickedFilesSize)
                 .forEach { pickedFile ->
                     if (
                         pickedFile.uri.isNotBlank() &&

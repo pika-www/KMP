@@ -133,37 +133,9 @@ class AppleIAPManager : PlatformIAP(), IAPManager {
     }
 
     override suspend fun loadProducts() {
-        val productIds = listOf(
-            "com.cephalon.lucyApp.9.9",
-            "com.cephalon.lucyApp.39.9",
-            "com.cephalon.lucyApp.69.9",
-            "com.cephalon.lucyApp.99",
-            "com.cephalon.lucyApp.299",
-            "com.cephalon.lucyApp.499",
-            "com.cephalon.lucyApp.699",
-            "com.cephalon.lucyApp.899",
-            "com.cephalon.lucyApp.999"
-        )
-        println("$IAP_LOG_TAG loadProducts start, productIds=$productIds")
-        val loadedProducts = suspendCancellableCoroutine<List<IAPProduct>> { continuation ->
-            bridge.loadProducts(productIds) { productsMap ->
-                println("$IAP_LOG_TAG loadProducts callback, rawProductsMap=$productsMap")
-                val mappedProducts = productsMap.map { entry ->
-                    val productInfo = entry.value
-                    IAPProduct(
-                        productId = entry.key,
-                        title = productInfo["displayName"] ?: "",
-                        description = productInfo["description"] ?: "",
-                        price = productInfo["displayPrice"] ?: "",
-                        currencyCode = productInfo["currencyCode"] ?: "USD"
-                    )
-                }
-                println("$IAP_LOG_TAG loadProducts mappedProducts=$mappedProducts")
-                continuation.resume(mappedProducts)
-            }
-        }
-        _products.value = loadedProducts
-        println("$IAP_LOG_TAG loadProducts completed, productsCount=${loadedProducts.size}")
+        // 前端不再维护商品 ID 列表：真正 purchase 时 Swift 侧会一次性向 App Store 拉取，
+        // 无需预加载。保留此方法仅为兼容 IAPManager 接口。
+        println("$IAP_LOG_TAG loadProducts: no-op (products loaded on-demand at purchase time)")
     }
 
     override fun handleUnfinishedTransactions() {

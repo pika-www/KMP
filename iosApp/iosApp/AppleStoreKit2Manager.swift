@@ -60,8 +60,26 @@ final class AppleStoreKit2Manager: ObservableObject {
     }
 
     func purchase(productId: String, appAccountToken: UUID? = nil) async -> ApplePurchaseResult {
-        guard let product = storeProducts[productId] else {
-            return .failure(message: "Product not loaded: \(productId)")
+        // 一次性直拉：不再做任何本地 cache / 预查询，直接把 productId 丢给 StoreKit；
+        // StoreKit 2 技术上必须拿到 Product 对象才能调 .purchase()，这一步是 Apple 强制的，
+        // 绕不过去。但前端不再做"是否预加载过"的前置校验，错误信息也直接透传 Apple 原话，
+        // 便于判断真实原因（id 未注册 / Bundle ID 不匹配 / Sandbox storefront 不支持等）。
+        print("[IAP][AppleStoreKit2Manager] purchase start, productId=\(productId)")
+        let product: Product
+        do {
+            let fetched = try await Product.products(for: [productId])
+            print("[IAP][AppleStoreKit2Manager] purchase: fetched count=\(fetched.count), ids=\(fetched.map { $0.id })")
+            guard let matched = fetched.first(where: { $0.id == productId }) else {
+                let message = "商品不可购买（productId=\(productId)）。请检查 App Store Connect 是否已配置、Bundle ID 是否匹配、Sandbox 账号 storefront 是否支持。"
+                print("[IAP][AppleStoreKit2Manager] purchase failed: \(message)")
+                return .failure(message: message)
+            }
+            product = matched
+            storeProducts[productId] = matched
+        } catch {
+            let message = "无法从 App Store 获取商品信息：\(error.localizedDescription)"
+            print("[IAP][AppleStoreKit2Manager] purchase failed: \(message)")
+            return .failure(message: message)
         }
 
         do {

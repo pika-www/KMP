@@ -116,12 +116,23 @@ class AuthRepository(
 
     /**
      * 验证 Apple IAP 交易 POST /orders/apple/verify
+     *
+     * 注：新充值流程改用 [getTransferOrderStatus] 轮询 /orders/transfers/{order_id} 代替本地验单，
+     * 本方法暂时保留以防仍有旧调用方依赖。
      */
     suspend fun verifyAppleIAPTransaction(transactionId: String): BaseResponse<VerifyTransactionData> {
         val request = mapOf(
             "transaction_id" to transactionId
         )
         return authApi.post("/orders/apple/verify", request)
+    }
+
+    /**
+     * 查询充值订单状态 GET /orders/transfers/{order_id}（需要 Bearer token，由 authApi 自带）。
+     * 返回 `status` 字段为 [TransferOrderStatus] 之一：pending / succeed / canceled。
+     */
+    suspend fun getTransferOrderStatus(orderId: String): BaseResponse<TransferOrderStatusData> {
+        return authApi.get<TransferOrderStatusData>("/orders/transfers/$orderId")
     }
 
     // ---- Lucy 设备 ----
