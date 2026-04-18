@@ -57,6 +57,7 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
         recordingName = name,
         recordingPath = path,
     )
+    is ChatItem.Error -> SerializableChatItem(type = "error", text = text)
     is ChatItem.SkillSuggestions -> SerializableChatItem(type = "skill_suggestions")
 }
 
@@ -81,6 +82,7 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
         name = recordingName ?: "",
         path = recordingPath ?: "",
     )
+    "error" -> ChatItem.Error(text = text ?: "")
     "skill_suggestions" -> ChatItem.SkillSuggestions
     else -> null
 }

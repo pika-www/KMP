@@ -671,7 +671,7 @@ class SdkSessionManager(
         appLogD(TAG, "NAS 文件列表请求 payload=$nasPayload")
 
         return runCatching {
-            appLogD(TAG, "publishToNas 发送中 subject=${rspSubject}.${activeSession.userId}.$resolvedTargetCdi")
+            appLogD(TAG, "publishToNas 发送中")
             activeSession.publishToNas(
                 cdi = resolvedTargetCdi,
                 payload = nasPayload,
@@ -1357,19 +1357,39 @@ class SdkSessionManager(
             "assistant.final" -> {
                 val finalText = event.text
                 updateReplyState(msgId) { state ->
+                    // 保护：如果 final 文本比累积的 partial 文本短，保留累积文本防止缩减
+                    val resolvedText = when {
+                        finalText == null -> state.text
+                        finalText.length >= state.text.length -> finalText
+                        state.text.isNotEmpty() -> {
+                            appLogD(TAG, "[Event] assistant.final → 保留累积文本(final较短 finalLen=${finalText.length} < accumulatedLen=${state.text.length}) msgId=$msgId")
+                            state.text
+                        }
+                        else -> finalText
+                    }
                     state.copy(
-                        text = finalText ?: state.text,
+                        text = resolvedText,
                         streaming = false,
                         streamingStatusText = null,
+                        attachments = event.attachments.ifEmpty { state.attachments },
                     )
                 }
-                if (isLatest && finalText != null) _assistantReplyText.value = finalText
+                if (isLatest) {
+                    val currentAccumulated = _assistantReplyText.value
+                    val resolved = when {
+                        finalText == null -> currentAccumulated
+                        finalText.length >= currentAccumulated.length -> finalText
+                        else -> currentAccumulated
+                    }
+                    _assistantReplyText.value = resolved
+                }
                 completeRequest(msgId, isLatest, "对话结束")
             }
 
             "error" -> {
-                updateReplyState(msgId) { it.copy(streaming = false, streamingStatusText = null) }
-                completeRequest(msgId, isLatest, "对话结束(异常) error=${event.text ?: "unknown"}")
+                val errorMsg = event.text ?: "未知错误"
+                updateReplyState(msgId) { it.copy(streaming = false, streamingStatusText = null, errorText = errorMsg) }
+                completeRequest(msgId, isLatest, "对话结束(异常) error=$errorMsg")
             }
 
             else -> {
@@ -1458,7 +1478,36 @@ class SdkSessionManager(
                 ?: root["tool_name"]?.jsonPrimitive?.contentOrNull
                 ?: root["name"]?.jsonPrimitive?.contentOrNull
 
-        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName)
+        // 解析媒体附件：优先 attachments 数组，降级 media 单个
+        val attachments = buildList {
+            runCatching {
+                root["attachments"]?.jsonArray?.forEach { item ->
+                    val obj = item.jsonObject
+                    val ref = obj["blob_ref"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                    add(MediaAttachment(
+                        blobRef = ref,
+                        contentType = obj["content_type"]?.jsonPrimitive?.contentOrNull,
+                        fileName = obj["file_name"]?.jsonPrimitive?.contentOrNull
+                            ?: obj["filename"]?.jsonPrimitive?.contentOrNull,
+                    ))
+                }
+            }
+            if (isEmpty()) {
+                runCatching {
+                    root["media"]?.jsonObject?.let { media ->
+                        val ref = media["blob_ref"]?.jsonPrimitive?.contentOrNull ?: return@let
+                        add(MediaAttachment(
+                            blobRef = ref,
+                            contentType = media["content_type"]?.jsonPrimitive?.contentOrNull,
+                            fileName = media["file_name"]?.jsonPrimitive?.contentOrNull
+                                ?: media["filename"]?.jsonPrimitive?.contentOrNull,
+                        ))
+                    }
+                }
+            }
+        }
+
+        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments)
     }
 
     private fun extractTextFromEventObject(root: JsonObject): String? {
@@ -1813,11 +1862,18 @@ private fun buildNasFileGetPayload(
     }
 }
 
+data class MediaAttachment(
+    val blobRef: String,
+    val contentType: String? = null,
+    val fileName: String? = null,
+)
+
 private data class NpcMachineEvent(
     val type: String,
     val text: String?,
     val sourceMessageId: String?,
     val toolName: String? = null,
+    val attachments: List<MediaAttachment> = emptyList(),
 )
 
 data class ReplyState(
@@ -1825,6 +1881,8 @@ data class ReplyState(
     val streaming: Boolean = false,
     val reasoningText: String = "",
     val streamingStatusText: String? = null,
+    val attachments: List<MediaAttachment> = emptyList(),
+    val errorText: String? = null,
 )
 
 enum class SdkConnectionState {

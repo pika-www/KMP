@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
+import com.cephalon.lucyApp.sdk.MediaAttachment
 
 internal sealed class ImageUploadState {
     data object Uploading : ImageUploadState()
@@ -32,11 +33,16 @@ internal data class ImagePreviewState(
 )
 
 internal sealed class ChatItem {
-    data class Assistant(val text: String, val messageId: String? = null) : ChatItem()
+    data class Assistant(
+        val text: String,
+        val messageId: String? = null,
+        val attachments: List<MediaAttachment> = emptyList(),
+    ) : ChatItem()
     data class User(val text: String) : ChatItem()
     data class UserAttachments(val text: String?, val attachments: List<DraftAttachment>) : ChatItem()
     data class System(val text: String) : ChatItem()
     data class RecordingItem(val id: String, val name: String, val path: String) : ChatItem()
+    data class Error(val text: String) : ChatItem()
     data object SkillSuggestions : ChatItem()
 }
 
@@ -71,6 +77,7 @@ private fun ChatItem.searchableText(): String {
         }
         is ChatItem.System -> text
         is ChatItem.RecordingItem -> "$name $path"
+        is ChatItem.Error -> text
         is ChatItem.SkillSuggestions -> "探索脑花的能力"
     }
 }

@@ -81,6 +81,7 @@ import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachmentType
 import com.cephalon.lucyApp.screens.agentmodel.ImagePreviewState
 import com.cephalon.lucyApp.screens.agentmodel.ImageUploadState
+import com.cephalon.lucyApp.sdk.MediaAttachment
 import com.cephalon.lucyApp.screens.agentmodel.uriDisplayName
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
 import com.cephalon.lucyApp.screens.agentmodel.displayName
@@ -198,7 +199,12 @@ fun AgentModelScreen(
         }
     }
 
-    fun upsertStreamingAssistantMessageInConversation(conversationId: String?, messageId: String, text: String) {
+    fun upsertStreamingAssistantMessageInConversation(
+        conversationId: String?,
+        messageId: String,
+        text: String,
+        attachments: List<MediaAttachment> = emptyList(),
+    ) {
         updateConversation(conversationId, persist = false) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
             var targetIndex = updatedMessages.indexOfLast {
@@ -216,10 +222,12 @@ fun AgentModelScreen(
                 }
             }
             println("[Streaming] upsert convId=$conversationId msgId=$messageId targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
+            val existing = updatedMessages.getOrNull(targetIndex) as? ChatItem.Assistant
+            val mergedAttachments = attachments.ifEmpty { existing?.attachments ?: emptyList() }
             if (targetIndex >= 0) {
-                updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId)
+                updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId, mergedAttachments)
             } else {
-                updatedMessages.add(ChatItem.Assistant(text, messageId))
+                updatedMessages.add(ChatItem.Assistant(text, messageId, mergedAttachments))
             }
             conversation.copy(
                 messages = updatedMessages,
@@ -384,7 +392,7 @@ fun AgentModelScreen(
             LaunchedEffect(msgId) {
                 println("[Streaming] LaunchedEffect 启动: msgId=$msgId, convId=$convId")
                 var streamingStarted = false
-                var displayedText = ""
+                var lastText = ""
                 var iterCount = 0
 
                 while (isActive) {
@@ -393,7 +401,7 @@ fun AgentModelScreen(
                     val streaming = state?.streaming ?: false
 
                     if (iterCount < 5 || (iterCount % 20 == 0)) {
-                        println("[Streaming] poll #$iterCount msgId=$msgId: stateExists=${state != null}, streaming=$streaming, textLen=${text.length}, displayedLen=${displayedText.length}")
+                        println("[Streaming] poll #$iterCount msgId=$msgId: stateExists=${state != null}, streaming=$streaming, textLen=${text.length}")
                     }
                     iterCount++
 
@@ -402,35 +410,34 @@ fun AgentModelScreen(
                     }
                     if (streaming) streamingStarted = true
 
-                    if (text.isNotBlank()) {
-                        if (text.length > displayedText.length && text.startsWith(displayedText)) {
-                            val remaining = text.length - displayedText.length
-                            val step = when {
-                                remaining > 30 -> 4
-                                remaining > 10 -> 2
-                                else -> 1
-                            }
-                            displayedText = text.take(displayedText.length + step)
-                            upsertStreamingAssistantMessageInConversation(convId, msgId, displayedText)
-                        } else if (text != displayedText) {
-                            displayedText = text
-                            upsertStreamingAssistantMessageInConversation(convId, msgId, text)
-                        }
+                    // 直接渲染 SDK 返回的文本，不做打字机效果
+                    if (text.isNotBlank() && text != lastText) {
+                        lastText = text
+                        upsertStreamingAssistantMessageInConversation(convId, msgId, text)
                     }
 
-                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本）
-                    val finished = !streaming && (streamingStarted || text.isNotBlank())
+                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本 或 有错误）
+                    val errorText = state?.errorText
+                    val finished = !streaming && (streamingStarted || text.isNotBlank() || errorText != null)
                     if (finished) {
-                        if (text.isNotBlank() && displayedText != text) {
-                            upsertStreamingAssistantMessageInConversation(convId, msgId, text)
+                        val finalAttachments = state?.attachments ?: emptyList()
+                        if (text.isNotBlank() && (lastText != text || finalAttachments.isNotEmpty())) {
+                            upsertStreamingAssistantMessageInConversation(convId, msgId, text, finalAttachments)
                         }
-                        println("AgentModel: 流式输出结束 msgId=$msgId, convId=$convId, textLen=${text.length}, wasStreaming=$streamingStarted")
-                        removeAssistantPlaceholderInConversation(convId, msgId)
+                        // 如果有错误，追加错误提示到对话中
+                        if (errorText != null) {
+                            removeAssistantPlaceholderInConversation(convId, msgId)
+                            appendMessageToConversation(convId, ChatItem.Error(errorText))
+                            println("AgentModel: 流式输出错误 msgId=$msgId, convId=$convId, error=$errorText")
+                        } else {
+                            removeAssistantPlaceholderInConversation(convId, msgId)
+                        }
+                        println("AgentModel: 流式输出结束 msgId=$msgId, convId=$convId, textLen=${text.length}, attachments=${finalAttachments.size}, wasStreaming=$streamingStarted")
                         activeStreamingRequests.remove(msgId)
                         break
                     }
 
-                    delay(if (text.length > displayedText.length) 15L else 50L)
+                    delay(50L)
                 }
             }
         }

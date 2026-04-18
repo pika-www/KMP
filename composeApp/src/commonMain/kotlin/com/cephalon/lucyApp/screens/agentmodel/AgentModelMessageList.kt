@@ -58,7 +58,9 @@ import androidios.composeapp.generated.resources.ic_skill_voice
 import androidios.composeapp.generated.resources.ic_skill_document
 import androidios.composeapp.generated.resources.ic_skill_chat
 import androidios.composeapp.generated.resources.ic_skill_knowledge
+import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.sdk.MediaAttachment
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
 
@@ -92,6 +94,7 @@ internal fun AgentModelMessageList(
                 is ChatItem.UserAttachments -> "attachments_$index"
                 is ChatItem.System -> "system_$index"
                 is ChatItem.RecordingItem -> "recording_${item.id}"
+                is ChatItem.Error -> "error_$index"
                 is ChatItem.SkillSuggestions -> "skills_$index"
             }
         }) { index, item ->
@@ -104,15 +107,21 @@ internal fun AgentModelMessageList(
                         } else {
                             item.text
                         }
-                    Bubble(
-                        text = displayText,
-                        background = Color.Transparent,
-                        textColor = Color(0xFF111111),
-                        alignEnd = false,
-                        border = null,
-                        isMarkdown = !isThinkingPlaceholder,
-                        onClick = onTapMessageArea
-                    )
+                    Column {
+                        Bubble(
+                            text = displayText,
+                            background = Color.Transparent,
+                            textColor = Color(0xFF111111),
+                            alignEnd = false,
+                            border = null,
+                            isMarkdown = !isThinkingPlaceholder,
+                            onClick = onTapMessageArea
+                        )
+                        if (item.attachments.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(ds.sh(6.dp)))
+                            AssistantAttachments(attachments = item.attachments)
+                        }
+                    }
                 }
 
                 is ChatItem.User -> {
@@ -373,6 +382,30 @@ internal fun AgentModelMessageList(
                     }
                 }
 
+                is ChatItem.Error -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(4.dp)),
+                        horizontalArrangement = Arrangement.Start,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(ds.sm(12.dp)),
+                            color = Color(0xFFFFF0F0),
+                            border = BorderStroke(0.5.dp, Color(0xFFE8BCBC)),
+                        ) {
+                            Text(
+                                text = item.text,
+                                color = Color(0xFFCC4444),
+                                fontSize = ds.sp(13f),
+                                lineHeight = ds.sp(18f),
+                                modifier = Modifier.padding(horizontal = ds.sw(12.dp), vertical = ds.sh(6.dp))
+                            )
+                        }
+                    }
+                }
+
                 is ChatItem.SkillSuggestions -> {
                     BubbleContainer(alignEnd = false) { _ ->
                         SkillSuggestionsBubble(
@@ -467,6 +500,52 @@ private fun SkillSuggestionsBubble(
                         fontWeight = FontWeight.Normal
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantAttachments(
+    attachments: List<MediaAttachment>,
+) {
+    val ds = LocalDesignScale.current
+    val imageAttachments = attachments.filter { it.contentType?.startsWith("image") == true }
+    val otherAttachments = attachments.filter { it.contentType?.startsWith("image") != true }
+
+    if (imageAttachments.isNotEmpty()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(ds.sw(6.dp)),
+        ) {
+            imageAttachments.forEach { att ->
+                BlobImage(
+                    blobRef = att.blobRef,
+                    contentDescription = att.fileName,
+                    modifier = Modifier
+                        .size(ds.sw(120.dp))
+                        .clip(RoundedCornerShape(ds.sm(8.dp))),
+                )
+            }
+        }
+    }
+
+    otherAttachments.forEach { att ->
+        Surface(
+            shape = RoundedCornerShape(ds.sm(8.dp)),
+            color = Color(0xFFF5F5F7),
+            modifier = Modifier.padding(top = ds.sh(4.dp)),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = ds.sw(12.dp), vertical = ds.sh(8.dp)),
+            ) {
+                Text(
+                    text = att.fileName ?: "附件",
+                    fontSize = ds.sp(13f),
+                    color = Color(0xFF333333),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

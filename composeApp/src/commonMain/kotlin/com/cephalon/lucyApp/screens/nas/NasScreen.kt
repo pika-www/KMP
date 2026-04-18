@@ -174,17 +174,25 @@ fun NasScreen(onBack: () -> Unit) {
                     deviceKind = FileTransferDeviceKind.Nas,
                     onProgress = { frame ->
                         val orderedIds = uploadPayloads.map { it.entryId }
+                        val byteSizeMap = uploadPayloads.associate { it.entryId to it.bytes.size.toLong() }
                         val completedCount = frame.completedEntries.coerceIn(0, orderedIds.size)
                         orderedIds.forEachIndexed { index, entryId ->
                             when {
                                 index < completedCount -> {
                                     replaceUploadTask(entryId) {
-                                        it.copy(status = NasUploadTaskStatus.Uploading, progress = 0.92f)
+                                        it.copy(status = NasUploadTaskStatus.Uploading, progress = 0.90f)
                                     }
                                 }
                                 index == completedCount -> {
+                                    val totalBytes = byteSizeMap[entryId] ?: 1L
+                                    val fetched = if (frame.currentEntryId == entryId) {
+                                        frame.currentBytesFetched ?: 0L
+                                    } else {
+                                        0L
+                                    }
+                                    val ratio = (fetched.toFloat() / totalBytes.coerceAtLeast(1L)).coerceIn(0f, 1f)
                                     replaceUploadTask(entryId) {
-                                        it.copy(status = NasUploadTaskStatus.Uploading, progress = 0.35f)
+                                        it.copy(status = NasUploadTaskStatus.Uploading, progress = ratio * 0.90f)
                                     }
                                 }
                                 else -> {
@@ -996,7 +1004,7 @@ private fun NasCategory.toNasListKind(): String =
     when (this) {
         NasCategory.Photos -> "image"
         NasCategory.Recordings -> "audio"
-        NasCategory.Documents -> "file"
+        NasCategory.Documents -> "doc"
     }
 
 private fun deriveUploadDisplayName(uri: String, defaultPrefix: String): String {
@@ -1010,7 +1018,7 @@ private fun String.toNasRegisterKind(): String {
     return when (substringAfterLast('.', "").lowercase()) {
         "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "svg" -> "image"
         "mp3", "wav", "m4a", "aac", "flac", "ogg" -> "audio"
-        else -> "file"
+        else -> "doc"
     }
 }
 
