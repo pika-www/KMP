@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,8 +57,8 @@ import org.jetbrains.compose.resources.painterResource
 
 @Composable
 internal fun AgentModelComposer(
-    inputText: TextFieldValue,
-    onInputChange: (TextFieldValue) -> Unit,
+    inputText: String,
+    onInputTextChange: (String) -> Unit,
     draftAttachments: List<DraftAttachment>,
     onRemoveDraftAttachment: (DraftAttachment) -> Unit,
     onImageClick: (ImagePreviewState) -> Unit,
@@ -123,13 +122,13 @@ internal fun AgentModelComposer(
             // ── 输入框（无边框）──
             BasicTextField(
                 value = inputText,
-                onValueChange = onInputChange,
+                onValueChange = onInputTextChange,
                 textStyle = TextStyle(
                     color = Color(0xFF1F2535),
                     fontSize = ds.sp(15f),
                     fontWeight = FontWeight.Medium
                 ),
-                singleLine = false,
+                maxLines = Int.MAX_VALUE,
                 cursorBrush = SolidColor(Color(0xFF1F2535)),
                 enabled = !isRecording,
                 modifier = Modifier
@@ -137,7 +136,7 @@ internal fun AgentModelComposer(
                     .padding(vertical = ds.sm(3.dp)),
                 decorationBox = { innerTextField ->
                     Box {
-                        if (inputText.text.isEmpty()) {
+                        if (inputText.isEmpty()) {
                             Text(
                                 text = if (isRecording) "录音中..."
                                 else if (isVoiceBusy) "正在转写语音..."

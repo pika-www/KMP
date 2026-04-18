@@ -19,7 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.drop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -336,8 +337,14 @@ fun AgentModelScreen(
         logs.add(0, message)
     }
 
-    var inputText by remember { mutableStateOf(TextFieldValue("")) }
+    var inputText by remember { mutableStateOf("") }
     var attachmentsExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { inputText }
+            .drop(1)
+            .collect { if (attachmentsExpanded) attachmentsExpanded = false }
+    }
     var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
     var showProfilePage by remember { mutableStateOf(false) }
     var showSearchPage by remember { mutableStateOf(false) }
@@ -505,7 +512,7 @@ fun AgentModelScreen(
     }
 
     val sendMessage = Unit@{
-        val text = inputText.text.trim()
+        val text = inputText.trim()
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
@@ -515,7 +522,7 @@ fun AgentModelScreen(
             if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
                 appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
-                inputText = TextFieldValue("")
+                inputText = ""
                 attachmentsExpanded = false
                 return@Unit
             }
@@ -678,7 +685,7 @@ fun AgentModelScreen(
                 }
             }
 
-            inputText = TextFieldValue("")
+            inputText = ""
             attachmentsExpanded = false
             attachments.forEach { att ->
                 if (att.type == DraftAttachmentType.Image) {
@@ -821,7 +828,7 @@ fun AgentModelScreen(
                                     attachmentsExpanded = false
                                 },
                                 onSkillClick = { skillText ->
-                                    inputText = TextFieldValue(skillText)
+                                    inputText = skillText
                                     sendMessage()
                                 },
                                 streamingStatusText = streamingStatusText,
@@ -850,10 +857,7 @@ fun AgentModelScreen(
 
                     AgentModelComposer(
                         inputText = inputText,
-                        onInputChange = {
-                            inputText = it
-                            if (attachmentsExpanded) attachmentsExpanded = false
-                        },
+                        onInputTextChange = { inputText = it },
                         draftAttachments = draftAttachments,
                         onRemoveDraftAttachment = { att ->
                             draftAttachments.remove(att)
@@ -937,11 +941,9 @@ fun AgentModelScreen(
                                 isVoiceBusy = false
                                 val trimmedText = result.transcribedText.trim()
                                 if (trimmedText.isNotBlank()) {
-                                    inputText = if (inputText.text.isBlank()) {
-                                        TextFieldValue(trimmedText)
-                                    } else {
-                                        TextFieldValue("${inputText.text.trim()} $trimmedText".trim())
-                                    }
+                                    val currentText = inputText.trim()
+                                    val newText = if (currentText.isBlank()) trimmedText else "$currentText $trimmedText"
+                                    inputText = newText
                                 }
                             }
                         },

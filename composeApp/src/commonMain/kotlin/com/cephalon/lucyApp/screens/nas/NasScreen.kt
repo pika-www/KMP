@@ -50,16 +50,46 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.time.currentTimeMillis
+import com.cephalon.lucyApp.sdk.NasCategoryCache
 import com.cephalon.lucyApp.sdk.NasFileListItem
 import com.cephalon.lucyApp.sdk.NasRegisterBlobItem
 import com.cephalon.lucyApp.sdk.FileTransferDeviceKind
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.sdk.TransferUploadItem
+import com.cephalon.lucyApp.media.platformSaveFile
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import kotlin.math.abs
+
+/** 上传任务持久化：不随 NasScreen 组合生命周期销毁 */
+internal object NasUploadTaskStore {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val tasks = mutableStateListOf<NasUploadTaskItem>()
+    var showDialog by mutableStateOf(false)
+
+    fun append(newTasks: List<NasUploadTaskItem>) {
+        if (newTasks.isEmpty()) return
+        tasks.addAll(0, newTasks.asReversed())
+        showDialog = true
+    }
+
+    fun replace(taskId: String, transform: (NasUploadTaskItem) -> NasUploadTaskItem) {
+        val index = tasks.indexOfFirst { it.id == taskId }
+        if (index >= 0) {
+            tasks[index] = transform(tasks[index])
+        }
+    }
+
+    fun clear() {
+        tasks.clear()
+        showDialog = false
+    }
+}
 
 @Composable
 fun NasScreen(onBack: () -> Unit) {
@@ -83,42 +113,208 @@ fun NasScreen(onBack: () -> Unit) {
     var previewImage by remember { mutableStateOf<NasImageItem?>(null) }
     var selectedAudio by remember { mutableStateOf<NasAudioItem?>(null) }
     var selectedDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
-    var showUploadProgressDialog by remember { mutableStateOf(false) }
     var lastPickerCategory by remember { mutableStateOf<NasCategory?>(null) }
     var lastPickedImagesSize by remember { mutableIntStateOf(0) }
     var lastPickedFilesSize by remember { mutableIntStateOf(0) }
     val selectedPhotoIds = remember { mutableStateListOf<String>() }
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
-    val uploadTasks = remember { mutableStateListOf<NasUploadTaskItem>() }
-    val imageItems = remember { mutableStateListOf<NasImageItem>() }
-    val audioItems = remember { mutableStateListOf<NasAudioItem>() }
-    val documentItems = remember { mutableStateListOf<NasDocumentItem>() }
-    val nextCursorMap = remember { mutableStateMapOf<NasCategory, String?>() }
+    val uploadTasks = NasUploadTaskStore.tasks
+    val nasCacheMap by sdkSessionManager.nasCache.collectAsState()
+    val imageItems = remember(nasCacheMap["image"]) {
+        nasCacheMap["image"]?.items?.map { it.toNasImageItem() } ?: emptyList()
+    }
+    val audioItems = remember(nasCacheMap["audio"]) {
+        nasCacheMap["audio"]?.items?.map { it.toNasAudioItem() } ?: emptyList()
+    }
+    val documentItems = remember(nasCacheMap["doc"]) {
+        nasCacheMap["doc"]?.items?.map { it.toNasDocumentItem() } ?: emptyList()
+    }
     val errorMap = remember { mutableStateMapOf<NasCategory, String?>() }
-    val hasLoadedMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val loadingMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val loadingMoreMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
-    val activeUploadCount = uploadTasks.count {
+    val activeTasks = uploadTasks.filter {
         it.status == NasUploadTaskStatus.Uploading ||
+            it.status == NasUploadTaskStatus.Downloading ||
             it.status == NasUploadTaskStatus.Registering ||
+            it.status == NasUploadTaskStatus.Saving ||
             it.status == NasUploadTaskStatus.Waiting
     }
+    val activeTaskCount = activeTasks.size
+    val activeUploadCount = activeTasks.count { it.direction == NasTaskDirection.Upload }
+    val activeDownloadCount = activeTasks.count { it.direction == NasTaskDirection.Download }
     val targetCdi = selectedDeviceCdi ?: onlineDeviceCdis.firstOrNull() ?: ""
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
 
     fun appendUploadTasks(tasks: List<NasUploadTaskItem>) {
-        if (tasks.isEmpty()) return
-        uploadTasks.addAll(0, tasks.asReversed())
-        showUploadProgressDialog = true
+        NasUploadTaskStore.append(tasks)
     }
 
     fun replaceUploadTask(taskId: String, transform: (NasUploadTaskItem) -> NasUploadTaskItem) {
-        val index = uploadTasks.indexOfFirst { it.id == taskId }
-        if (index >= 0) {
-            uploadTasks[index] = transform(uploadTasks[index])
+        NasUploadTaskStore.replace(taskId, transform)
+    }
+
+    /** 下载单个 NAS 文件，写入任务进度列表 */
+    fun downloadNasFile(fileId: Long?, fileName: String, mimeType: String) {
+        if (fileId == null) return
+        val taskId = "nas_dl_${currentTimeMillisSafe()}_${fileName.hashCode().toString().replace('-', '0')}"
+        val taskType = mimeType.toDownloadTaskType()
+        val task = NasUploadTaskItem(
+            id = taskId,
+            title = fileName,
+            type = taskType,
+            progress = 0f,
+            status = NasUploadTaskStatus.Downloading,
+            direction = NasTaskDirection.Download,
+        )
+        NasUploadTaskStore.append(listOf(task))
+
+        NasUploadTaskStore.scope.launch {
+            runCatching {
+                // 阶段1: 获取文件信息
+                replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Downloading, progress = 0.10f) }
+                val getResponse = sdkSessionManager.getFileFromNas(
+                    targetCdi = targetCdi,
+                    fileId = fileId,
+                ).getOrThrow()
+                val blobRef = getResponse.item?.blobRef
+                    ?: throw IllegalStateException("文件详情缺少 blobRef")
+
+                // 阶段2: 下载 blob 数据
+                replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Downloading, progress = 0.30f) }
+                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+
+                // 阶段3: 保存到本地
+                replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Saving, progress = 0.85f) }
+                platformSaveFile(bytes, fileName, mimeType)
+            }.onSuccess {
+                replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Completed, progress = 1f) }
+            }.onFailure {
+                replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Failed) }
+            }
+        }
+    }
+
+    /** 批量下载 NAS 文件 */
+    fun downloadNasFiles(items: List<Triple<Long?, String, String>>) {
+        val validItems = items.filter { it.first != null }
+        if (validItems.isEmpty()) return
+
+        val preparedTasks = validItems.mapIndexed { index, (_, fileName, mimeType) ->
+            NasUploadTaskItem(
+                id = "nas_dl_${currentTimeMillisSafe()}_${index}_${fileName.hashCode().toString().replace('-', '0')}",
+                title = fileName,
+                type = mimeType.toDownloadTaskType(),
+                progress = 0f,
+                status = if (index == 0) NasUploadTaskStatus.Downloading else NasUploadTaskStatus.Waiting,
+                direction = NasTaskDirection.Download,
+            )
+        }
+        NasUploadTaskStore.append(preparedTasks)
+
+        preparedTasks.forEachIndexed { index, task ->
+            val (fileId, fileName, mimeType) = validItems[index]
+            NasUploadTaskStore.scope.launch {
+                runCatching {
+                    replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Downloading, progress = 0.10f) }
+                    val getResponse = sdkSessionManager.getFileFromNas(
+                        targetCdi = targetCdi,
+                        fileId = fileId!!,
+                    ).getOrThrow()
+                    val blobRef = getResponse.item?.blobRef
+                        ?: throw IllegalStateException("文件详情缺少 blobRef")
+
+                    replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Downloading, progress = 0.30f) }
+                    val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+
+                    replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Saving, progress = 0.85f) }
+                    platformSaveFile(bytes, fileName, mimeType)
+                }.onSuccess {
+                    replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Completed, progress = 1f) }
+                }.onFailure {
+                    replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Failed) }
+                }
+            }
+        }
+    }
+
+    fun clearAllNasListState() {
+        sdkSessionManager.clearNasCache()
+        errorMap.clear()
+        loadingMap.clear()
+        loadingMoreMap.clear()
+    }
+
+    fun requestNasList(category: NasCategory, loadMore: Boolean = false) {
+        if (loadingMap[category] == true || loadingMoreMap[category] == true) return
+        val kind = category.toNasListKind()
+        val cachedCursor = nasCacheMap[kind]?.nextCursor
+        val cursor = if (loadMore) cachedCursor else null
+        if (loadMore && cursor.isNullOrBlank()) return
+
+        if (loadMore) {
+            loadingMoreMap[category] = true
+        } else {
+            loadingMap[category] = true
+            errorMap.remove(category)
+        }
+
+        coroutineScope.launch {
+            sdkSessionManager
+                .listFilesFromNas(
+                    targetCdi = targetCdi,
+                    kind = kind,
+                    pageSize = NAS_PAGE_SIZE,
+                    cursor = cursor,
+                )
+                .onSuccess { response ->
+                    val responseError = response.error?.takeIf { it.isNotBlank() }
+                    if (responseError != null) {
+                        errorMap[category] = responseError
+                        return@onSuccess
+                    }
+                    errorMap.remove(category)
+                    sdkSessionManager.updateNasCache(kind) { cache ->
+                        cache.copy(
+                            items = if (loadMore) cache.items + response.items else response.items,
+                            nextCursor = response.nextCursor,
+                            hasLoaded = true,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    errorMap[category] = error.message ?: "加载失败"
+                }
+
+            loadingMap[category] = false
+            loadingMoreMap[category] = false
+        }
+    }
+
+    /** 上传成功后刷新：先拉取新数据，成功后再替换缓存，避免清空造成闪白 */
+    fun refreshNasListAfterUpload(category: NasCategory) {
+        val kind = category.toNasListKind()
+        NasUploadTaskStore.scope.launch {
+            sdkSessionManager
+                .listFilesFromNas(
+                    targetCdi = targetCdi,
+                    kind = kind,
+                    pageSize = NAS_PAGE_SIZE,
+                    cursor = null,
+                )
+                .onSuccess { response ->
+                    val responseError = response.error?.takeIf { it.isNotBlank() }
+                    if (responseError != null) return@onSuccess
+                    sdkSessionManager.updateNasCache(kind) { _ ->
+                        NasCategoryCache(
+                            items = response.items,
+                            nextCursor = response.nextCursor,
+                            hasLoaded = true,
+                        )
+                    }
+                }
         }
     }
 
@@ -140,7 +336,7 @@ fun NasScreen(onBack: () -> Unit) {
             }
         appendUploadTasks(preparedTasks)
 
-        coroutineScope.launch {
+        NasUploadTaskStore.scope.launch {
             val uploadPayloads = mutableListOf<TransferUploadItem>()
 
             preparedTasks.forEachIndexed { index, task ->
@@ -242,10 +438,13 @@ fun NasScreen(onBack: () -> Unit) {
                         )
                         .onSuccess { registerResponse ->
                             val resultMap = registerResponse.results.associateBy { it.blobRef }
+                            var hasAnySuccess = false
                             registerItems.forEach { registerItem ->
                                 val registerResult = resultMap[registerItem.blobRef]
+                                val ok = registerResult?.ok == true
+                                if (ok) hasAnySuccess = true
                                 replaceUploadTask(registerItem.entryId.orEmpty()) { current ->
-                                    if (registerResult?.ok == true) {
+                                    if (ok) {
                                         current.copy(status = NasUploadTaskStatus.Completed, progress = 1f)
                                     } else {
                                         current.copy(
@@ -254,6 +453,9 @@ fun NasScreen(onBack: () -> Unit) {
                                         )
                                     }
                                 }
+                            }
+                            if (hasAnySuccess) {
+                                refreshNasListAfterUpload(category)
                             }
                         }
                         .onFailure {
@@ -320,93 +522,27 @@ fun NasScreen(onBack: () -> Unit) {
         }
     }
 
-    fun setCategoryItems(category: NasCategory, items: List<NasFileListItem>, append: Boolean) {
-        when (category) {
-            NasCategory.Photos -> {
-                val mapped = items.map { it.toNasImageItem() }
-                if (!append) imageItems.clear()
-                imageItems.addAll(mapped)
-            }
-            NasCategory.Recordings -> {
-                val mapped = items.map { it.toNasAudioItem() }
-                if (!append) audioItems.clear()
-                audioItems.addAll(mapped)
-            }
-            NasCategory.Documents -> {
-                val mapped = items.map { it.toNasDocumentItem() }
-                if (!append) documentItems.clear()
-                documentItems.addAll(mapped)
-            }
-        }
-    }
-
-    fun clearAllNasListState() {
-        imageItems.clear()
-        audioItems.clear()
-        documentItems.clear()
-        nextCursorMap.clear()
-        errorMap.clear()
-        hasLoadedMap.clear()
-        loadingMap.clear()
-        loadingMoreMap.clear()
-    }
-
-    fun requestNasList(category: NasCategory, loadMore: Boolean = false) {
-        if (loadingMap[category] == true || loadingMoreMap[category] == true) return
-        val cursor = if (loadMore) nextCursorMap[category] else null
-        if (loadMore && cursor.isNullOrBlank()) return
-
-        if (loadMore) {
-            loadingMoreMap[category] = true
-        } else {
-            loadingMap[category] = true
-            errorMap.remove(category)
-        }
-
-        coroutineScope.launch {
-            sdkSessionManager
-                .listFilesFromNas(
-                    targetCdi = targetCdi,
-                    kind = category.toNasListKind(),
-                    pageSize = NAS_PAGE_SIZE,
-                    cursor = cursor,
-                )
-                .onSuccess { response ->
-                    val responseError = response.error?.takeIf { it.isNotBlank() }
-                    if (responseError != null) {
-                        errorMap[category] = responseError
-                        return@onSuccess
-                    }
-                    errorMap.remove(category)
-                    setCategoryItems(category = category, items = response.items, append = loadMore)
-                    nextCursorMap[category] = response.nextCursor
-                    hasLoadedMap[category] = true
-                }
-                .onFailure { error ->
-                    errorMap[category] = error.message ?: "加载失败"
-                }
-
-            loadingMap[category] = false
-            loadingMoreMap[category] = false
-        }
-    }
-
     LaunchedEffect(targetCdi) {
-        clearAllNasListState()
+        if (sdkSessionManager.clearNasCacheIfCdiChanged(targetCdi)) {
+            errorMap.clear()
+            loadingMap.clear()
+            loadingMoreMap.clear()
+        }
     }
 
     LaunchedEffect(selectedCategory, targetCdi) {
-        if (hasLoadedMap[selectedCategory] == true) return@LaunchedEffect
+        val kind = selectedCategory.toNasListKind()
+        if (nasCacheMap[kind]?.hasLoaded == true) return@LaunchedEffect
         requestNasList(selectedCategory, loadMore = false)
     }
 
-    val imageMonths = imageItems.toImageMonthGroups()
-    val audios = audioItems.toAudioMonthGroups()
-    val documents = documentItems.toDocumentMonthGroups()
-    val allImages = imageItems.toList()
-    val allPhotoIds = imageItems.map { it.id }
-    val allAudioIds = audioItems.map { it.id }
-    val allDocumentIds = documentItems.map { it.id }
+    val imageMonths = remember(imageItems) { imageItems.toImageMonthGroups() }
+    val audios = remember(audioItems) { audioItems.toAudioMonthGroups() }
+    val documents = remember(documentItems) { documentItems.toDocumentMonthGroups() }
+    val allImages = imageItems
+    val allPhotoIds = remember(imageItems) { imageItems.map { it.id } }
+    val allAudioIds = remember(audioItems) { audioItems.map { it.id } }
+    val allDocumentIds = remember(documentItems) { documentItems.map { it.id } }
 
     fun exitPhotoSelectionMode() {
         isPhotoSelectionMode = false
@@ -487,8 +623,11 @@ fun NasScreen(onBack: () -> Unit) {
                 // TODO: 实现分享功能
             },
             onDownload = { currentImage ->
-                println("下载图片: ${currentImage.name}")
-                // TODO: 实现下载功能
+                downloadNasFile(
+                    fileId = currentImage.fileId,
+                    fileName = currentImage.name,
+                    mimeType = currentImage.name.toMimeType(),
+                )
             },
             onDelete = { currentImage ->
                 println("删除图片: ${currentImage.name}")
@@ -510,8 +649,11 @@ fun NasScreen(onBack: () -> Unit) {
                 // TODO: 实现分享功能
             },
             onDownload = {
-                println("下载音频: ${audio.name}")
-                // TODO: 实现下载功能
+                downloadNasFile(
+                    fileId = audio.fileId,
+                    fileName = audio.name,
+                    mimeType = audio.name.toMimeType(),
+                )
             },
             onDelete = {
                 println("删除音频: ${audio.name}")
@@ -533,8 +675,11 @@ fun NasScreen(onBack: () -> Unit) {
                 // TODO: 实现分享功能
             },
             onDownload = {
-                println("下载文档: ${document.name}")
-                // TODO: 实现下载功能
+                downloadNasFile(
+                    fileId = document.fileId,
+                    fileName = document.name,
+                    mimeType = document.name.toMimeType(),
+                )
             },
             onDelete = {
                 println("删除文档: ${document.name}")
@@ -553,7 +698,7 @@ fun NasScreen(onBack: () -> Unit) {
     val currentCategoryError = errorMap[selectedCategory]
     val currentCategoryLoading = loadingMap[selectedCategory] == true
     val currentCategoryLoadingMore = loadingMoreMap[selectedCategory] == true
-    val currentCategoryHasMore = !nextCursorMap[selectedCategory].isNullOrBlank()
+    val currentCategoryHasMore = !nasCacheMap[selectedCategory.toNasListKind()]?.nextCursor.isNullOrBlank()
     val currentCategoryFooter: @Composable (() -> Unit) = {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -572,7 +717,7 @@ fun NasScreen(onBack: () -> Unit) {
                     style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
                 )
                 NasGlassTextButton(
-                    text = if (hasLoadedMap[selectedCategory] == true) "重新加载" else "重试",
+                    text = if (nasCacheMap[selectedCategory.toNasListKind()]?.hasLoaded == true) "重新加载" else "重试",
                     onClick = { requestNasList(selectedCategory, loadMore = false) },
                     modifier = Modifier.width(ds.sm(132.dp))
                 )
@@ -632,7 +777,7 @@ fun NasScreen(onBack: () -> Unit) {
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (isSearchMode) {
-                        Spacer(modifier = Modifier.height(ds.sm(if (activeUploadCount > 0) 108.dp else 72.dp)))
+                        Spacer(modifier = Modifier.height(ds.sm(if (activeTaskCount > 0) 108.dp else 72.dp)))
                         Text(
                             text = if (isSearchSelectionMode) {
                                 "最近搜索"
@@ -646,7 +791,7 @@ fun NasScreen(onBack: () -> Unit) {
                             )
                         )
                         Spacer(modifier = Modifier.height(ds.sm(18.dp)))
-                    } else if (activeUploadCount > 0) {
+                    } else if (activeTaskCount > 0) {
                         Spacer(modifier = Modifier.height(ds.sm(44.dp)))
                     }
 
@@ -793,12 +938,21 @@ fun NasScreen(onBack: () -> Unit) {
                         NasGlassTextButton(
                             text = "下载",
                             onClick = {
-                                val count = when (selectedCategory) {
-                                    NasCategory.Photos -> selectedPhotoIds.size
-                                    NasCategory.Recordings -> selectedAudioIds.size
-                                    NasCategory.Documents -> selectedDocumentIds.size
+                                val downloadItems: List<Triple<Long?, String, String>> = when (selectedCategory) {
+                                    NasCategory.Photos -> {
+                                        imageItems.filter { it.id in selectedPhotoIds }
+                                            .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                    }
+                                    NasCategory.Recordings -> {
+                                        audioItems.filter { it.id in selectedAudioIds }
+                                            .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                    }
+                                    NasCategory.Documents -> {
+                                        documentItems.filter { it.id in selectedDocumentIds }
+                                            .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                    }
                                 }
-                                println("下载资源: ${count}项")
+                                downloadNasFiles(downloadItems)
                             },
                             icon = Res.drawable.ic_download
                         )
@@ -830,10 +984,11 @@ fun NasScreen(onBack: () -> Unit) {
                                 searchQuery = ""
                             }
                         )
-                        if (activeUploadCount > 0) {
+                        if (activeTaskCount > 0) {
                             NasUploadBanner(
-                                activeCount = activeUploadCount,
-                                onClick = { showUploadProgressDialog = true }
+                                activeUploadCount = activeUploadCount,
+                                activeDownloadCount = activeDownloadCount,
+                                onClick = { NasUploadTaskStore.showDialog = true }
                             )
                         }
                     }
@@ -863,7 +1018,23 @@ fun NasScreen(onBack: () -> Unit) {
                                 NasGlassCircleButton(
                                     imageVector = Icons.Outlined.FileDownload,
                                     contentDescription = "下载",
-                                    onClick = { /* TODO: Implement download action */ },
+                                    onClick = {
+                                        val downloadItems: List<Triple<Long?, String, String>> = when (selectedCategory) {
+                                            NasCategory.Photos -> {
+                                                imageItems.filter { it.id in selectedPhotoIds }
+                                                    .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                            }
+                                            NasCategory.Recordings -> {
+                                                audioItems.filter { it.id in selectedAudioIds }
+                                                    .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                            }
+                                            NasCategory.Documents -> {
+                                                documentItems.filter { it.id in selectedDocumentIds }
+                                                    .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                            }
+                                        }
+                                        downloadNasFiles(downloadItems)
+                                    },
                                     modifier = Modifier.size(44.dp)
                                 )
                                 NasGlassCircleButton(
@@ -972,10 +1143,10 @@ fun NasScreen(onBack: () -> Unit) {
         }
     }
 
-    if (showUploadProgressDialog) {
+    if (NasUploadTaskStore.showDialog) {
         NasUploadProgressDialog(
             tasks = uploadTasks,
-            onDismiss = { showUploadProgressDialog = false }
+            onDismiss = { NasUploadTaskStore.showDialog = false }
         )
     }
 
@@ -989,8 +1160,11 @@ fun NasScreen(onBack: () -> Unit) {
                 previewImage = null
             },
             onDownload = {
-                println("下载图片: ${image.name}")
-                // TODO: 实现下载功能
+                downloadNasFile(
+                    fileId = image.fileId,
+                    fileName = image.name,
+                    mimeType = image.name.toMimeType(),
+                )
                 previewImage = null
             },
             onDelete = {
@@ -1000,6 +1174,7 @@ fun NasScreen(onBack: () -> Unit) {
             }
         )
     }
+
 }
 
 private fun NasCategory.toUploadTaskType(): NasUploadTaskType =
@@ -1007,6 +1182,13 @@ private fun NasCategory.toUploadTaskType(): NasUploadTaskType =
         NasCategory.Photos -> NasUploadTaskType.Image
         NasCategory.Recordings -> NasUploadTaskType.Audio
         NasCategory.Documents -> NasUploadTaskType.Document
+    }
+
+private fun String.toDownloadTaskType(): NasUploadTaskType =
+    when {
+        startsWith("image/") -> NasUploadTaskType.Image
+        startsWith("audio/") -> NasUploadTaskType.Audio
+        else -> NasUploadTaskType.Document
     }
 
 private fun NasCategory.toNasListKind(): String =
@@ -1079,6 +1261,7 @@ private fun NasFileListItem.toNasAudioItem(): NasAudioItem {
     val name = fileName.orEmpty().ifBlank { "音频-${id ?: currentTimeMillisSafe()}" }
     return NasAudioItem(
         id = (id?.toString() ?: name).ifBlank { "audio-${currentTimeMillisSafe()}" },
+        fileId = id,
         name = name,
         type = "音频",
         format = name.substringAfterLast('.', "m4a").ifBlank { "m4a" },
@@ -1093,6 +1276,7 @@ private fun NasFileListItem.toNasDocumentItem(): NasDocumentItem {
     val name = fileName.orEmpty().ifBlank { "文档-${id ?: currentTimeMillisSafe()}" }
     return NasDocumentItem(
         id = (id?.toString() ?: name).ifBlank { "document-${currentTimeMillisSafe()}" },
+        fileId = id,
         name = name,
         type = "文档",
         format = name.substringAfterLast('.', "file").ifBlank { "file" },

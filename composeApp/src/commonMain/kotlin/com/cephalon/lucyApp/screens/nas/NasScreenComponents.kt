@@ -96,10 +96,17 @@ internal enum class NasUploadTaskType {
     Document
 }
 
+internal enum class NasTaskDirection {
+    Upload,
+    Download
+}
+
 internal enum class NasUploadTaskStatus {
     Waiting,
     Uploading,
+    Downloading,
     Registering,
+    Saving,
     Completed,
     Failed
 }
@@ -109,7 +116,8 @@ internal data class NasUploadTaskItem(
     val title: String,
     val type: NasUploadTaskType,
     val progress: Float,
-    val status: NasUploadTaskStatus
+    val status: NasUploadTaskStatus,
+    val direction: NasTaskDirection = NasTaskDirection.Upload
 )
 
 @Composable
@@ -137,12 +145,21 @@ internal fun NasTopCategoryRow(
 
 @Composable
 internal fun NasUploadBanner(
-    activeCount: Int,
+    activeUploadCount: Int,
+    activeDownloadCount: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val ds = LocalDesignScale.current
     val shape = RoundedCornerShape(999.dp)
+    val bannerText = buildString {
+        append("目前有")
+        val parts = mutableListOf<String>()
+        if (activeUploadCount > 0) parts += "上传${activeUploadCount}个"
+        if (activeDownloadCount > 0) parts += "下载${activeDownloadCount}个"
+        append(parts.joinToString("/"))
+        append("任务进行中 ")
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -160,7 +177,7 @@ internal fun NasUploadBanner(
             horizontalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "目前有正在上传的任务${if (activeCount > 0) "（$activeCount）" else ""} ",
+                text = bannerText,
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontSize = ds.sp(12f),
                     fontWeight = FontWeight.Normal
@@ -188,7 +205,9 @@ internal fun NasUploadProgressDialog(
         val ds = LocalDesignScale.current
         val activeCount = tasks.count {
             it.status == NasUploadTaskStatus.Uploading ||
+                it.status == NasUploadTaskStatus.Downloading ||
                 it.status == NasUploadTaskStatus.Registering ||
+                it.status == NasUploadTaskStatus.Saving ||
                 it.status == NasUploadTaskStatus.Waiting
         }
         Surface(
@@ -214,8 +233,15 @@ internal fun NasUploadProgressDialog(
                         onClick = onDismiss,
                         modifier = Modifier.size(ds.sm(36.dp))
                     )
+                    val hasUpload = tasks.any { it.direction == NasTaskDirection.Upload }
+                    val hasDownload = tasks.any { it.direction == NasTaskDirection.Download }
+                    val dialogTitle = when {
+                        hasUpload && hasDownload -> "上传/下载进度"
+                        hasDownload -> "下载进度"
+                        else -> "上传进度"
+                    }
                     Text(
-                        text = "上传进度",
+                        text = dialogTitle,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = ds.sp(20f),
                             fontWeight = FontWeight.SemiBold
@@ -224,15 +250,28 @@ internal fun NasUploadProgressDialog(
                     )
                     NasGlassCircleButton(
                         imageVector = Icons.Outlined.Close,
-                        contentDescription = "收起上传进度",
+                        contentDescription = "收起进度",
                         onClick = onDismiss,
                         modifier = Modifier.size(ds.sm(36.dp))
                     )
                 }
 
                 if (activeCount > 0) {
+                    val activeUploads = tasks.count {
+                        it.direction == NasTaskDirection.Upload && it.status in listOf(
+                            NasUploadTaskStatus.Uploading, NasUploadTaskStatus.Registering, NasUploadTaskStatus.Waiting
+                        )
+                    }
+                    val activeDownloads = tasks.count {
+                        it.direction == NasTaskDirection.Download && it.status in listOf(
+                            NasUploadTaskStatus.Downloading, NasUploadTaskStatus.Saving, NasUploadTaskStatus.Waiting
+                        )
+                    }
+                    val subtitleParts = mutableListOf<String>()
+                    if (activeUploads > 0) subtitleParts += "上传${activeUploads}个"
+                    if (activeDownloads > 0) subtitleParts += "下载${activeDownloads}个"
                     Text(
-                        text = "还有${activeCount}个任务进行中",
+                        text = "还有${subtitleParts.joinToString("、")}任务进行中",
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontSize = ds.sp(12f),
                             fontWeight = FontWeight.Normal
@@ -307,6 +346,7 @@ internal data class NasImageItem(
 
 internal data class NasAudioItem(
     val id: String,
+    val fileId: Long? = null,
     val name: String,
     val type: String,
     val format: String,
@@ -323,6 +363,7 @@ internal data class NasAudioMonthGroup(
 
 internal data class NasDocumentItem(
     val id: String,
+    val fileId: Long? = null,
     val name: String,
     val type: String,
     val format: String,
@@ -1317,19 +1358,25 @@ private fun NasUploadTaskItem.progressForDisplay(): Float =
     when (status) {
         NasUploadTaskStatus.Waiting -> 0f
         NasUploadTaskStatus.Uploading -> progress.coerceIn(0f, 1f)
+        NasUploadTaskStatus.Downloading -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Registering -> progress.coerceIn(0f, 1f)
+        NasUploadTaskStatus.Saving -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Completed -> 1f
         NasUploadTaskStatus.Failed -> progress.coerceIn(0f, 1f)
     }
 
-private fun NasUploadTaskItem.statusText(): String =
-    when (status) {
-        NasUploadTaskStatus.Waiting -> "等待上传"
+private fun NasUploadTaskItem.statusText(): String {
+    val isDownload = direction == NasTaskDirection.Download
+    return when (status) {
+        NasUploadTaskStatus.Waiting -> if (isDownload) "等待下载" else "等待上传"
         NasUploadTaskStatus.Uploading -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
+        NasUploadTaskStatus.Downloading -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
         NasUploadTaskStatus.Registering -> "登记中"
+        NasUploadTaskStatus.Saving -> "保存中"
         NasUploadTaskStatus.Completed -> "已完成"
-        NasUploadTaskStatus.Failed -> "上传失败"
+        NasUploadTaskStatus.Failed -> if (isDownload) "下载失败" else "上传失败"
     }
+}
 
 private fun formatAudioDuration(durationSec: Int): String {
     val minutes = durationSec / 60

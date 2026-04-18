@@ -127,6 +127,12 @@ private data class PendingNasRegisterRequest(
     val waiter: CompletableDeferred<NasRegisterBlobsResponse>,
 )
 
+data class NasCategoryCache(
+    val items: List<NasFileListItem> = emptyList(),
+    val nextCursor: String? = null,
+    val hasLoaded: Boolean = false,
+)
+
 private data class PendingNasFileListRequest(
     val requestId: String,
     val kind: String,
@@ -263,6 +269,37 @@ class SdkSessionManager(
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
     private val pendingNasFileGetRequests = MutableStateFlow<Map<String, PendingNasFileGetRequest>>(emptyMap())
     private val _activeFileTransferCount = MutableStateFlow(0)
+
+    // ── NAS 列表缓存（跨页面持久化） ──
+    private val _nasCache = MutableStateFlow<Map<String, NasCategoryCache>>(emptyMap())
+    val nasCache: StateFlow<Map<String, NasCategoryCache>> = _nasCache.asStateFlow()
+    private var _nasCacheCdi: String? = null
+
+    fun updateNasCache(kind: String, transform: (NasCategoryCache) -> NasCategoryCache) {
+        _nasCache.update { current ->
+            val old = current[kind] ?: NasCategoryCache()
+            current + (kind to transform(old))
+        }
+    }
+
+    fun invalidateNasCategory(kind: String) {
+        _nasCache.update { current ->
+            current + (kind to NasCategoryCache())
+        }
+    }
+
+    fun clearNasCache() {
+        _nasCache.value = emptyMap()
+        _nasCacheCdi = null
+    }
+
+    /** 仅当 CDI 真正变化时才清空缓存，返回 true 表示发生了清空 */
+    fun clearNasCacheIfCdiChanged(cdi: String): Boolean {
+        if (_nasCacheCdi == cdi) return false
+        _nasCache.value = emptyMap()
+        _nasCacheCdi = cdi
+        return true
+    }
 
     private var _latestRequestId: String? = null
 
