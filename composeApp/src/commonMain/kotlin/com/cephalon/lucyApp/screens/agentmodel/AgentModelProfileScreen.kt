@@ -81,6 +81,8 @@ import com.cephalon.lucyApp.api.RechargeRuleItem
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.components.CodeInput
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
+import com.cephalon.lucyApp.components.ToastHost
+import com.cephalon.lucyApp.components.rememberToastState
 import com.cephalon.lucyApp.getPlatform
 import com.cephalon.lucyApp.payment.IAPManager
 import com.cephalon.lucyApp.sdk.SdkSessionManager
@@ -89,6 +91,9 @@ import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
+import com.cephalon.lucyApp.api.TransferOrderStatus
+import com.cephalon.lucyApp.time.currentTimeMillis
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -1179,79 +1184,140 @@ private val fixedPackages = listOf(
     FixedPackage(1000.0, "¥1000", 700000),
 )
 
-private fun FixedPackage.appleProductId(): String = when (price) {
-    9.9 -> "com.cephalon.lucyApp.9.9"
-    39.9 -> "com.cephalon.lucyApp.39.9"
-    69.9 -> "com.cephalon.lucyApp.69.9"
-    99.0 -> "com.cephalon.lucyApp.99"
-    299.0 -> "com.cephalon.lucyApp.299"
-    499.0 -> "com.cephalon.lucyApp.499"
-    500.0 -> "com.cephalon.lucyApp.500"
-    699.0 -> "com.cephalon.lucyApp.699"
-    899.0 -> "com.cephalon.lucyApp.899"
-    999.0 -> "com.cephalon.lucyApp.999"
-    1000.0 -> "com.cephalon.lucyApp.1000"
-    else -> ""
-}
+// 注：前端不再维护 price → appleProductId 的映射。所有 productId 以后端
+// /orders/transfers 响应的 data.productId 为准；Swift 侧 purchase 时会按需一次性拉取。
 
 private fun findGiftPercent(price: Double, rules: List<RechargeRuleItem>): Int {
     return rules.firstOrNull { price >= it.littleValue && price < it.largeValue }?.giftPercent ?: 0
 }
 
+/**
+ * 充值卡片的点击编排（新流程，不再本地验单）：
+ *  1. POST /orders/transfers        → 拿 orderId + productId
+ *  2. Apple 拉起支付                 → 拿 transactionId
+ *  3. 每 2s 轮询 GET /orders/transfers/{orderId}，直到 status != pending：
+ *      - succeed  → toast 成功 + finishTransaction + refreshBalance
+ *      - canceled → toast 失败 + finishTransaction（消化 Apple 侧 receipt，避免幽灵交易）
+ *  4. 轮询总时长上限 [ORDER_POLL_TIMEOUT_MS]，超时提示"订单处理中，请稍后查看"。
+ *
+ * 所有 productId 以后端 `/orders/transfers` 返回的 `data.productId` 为准；前端不再硬编码。
+ * 返回 true 表示最终 succeed；false 表示失败/取消/超时。
+ */
 private suspend fun handleRechargePackageClick(
     pkg: FixedPackage,
     authRepository: AuthRepository,
     iapManager: IAPManager,
-) {
-    val productId = pkg.appleProductId()
-    println("[IAP][UI] 点击充值卡片: tag=${pkg.tag ?: "none"}, priceLabel=${pkg.priceLabel}, amount=${pkg.price}, base=${pkg.base}, productId=$productId")
-    if (productId.isBlank()) {
-        println("[IAP][UI] 未找到对应商品ID, amount=${pkg.price}")
-        return
-    }
+    onStatus: (String) -> Unit = {},
+): Boolean {
+    println("[IAP][UI] 点击充值卡片: tag=${pkg.tag ?: "none"}, priceLabel=${pkg.priceLabel}, amount=${pkg.price}, base=${pkg.base}")
 
-    println("[IAP][UI] Step 1: 调用创建订单接口 /v1/orders/transfers, amount=${pkg.base}")
+    // ────────── Step 1: 创建订单 ──────────
+    println("[IAP][UI] Step 1: POST /v1/orders/transfers, amount=${pkg.base}")
+    onStatus("正在创建订单…")
     val orderResponse = authRepository.createRechargeOrder(pkg.base)
     println("[IAP][API] createRechargeOrder 响应: code=${orderResponse.code}, msg=${orderResponse.msg}, data=${orderResponse.data}")
     if (orderResponse.code != 20000 || orderResponse.data == null) {
-        println("[IAP][UI] Step 1 失败: 创建订单失败")
-        return
+        val msg = orderResponse.msg.ifBlank { "创建订单失败" }
+        println("[IAP][UI] Step 1 失败: $msg")
+        onStatus(msg)
+        return false
+    }
+    val orderId = orderResponse.data.orderId
+    val productId = orderResponse.data.productId
+    if (orderId.isBlank() || productId.isBlank()) {
+        println("[IAP][UI] Step 1 异常: 后端未返回 orderId/productId, data=${orderResponse.data}")
+        onStatus("订单创建异常：响应字段缺失")
+        return false
     }
 
-    println("[IAP][UI] Step 1.5: 确保商品已加载")
-    iapManager.loadProducts()
-    println("[IAP][UI] Step 2: 调用 Apple 购买, productId=$productId, orderData=${orderResponse.data}")
+    // ────────── Step 2: 拉起 Apple 支付 ──────────
+    println("[IAP][UI] Step 2: 调用 Apple 购买, orderId=$orderId, productId=$productId")
+    onStatus("正在拉起 Apple 支付…")
     val transactionId = iapManager.initiatePurchase(productId)
     println("[IAP][IAP] initiatePurchase 返回: transactionId=$transactionId")
     if (transactionId.isNullOrBlank()) {
-        println("[IAP][UI] Step 2 失败: Apple 购买未返回有效 transactionId")
-        return
+        println("[IAP][UI] Step 2 失败: Apple 购买未返回有效 transactionId（用户取消 / 商品不可购 / 其它错误）")
+        onStatus("支付已取消或未完成")
+        return false
     }
 
-    println("[IAP][UI] Step 3: 调用验单接口 /v1/orders/apple/verify, transactionId=$transactionId")
-    val verifyResponse = authRepository.verifyAppleIAPTransaction(transactionId)
-    println("[IAP][API] verifyAppleIAPTransaction 响应: code=${verifyResponse.code}, msg=${verifyResponse.msg}, data=${verifyResponse.data}")
-    if (verifyResponse.code != 20000) {
-        println("[IAP][UI] Step 3 失败: 验单失败, transactionId=$transactionId")
-        return
-    }
+    // ────────── Step 3: 轮询订单状态 ──────────
+    // 每 ORDER_POLL_INTERVAL_MS (2s) 查一次，直到 status != pending 或累计超过 ORDER_POLL_TIMEOUT_MS。
+    println("[IAP][UI] Step 3: 开始轮询 GET /v1/orders/transfers/$orderId")
+    onStatus("订单确认中…")
+    val pollStartMs = currentTimeMillis()
+    var pollAttempt = 0
+    while (true) {
+        pollAttempt++
+        val elapsed = currentTimeMillis() - pollStartMs
+        if (elapsed >= ORDER_POLL_TIMEOUT_MS) {
+            println("[IAP][UI] Step 3 超时: 累计 ${elapsed}ms, attempt=$pollAttempt, 仍未返回终态")
+            onStatus("订单处理中，请稍后在订单记录里查看")
+            // 超时不动 Apple transaction；若最终 Apple 侧仍有未完成交易，下次启动会由
+            // handleUnfinishedTransactions 兜底补齐。
+            return false
+        }
 
-    println("[IAP][UI] Step 4: finishTransaction, transactionId=$transactionId")
-    iapManager.finishTransaction(transactionId)
-    println("[IAP][UI] Step 4 完成: 整个购买流程结束, transactionId=$transactionId")
+        val statusResponse = authRepository.getTransferOrderStatus(orderId)
+        val data = statusResponse.data
+        println("[IAP][API] getTransferOrderStatus attempt=$pollAttempt, elapsed=${elapsed}ms, code=${statusResponse.code}, msg=${statusResponse.msg}, status=${data?.status}")
+
+        if (statusResponse.code != 20000 || data == null) {
+            // 服务端异常：不立即终止轮询，等下一轮——除非连续失败太多次。
+            println("[IAP][UI] Step 3 查询异常（attempt=$pollAttempt）: ${statusResponse.msg}")
+            delay(ORDER_POLL_INTERVAL_MS)
+            continue
+        }
+
+        when (data.status) {
+            TransferOrderStatus.SUCCEED -> {
+                println("[IAP][UI] Step 3 成功: orderId=$orderId, transactionId=$transactionId")
+                iapManager.finishTransaction(transactionId)
+                println("[IAP][UI] Step 4 完成: finishTransaction done, transactionId=$transactionId")
+                onStatus("充值成功")
+                return true
+            }
+            TransferOrderStatus.CANCELED -> {
+                println("[IAP][UI] Step 3 失败: orderId=$orderId 状态为 canceled, transactionId=$transactionId")
+                // 仍然 finishTransaction：Apple 侧 receipt 已落地，不消化会一直卡在未完成队列里。
+                iapManager.finishTransaction(transactionId)
+                onStatus("订单失败或已取消")
+                return false
+            }
+            TransferOrderStatus.PENDING -> {
+                // 仍在处理，等 2s 再查
+                delay(ORDER_POLL_INTERVAL_MS)
+            }
+            else -> {
+                // 后端给了我们未识别的状态，保守起见继续轮询等待
+                println("[IAP][UI] Step 3 未知状态: ${data.status}，按 pending 继续轮询")
+                delay(ORDER_POLL_INTERVAL_MS)
+            }
+        }
+    }
 }
+
+// 轮询 /orders/transfers/{order_id} 的节奏与上限。
+private const val ORDER_POLL_INTERVAL_MS = 2_000L
+// 60s 仍未拿到终态就认为"订单处理中"，不再阻塞 UI；Apple 端未完成交易下次启动兜底。
+private const val ORDER_POLL_TIMEOUT_MS = 60_000L
 
 @Composable
 private fun RechargePackageContent() {
     val authRepository: AuthRepository = koinInject()
     val iapManager: IAPManager = koinInject()
+    val balanceWsManager: BalanceWsManager = koinInject()
     val coroutineScope = rememberCoroutineScope()
+    val toastState = rememberToastState()
 
     var rules by remember { mutableStateOf<List<RechargeRuleItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    // 支付进行中：用于禁用所有套餐卡点击，避免用户重复点或并发触发两条购买流程。
+    var isPurchasing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        iapManager.loadProducts()
+        // 不再做任何 productId 预加载：真正点击时 Swift 侧会一次性拉 Product 并直接 purchase，
+        // 前端不维护任何商品缓存，避免"预加载列表和后端 productId 不同步"的坑。
         val response = authRepository.getRechargeRules()
         if (response.code == 20000 && response.data != null) {
             rules = response.data.sortedBy { it.littleValue }
@@ -1259,10 +1325,33 @@ private fun RechargePackageContent() {
         isLoading = false
     }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
+    // 点击任一套餐的统一入口：防重入 + 状态 toast + 成功后刷余额。
+    val onPackageClick: (FixedPackage) -> Unit = { pkg ->
+        if (!isPurchasing) {
+            coroutineScope.launch {
+                isPurchasing = true
+                try {
+                    val ok = handleRechargePackageClick(
+                        pkg = pkg,
+                        authRepository = authRepository,
+                        iapManager = iapManager,
+                        onStatus = { msg -> toastState.show(msg) },
+                    )
+                    if (ok) {
+                        runCatching { balanceWsManager.refreshBalance() }
+                    }
+                } finally {
+                    isPurchasing = false
+                }
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
         if (isLoading) {
             Box(
                 modifier = Modifier.fillMaxWidth().height(200.dp),
@@ -1284,11 +1373,8 @@ private fun RechargePackageContent() {
                     detail = "基础${pkg.base}+${gift}奖励",
                     price = pkg.priceLabel,
                     tag = pkg.tag,
-                    onClick = {
-                        coroutineScope.launch {
-                            handleRechargePackageClick(pkg, authRepository, iapManager)
-                        }
-                    },
+                    enabled = !isPurchasing,
+                    onClick = { onPackageClick(pkg) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1307,11 +1393,8 @@ private fun RechargePackageContent() {
                         detail = "基础${pkg1.base}+${gift1}",
                         price = pkg1.priceLabel,
                         tag = pkg1.tag,
-                        onClick = {
-                            coroutineScope.launch {
-                                handleRechargePackageClick(pkg1, authRepository, iapManager)
-                            }
-                        },
+                        enabled = !isPurchasing,
+                        onClick = { onPackageClick(pkg1) },
                         modifier = Modifier.weight(1f)
                     )
                     if (i + 1 < gridItems.size) {
@@ -1323,11 +1406,8 @@ private fun RechargePackageContent() {
                             detail = "基础${pkg2.base}+${gift2}",
                             price = pkg2.priceLabel,
                             tag = pkg2.tag,
-                            onClick = {
-                                coroutineScope.launch {
-                                    handleRechargePackageClick(pkg2, authRepository, iapManager)
-                                }
-                            },
+                            enabled = !isPurchasing,
+                            onClick = { onPackageClick(pkg2) },
                             modifier = Modifier.weight(1f)
                         )
                     } else {
@@ -1362,7 +1442,9 @@ private fun RechargePackageContent() {
         )
 
         Spacer(modifier = Modifier.height(16.dp))
-    }
+    } // Column
+        ToastHost(state = toastState, modifier = Modifier.align(Alignment.TopCenter))
+    } // Box
 }
 
 @Composable
@@ -1371,13 +1453,14 @@ private fun PackageCard(
     detail: String,
     price: String,
     tag: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.clickable { onClick() },
+        modifier = modifier.clickable(enabled = enabled) { onClick() },
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFFF5F5F5),
+        color = if (enabled) Color(0xFFF5F5F5) else Color(0xFFEAEAEA),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),

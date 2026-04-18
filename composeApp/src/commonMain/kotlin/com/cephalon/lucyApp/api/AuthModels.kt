@@ -248,6 +248,30 @@ data class VerifyTransactionData(
 )
 
 /**
+ * /v1/orders/transfers/{order_id} GET 查询订单状态响应数据。
+ * status 取值见 [TransferOrderStatus]：pending / succeed / canceled。
+ */
+@Serializable
+data class TransferOrderStatusData(
+    val status: String = "",
+    @SerialName("order_id")
+    val orderId: String? = null,
+    @SerialName("product_id")
+    val productId: String? = null,
+    val amount: Long? = null,
+)
+
+/** GET /orders/transfers/{order_id} 响应里 `status` 字段的枚举常量。 */
+object TransferOrderStatus {
+    /** 订单已创建，Apple 侧支付尚未到账（前端需每 2s 轮询一次）。 */
+    const val PENDING = "pending"
+    /** 订单支付成功，前端可以刷新余额、finishTransaction 并提示用户。 */
+    const val SUCCEED = "succeed"
+    /** 订单取消/失败，前端提示用户失败并终止轮询。 */
+    const val CANCELED = "canceled"
+}
+
+/**
  * GET /v1/channels/lucy/current-user/model-config
  */
 @Serializable
