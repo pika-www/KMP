@@ -122,6 +122,10 @@ internal fun AgentModelProfileScreen(
 ) {
     val tokenStore: AuthTokenStore = koinInject()
     val authRepository: AuthRepository = koinInject()
+    val sdkSessionManager: SdkSessionManager = koinInject()
+    val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
+    val selectedCdi by sdkSessionManager.selectedDeviceCdi.collectAsState()
+    val isSelectedDeviceOnline = selectedCdi != null && selectedCdi in onlineCdis
     val userPhone = remember { tokenStore.getUserPhone() ?: "" }
     val userEmail = remember { tokenStore.getUserEmail() ?: "" }
 
@@ -279,12 +283,14 @@ internal fun AgentModelProfileScreen(
                                         title = "充值账户",
                                         onClick = { currentPage = ProfilePage.Recharge }
                                     )
-                                    HorizontalDivider(color = Color(0xFFF5F5F5))
-                                    ProfileMenuItemNew(
-                                        icon = NasIcon,
-                                        title = "我的 NAS",
-                                        onClick = { onNavigateToNas() }
-                                    )
+                                    if (isSelectedDeviceOnline) {
+                                        HorizontalDivider(color = Color(0xFFF5F5F5))
+                                        ProfileMenuItemNew(
+                                            icon = NasIcon,
+                                            title = "我的 NAS",
+                                            onClick = { onNavigateToNas() }
+                                        )
+                                    }
                                     HorizontalDivider(color = Color(0xFFF5F5F5))
                                     ProfileMenuItemNew(
                                         icon = DevicesIcon,
