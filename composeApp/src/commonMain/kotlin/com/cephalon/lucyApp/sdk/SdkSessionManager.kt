@@ -11,8 +11,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -29,6 +32,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import com.russhwolf.settings.Settings
 import lucy.im.sdk.ConnectedSession
 import lucy.im.sdk.LucyImAppClient
 import lucy.im.sdk.LucyImAppConfig
@@ -142,6 +146,7 @@ private data class PendingNasFileListRequest(
 
 class SdkSessionManager(
     private val tokenStore: AuthTokenStore,
+    private val settings: Settings,
 ) {
     private val exceptionHandler = kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
         appLogD(TAG, "协程异常(已捕获): ${throwable.message}")
@@ -202,8 +207,28 @@ class SdkSessionManager(
     private val _selectedDeviceCdi = MutableStateFlow<String?>(null)
     val selectedDeviceCdi: StateFlow<String?> = _selectedDeviceCdi.asStateFlow()
 
+    init {
+        // 启动时从缓存恢复上次选中的设备
+        val cached = settings.getStringOrNull(KEY_SELECTED_DEVICE_CDI)
+        if (!cached.isNullOrBlank()) {
+            _selectedDeviceCdi.value = cached
+            appLogD(TAG, "从缓存恢复选中设备 cdi=$cached")
+        }
+    }
+
     fun selectDevice(cdi: String?) {
-        _selectedDeviceCdi.value = cdi?.trim()?.takeIf { it.isNotEmpty() }
+        val normalized = cdi?.trim()?.takeIf { it.isNotEmpty() }
+        _selectedDeviceCdi.value = normalized
+        if (normalized != null) {
+            settings.putString(KEY_SELECTED_DEVICE_CDI, normalized)
+        } else {
+            settings.remove(KEY_SELECTED_DEVICE_CDI)
+        }
+    }
+
+    fun clearSelectedDeviceCache() {
+        _selectedDeviceCdi.value = null
+        settings.remove(KEY_SELECTED_DEVICE_CDI)
     }
 
     private val blobTransfer by lazy { createPlatformBlobTransfer() }
@@ -264,6 +289,9 @@ class SdkSessionManager(
 
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
+
+    private val _incomingMediaEvents = MutableSharedFlow<IncomingMediaEvent>(extraBufferCapacity = 32)
+    val incomingMediaEvents: SharedFlow<IncomingMediaEvent> = _incomingMediaEvents.asSharedFlow()
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
@@ -938,17 +966,37 @@ class SdkSessionManager(
 
                 val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
                 val activeIds = _activeRequestIds.value
-                val sourceMatched = !incomingSourceMessageId.isNullOrBlank() &&
-                    incomingSourceMessageId in activeIds
-                if (!sourceMatched) {
+                val hasSourceId = !incomingSourceMessageId.isNullOrBlank()
+                val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
+
+                if (hasSourceId && !sourceMatched) {
+                    // 有 source_message_id 但匹配不上 → 过滤
                     appLogD(
                         TAG,
-                        "[Consumer] 过滤掉消息: incomingSourceMessageId=${incomingSourceMessageId ?: "none"}, activeIds=$activeIds, matched=false, msg=${messageText}",
+                        "[Consumer] 过滤掉消息: incomingSourceMessageId=$incomingSourceMessageId, activeIds=$activeIds, matched=false",
                     )
                     return@startUserChannelConsumer
                 }
-                appLogD(TAG, "[Consumer] 接受消息 subject=$subject incomingSourceMessageId=$incomingSourceMessageId msg=${messageText}")
+
                 recordReceivedMessage(subject, messageText)
+
+                if (!hasSourceId) {
+                    // 没有 source_message_id → 可能是异步文件/媒体推送
+                    appLogD(TAG, "[Consumer] 收到无 source_message_id 消息 subject=$subject, type=${machineEvent?.type}, attachments=${machineEvent?.attachments?.size ?: 0}")
+                    if (machineEvent != null && (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())) {
+                        _incomingMediaEvents.tryEmit(
+                            IncomingMediaEvent(
+                                text = machineEvent.text,
+                                attachments = machineEvent.attachments,
+                                eventType = machineEvent.type,
+                            )
+                        )
+                        appLogD(TAG, "[Consumer] 已发射 IncomingMediaEvent type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
+                    }
+                    return@startUserChannelConsumer
+                }
+
+                appLogD(TAG, "[Consumer] 接受消息 subject=$subject incomingSourceMessageId=$incomingSourceMessageId msg=${messageText}")
                 handleMachineEvent(machineEvent, incomingSourceMessageId)
                 _lastReplyMessageId.value = incomingSourceMessageId
             }
@@ -1536,9 +1584,11 @@ class SdkSessionManager(
                     val ref = obj["blob_ref"]?.jsonPrimitive?.contentOrNull ?: return@forEach
                     add(MediaAttachment(
                         blobRef = ref,
-                        contentType = obj["content_type"]?.jsonPrimitive?.contentOrNull,
+                        contentType = obj["content_type"]?.jsonPrimitive?.contentOrNull
+                            ?: obj["contentType"]?.jsonPrimitive?.contentOrNull,
                         fileName = obj["file_name"]?.jsonPrimitive?.contentOrNull
-                            ?: obj["filename"]?.jsonPrimitive?.contentOrNull,
+                            ?: obj["filename"]?.jsonPrimitive?.contentOrNull
+                            ?: obj["fileName"]?.jsonPrimitive?.contentOrNull,
                     ))
                 }
             }
@@ -1548,9 +1598,11 @@ class SdkSessionManager(
                         val ref = media["blob_ref"]?.jsonPrimitive?.contentOrNull ?: return@let
                         add(MediaAttachment(
                             blobRef = ref,
-                            contentType = media["content_type"]?.jsonPrimitive?.contentOrNull,
+                            contentType = media["content_type"]?.jsonPrimitive?.contentOrNull
+                                ?: media["contentType"]?.jsonPrimitive?.contentOrNull,
                             fileName = media["file_name"]?.jsonPrimitive?.contentOrNull
-                                ?: media["filename"]?.jsonPrimitive?.contentOrNull,
+                                ?: media["filename"]?.jsonPrimitive?.contentOrNull
+                                ?: media["fileName"]?.jsonPrimitive?.contentOrNull,
                         ))
                     }
                 }
@@ -1791,6 +1843,7 @@ class SdkSessionManager(
         private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
         private const val MAX_AUTH_RECONNECT_ATTEMPTS = 3       // NATS 鉴权重连最多尝试次数
         private const val MAX_OBSERVER_RESTART_ATTEMPTS = 5      // observer 重建最多尝试次数
+        private const val KEY_SELECTED_DEVICE_CDI = "sdk.selected_device_cdi"
     }
 }
 
@@ -1916,6 +1969,12 @@ data class MediaAttachment(
     val blobRef: String,
     val contentType: String? = null,
     val fileName: String? = null,
+)
+
+data class IncomingMediaEvent(
+    val text: String?,
+    val attachments: List<MediaAttachment>,
+    val eventType: String,
 )
 
 private data class NpcMachineEvent(

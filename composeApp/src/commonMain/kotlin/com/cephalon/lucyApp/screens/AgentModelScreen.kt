@@ -76,6 +76,7 @@ import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.time.currentTimeMillis
+import com.cephalon.lucyApp.media.platformSaveFile
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
@@ -359,6 +360,37 @@ fun AgentModelScreen(
     val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
     val imageUploadStates = remember { mutableStateMapOf<String, ImageUploadState>() }
 
+    // ── 轻提示 Toast ──
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+
+    fun handleAttachmentDownload(attachment: MediaAttachment) {
+        coroutineScope.launch {
+            toastMessage = "正在下载…"
+            val result = sdkSessionManager.fetchBlobBytes(attachment.blobRef)
+            result.onSuccess { bytes ->
+                val fileName = attachment.fileName ?: "file_${currentTimeMillis()}"
+                val mimeType = attachment.contentType ?: "application/octet-stream"
+                runCatching {
+                    platformSaveFile(bytes, fileName, mimeType)
+                }.onSuccess {
+                    toastMessage = "下载成功"
+                }.onFailure { e ->
+                    toastMessage = "保存失败: ${e.message}"
+                }
+            }.onFailure { e ->
+                toastMessage = "下载失败: ${e.message}"
+            }
+        }
+    }
+
+    // 自动消失 toast
+    LaunchedEffect(toastMessage) {
+        if (toastMessage != null) {
+            delay(2000L)
+            toastMessage = null
+        }
+    }
+
     fun startImageUpload(uri: String, displayName: String? = null) {
         if (imageUploadStates[uri] is ImageUploadState.Success) return
         imageUploadStates[uri] = ImageUploadState.Uploading
@@ -394,6 +426,25 @@ fun AgentModelScreen(
         sdkSessionManager.connectIfTokenValid()
     }
 
+    // 监听异步文件/媒体推送（无 source_message_id 的消息），追加到当前对话底部
+    LaunchedEffect(Unit) {
+        sdkSessionManager.incomingMediaEvents.collect { event ->
+            println("[MediaEvent] 收到异步媒体推送: type=${event.eventType}, text=${event.text?.take(50)}, attachments=${event.attachments.size}")
+            val targetConvId = selectedConversationId
+            val chatText = event.text ?: ""
+            val chatAttachments = event.attachments
+            if (chatAttachments.isNotEmpty() || chatText.isNotBlank()) {
+                appendMessageToConversation(
+                    targetConvId,
+                    ChatItem.Assistant(
+                        text = chatText,
+                        attachments = chatAttachments,
+                    )
+                )
+            }
+        }
+    }
+
     activeStreamingRequests.forEach { (msgId, convId) ->
         key(msgId) {
             LaunchedEffect(msgId) {
@@ -423,12 +474,12 @@ fun AgentModelScreen(
                         upsertStreamingAssistantMessageInConversation(convId, msgId, text)
                     }
 
-                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本 或 有错误）
+                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本 或 有错误 或 已有附件）
                     val errorText = state?.errorText
-                    val finished = !streaming && (streamingStarted || text.isNotBlank() || errorText != null)
+                    val finalAttachments = state?.attachments ?: emptyList()
+                    val finished = !streaming && (streamingStarted || text.isNotBlank() || errorText != null || finalAttachments.isNotEmpty())
                     if (finished) {
-                        val finalAttachments = state?.attachments ?: emptyList()
-                        if (text.isNotBlank() && (lastText != text || finalAttachments.isNotEmpty())) {
+                        if ((text.isNotBlank() && lastText != text) || finalAttachments.isNotEmpty()) {
                             upsertStreamingAssistantMessageInConversation(convId, msgId, text, finalAttachments)
                         }
                         // 如果有错误，追加错误提示到对话中
@@ -831,6 +882,9 @@ fun AgentModelScreen(
                                     inputText = skillText
                                     sendMessage()
                                 },
+                                onAttachmentClick = { attachment ->
+                                    handleAttachmentDownload(attachment)
+                                },
                                 streamingStatusText = streamingStatusText,
                                 listState = messageListState,
                                 modifier = Modifier
@@ -963,6 +1017,29 @@ fun AgentModelScreen(
             onSelect = { showSearchPage = false },
             onCancel = { showSearchPage = false }
         )
+    }
+
+    // ── 轻提示 Toast 覆盖层 ──
+    toastMessage?.let { msg ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 120.dp),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xE6333333),
+                shadowElevation = 4.dp,
+            ) {
+                Text(
+                    text = msg,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                )
+            }
+        }
     }
 
     // 图片预览层 - 完全独立于 Drawer 和 Scaffold

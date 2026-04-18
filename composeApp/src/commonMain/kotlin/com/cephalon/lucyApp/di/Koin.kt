@@ -32,7 +32,7 @@ val appModule = module {
     // 2. 业务 API 与 Repository
     single { AuthApi(get(), get()) }
     single { AuthRepository(get(), get(), get()) }
-    single { SdkSessionManager(get()) }
+    single { SdkSessionManager(get(), get()) }
     single { DeviceChatManager(get()) }
     single { ProvisionUseCase(get()) }
     single { DeviceConnector(get(), get(), get()) }

@@ -58,6 +58,10 @@ import androidios.composeapp.generated.resources.ic_skill_voice
 import androidios.composeapp.generated.resources.ic_skill_document
 import androidios.composeapp.generated.resources.ic_skill_chat
 import androidios.composeapp.generated.resources.ic_skill_knowledge
+import androidios.composeapp.generated.resources.ic_download
+import androidios.composeapp.generated.resources.ic_doc
+import androidios.composeapp.generated.resources.ic_audio
+import androidx.compose.foundation.layout.width
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.sdk.MediaAttachment
@@ -73,6 +77,7 @@ internal fun AgentModelMessageList(
     onFileClick: (PickedFile) -> Unit,
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
+    onAttachmentClick: (MediaAttachment) -> Unit = {},
     streamingStatusText: String? = null,
     listState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
@@ -108,18 +113,23 @@ internal fun AgentModelMessageList(
                             item.text
                         }
                     Column {
-                        Bubble(
-                            text = displayText,
-                            background = Color.Transparent,
-                            textColor = Color(0xFF111111),
-                            alignEnd = false,
-                            border = null,
-                            isMarkdown = !isThinkingPlaceholder,
-                            onClick = onTapMessageArea
-                        )
+                        if (displayText.isNotBlank()) {
+                            Bubble(
+                                text = displayText,
+                                background = Color.Transparent,
+                                textColor = Color(0xFF111111),
+                                alignEnd = false,
+                                border = null,
+                                isMarkdown = !isThinkingPlaceholder,
+                                onClick = onTapMessageArea
+                            )
+                        }
                         if (item.attachments.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(ds.sh(6.dp)))
-                            AssistantAttachments(attachments = item.attachments)
+                            AssistantAttachments(
+                                attachments = item.attachments,
+                                onAttachmentClick = onAttachmentClick,
+                            )
                         }
                     }
                 }
@@ -508,45 +518,117 @@ private fun SkillSuggestionsBubble(
 @Composable
 private fun AssistantAttachments(
     attachments: List<MediaAttachment>,
+    onAttachmentClick: (MediaAttachment) -> Unit = {},
 ) {
     val ds = LocalDesignScale.current
     val imageAttachments = attachments.filter { it.contentType?.startsWith("image") == true }
-    val otherAttachments = attachments.filter { it.contentType?.startsWith("image") != true }
+    val audioAttachments = attachments.filter { it.contentType?.startsWith("audio") == true }
+    val docAttachments = attachments.filter {
+        val ct = it.contentType
+        ct == null || (ct.startsWith("image") != true && ct.startsWith("audio") != true)
+    }
 
+    // ── 图片附件：缩略图 + 点击下载 ──
     if (imageAttachments.isNotEmpty()) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(ds.sw(6.dp)),
         ) {
             imageAttachments.forEach { att ->
-                BlobImage(
-                    blobRef = att.blobRef,
-                    contentDescription = att.fileName,
+                Box(
                     modifier = Modifier
                         .size(ds.sw(120.dp))
-                        .clip(RoundedCornerShape(ds.sm(8.dp))),
-                )
+                        .clip(RoundedCornerShape(ds.sm(8.dp)))
+                        .clickable { onAttachmentClick(att) },
+                ) {
+                    BlobImage(
+                        blobRef = att.blobRef,
+                        contentDescription = att.fileName,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    // 下载图标覆盖
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(ds.sm(6.dp))
+                            .size(ds.sm(24.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color.Black.copy(alpha = 0.45f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_download),
+                            contentDescription = "下载",
+                            modifier = Modifier.size(ds.sm(14.dp)),
+                            tint = Color.White,
+                        )
+                    }
+                }
             }
         }
     }
 
-    otherAttachments.forEach { att ->
-        Surface(
-            shape = RoundedCornerShape(ds.sm(8.dp)),
-            color = Color(0xFFF5F5F7),
-            modifier = Modifier.padding(top = ds.sh(4.dp)),
+    // ── 音频附件：文件卡片 ──
+    audioAttachments.forEach { att ->
+        AttachmentFileCard(
+            icon = Res.drawable.ic_audio,
+            fileName = att.fileName ?: "音频文件",
+            onClick = { onAttachmentClick(att) },
+        )
+    }
+
+    // ── 文档附件：文件卡片 ──
+    docAttachments.forEach { att ->
+        AttachmentFileCard(
+            icon = Res.drawable.ic_doc,
+            fileName = att.fileName ?: "文件",
+            onClick = { onAttachmentClick(att) },
+        )
+    }
+}
+
+@Composable
+private fun AttachmentFileCard(
+    icon: org.jetbrains.compose.resources.DrawableResource,
+    fileName: String,
+    onClick: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    Surface(
+        shape = RoundedCornerShape(ds.sm(12.dp)),
+        color = Color(0xFFF5F5F7),
+        modifier = Modifier
+            .padding(top = ds.sh(4.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = ds.sw(12.dp), vertical = ds.sh(8.dp)),
-            ) {
-                Text(
-                    text = att.fileName ?: "附件",
-                    fontSize = ds.sp(13f),
-                    color = Color(0xFF333333),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                modifier = Modifier.size(ds.sm(20.dp)),
+                tint = Color(0xFF666666),
+            )
+            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+            Text(
+                text = fileName,
+                fontSize = ds.sp(14f),
+                color = Color(0xFF333333),
+                fontWeight = FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+            Icon(
+                painter = painterResource(Res.drawable.ic_download),
+                contentDescription = "下载",
+                modifier = Modifier.size(ds.sm(18.dp)),
+                tint = Color(0xFF999999),
+            )
         }
     }
 }

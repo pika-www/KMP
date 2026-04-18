@@ -139,6 +139,7 @@ class RootComponentImpl(
                 component = object : HomeComponent {
                     override fun onLogout() {
                         balanceWsManager.stopAndClear()
+                        sdkSessionManager.clearSelectedDeviceCache()
                         sdkSessionManager.disconnect()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)
@@ -160,6 +161,7 @@ class RootComponentImpl(
                         scope.launch {
                             println("[BrainBox] 绑定成功 cdi=$cdi，设置连接标记...")
                             authRepository.setConnectionFlag()
+                            sdkSessionManager.selectDevice(cdi)
                             println("[BrainBox] 跳转对话页 targetCdi=$cdi")
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
                             // SDK 连接放后台，不阻塞导航
@@ -256,6 +258,7 @@ class RootComponentImpl(
                     }
                     override fun onLogout() {
                         balanceWsManager.stopAndClear()
+                        sdkSessionManager.clearSelectedDeviceCache()
                         sdkSessionManager.disconnect()
                         authRepository.logout()
                         navigation.replaceAll(Config.Login)
