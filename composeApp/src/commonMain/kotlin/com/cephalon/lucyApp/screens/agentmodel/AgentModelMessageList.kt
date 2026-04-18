@@ -78,6 +78,7 @@ internal fun AgentModelMessageList(
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
     onAttachmentClick: (MediaAttachment) -> Unit = {},
+    onCopySuccess: () -> Unit = {},
     streamingStatusText: String? = null,
     listState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
@@ -121,7 +122,8 @@ internal fun AgentModelMessageList(
                                 alignEnd = false,
                                 border = null,
                                 isMarkdown = !isThinkingPlaceholder,
-                                onClick = onTapMessageArea
+                                onClick = onTapMessageArea,
+                                onCopySuccess = onCopySuccess,
                             )
                         }
                         if (item.attachments.isNotEmpty()) {

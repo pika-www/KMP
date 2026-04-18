@@ -783,7 +783,8 @@ fun AgentModelScreen(
                             onCall = {
                                 attachmentsExpanded = false
                                 uriHandler.openUri("tel:")
-                            }
+                            },
+                            isDeviceOnline = currentCdi != null && currentCdi in onlineDeviceCdis
                         )
                     }
                     if (currentMessages.isEmpty() && emptyViewState != 2) {
@@ -885,6 +886,7 @@ fun AgentModelScreen(
                                 onAttachmentClick = { attachment ->
                                     handleAttachmentDownload(attachment)
                                 },
+                                onCopySuccess = { toastMessage = "复制成功" },
                                 streamingStatusText = streamingStatusText,
                                 listState = messageListState,
                                 modifier = Modifier

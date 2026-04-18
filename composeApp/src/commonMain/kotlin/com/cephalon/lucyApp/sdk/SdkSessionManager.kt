@@ -945,6 +945,11 @@ class SdkSessionManager(
                 if (cdis.isNotEmpty()) {
                     _lastOnlineCdi.value = cdis.first()
                 }
+                // 从未选过设备（新登录/首次绑定）→ 自动选中第一个在线设备并持久化
+                if (_selectedDeviceCdi.value == null && cdis.isNotEmpty()) {
+                    selectDevice(cdis.first())
+                    appLogD(TAG, "[DeviceObserver] 自动选中首个在线设备 cdi=${cdis.first()}")
+                }
                 val effectiveCdi = _selectedDeviceCdi.value ?: cdis.firstOrNull()
                 _deviceLog.value =
                     if (cdis.isEmpty()) {

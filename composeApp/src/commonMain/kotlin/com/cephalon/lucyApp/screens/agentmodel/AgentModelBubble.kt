@@ -13,18 +13,25 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -44,6 +51,7 @@ internal fun Bubble(
     border: BorderStroke? = null,
     isMarkdown: Boolean = false,
     onClick: (() -> Unit)? = null,
+    onCopySuccess: (() -> Unit)? = null,
 ) {
     val ds = LocalDesignScale.current
     BubbleContainer(alignEnd = alignEnd) { bubbleMaxWidth ->
@@ -61,6 +69,7 @@ internal fun Bubble(
                     MarkdownBubbleText(
                         markdown = text,
                         textColor = textColor,
+                        onCopySuccess = onCopySuccess,
                         modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp))
                     )
                 } else {
@@ -83,6 +92,7 @@ internal fun Bubble(
                     MarkdownBubbleText(
                         markdown = text,
                         textColor = textColor,
+                        onCopySuccess = onCopySuccess,
                         modifier = Modifier
                     )
                 } else {
@@ -102,6 +112,7 @@ internal fun Bubble(
 private fun MarkdownBubbleText(
     markdown: String,
     textColor: Color,
+    onCopySuccess: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
@@ -109,17 +120,44 @@ private fun MarkdownBubbleText(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))) {
         blocks.forEachIndexed { index, block ->
             if (index % 2 == 1) {
+                val clipboardManager = LocalClipboardManager.current
+                val codeContent = block.lines().let { lines ->
+                    if (lines.isNotEmpty() && lines.first().isNotBlank() && !lines.first().trimStart().contains(' '))
+                        lines.drop(1).joinToString("\n").trim()
+                    else
+                        block.trim('\n')
+                }
                 Surface(
                     shape = RoundedCornerShape(ds.sm(10.dp)),
                     color = Color(0xFF1F1F1F)
                 ) {
-                    Text(
-                        text = block.trim('\n'),
-                        color = Color(0xFFEAEAEA),
-                        fontSize = ds.sp(13f),
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(8.dp))
-                    )
+                    Box {
+                        Text(
+                            text = codeContent,
+                            color = Color(0xFFEAEAEA),
+                            fontSize = ds.sp(13f),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier
+                                .padding(horizontal = ds.sw(10.dp), vertical = ds.sh(8.dp))
+                                .padding(end = ds.sw(28.dp))
+                        )
+                        IconButton(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(codeContent))
+                                onCopySuccess?.invoke()
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(ds.sm(32.dp))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = "Copy code",
+                                tint = Color(0xFF9E9E9E),
+                                modifier = Modifier.size(ds.sm(16.dp))
+                            )
+                        }
+                    }
                 }
             } else {
                 val lines = block.lines().map { it.trimEnd() }

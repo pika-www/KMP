@@ -44,6 +44,7 @@ internal fun AgentModelTopBar(
     subtitle: String,
     onOpenProfile: () -> Unit,
     onCall: () -> Unit,
+    isDeviceOnline: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
@@ -116,7 +117,11 @@ internal fun AgentModelTopBar(
                 )
                 .clip(CircleShape)
                 .background(glassBrush)
-                .border(1.dp, Color.White, CircleShape)
+                .border(
+                    width = if (isDeviceOnline) 3.dp else 1.dp,
+                    color = if (isDeviceOnline) Color(0xFF67C168) else Color.White,
+                    shape = CircleShape
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
