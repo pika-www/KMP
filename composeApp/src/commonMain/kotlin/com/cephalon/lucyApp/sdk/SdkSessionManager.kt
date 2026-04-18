@@ -946,6 +946,69 @@ class SdkSessionManager(
         return publishToNpc(cdi = cdi, payload = payload).map { messageId }
     }
 
+    /**
+     * 向设备推送模型配置（kind=provision_model，version=3）。典型触发时机：
+     * 用户绑定一台新脑花后，客户端拉 `/channels/lucy/current-user/model-config` 拿到
+     * provider/api key/base url，然后调用本方法把配置下发给新设备。
+     *
+     * payload 形态：
+     * ```json
+     * {
+     *   "version": 3,
+     *   "kind": "provision_model",
+     *   "timestamp": 1775812918002,
+     *   "provision": {
+     *     "providerId": "cephalon",
+     *     "modelId": "kimi-k2.5",
+     *     "apiKey": "sk-xxx",
+     *     "baseUrl": "https://.../v1/model",
+     *     "switchDefaultModel": true,
+     *     "restartRequested": true
+     *   }
+     * }
+     * ```
+     *
+     * 传基础类型（而不是 `ModelConfigData`）保持 SDK 层与 `api` 包解耦；调用方（如
+     * `RootComponentImpl.onOpenBrainBoxLoginSuccess`）负责从接口响应里拆字段。
+     */
+    suspend fun publishProvisionModelToNpc(
+        cdi: String,
+        providerId: String,
+        modelId: String,
+        apiKey: String,
+        baseUrl: String,
+        switchDefaultModel: Boolean = true,
+        restartRequested: Boolean = true,
+    ): Result<Unit> {
+        val trimmedCdi = cdi.trim()
+        if (trimmedCdi.isBlank()) {
+            return Result.failure(IllegalArgumentException("cdi 不能为空"))
+        }
+        if (providerId.isBlank() || modelId.isBlank()) {
+            return Result.failure(IllegalArgumentException("providerId/modelId 不能为空"))
+        }
+        val payload = buildString {
+            append("{")
+            append("\"version\":3,")
+            append("\"kind\":\"provision_model\",")
+            append("\"timestamp\":").append(currentTimeMillis()).append(',')
+            append("\"provision\":{")
+            append("\"providerId\":\"").append(providerId.escapeForJson()).append("\",")
+            append("\"modelId\":\"").append(modelId.escapeForJson()).append("\",")
+            append("\"apiKey\":\"").append(apiKey.escapeForJson()).append("\",")
+            append("\"baseUrl\":\"").append(baseUrl.escapeForJson()).append("\",")
+            append("\"switchDefaultModel\":").append(switchDefaultModel).append(',')
+            append("\"restartRequested\":").append(restartRequested)
+            append("}}")
+        }
+        appLogD(
+            TAG,
+            "推送模型配置 cdi=$trimmedCdi providerId=$providerId modelId=$modelId " +
+                "switchDefaultModel=$switchDefaultModel restartRequested=$restartRequested payload=$payload",
+        )
+        return publishToNpc(cdi = trimmedCdi, payload = payload)
+    }
+
     // ── Token 过期监控 ──
 
     private fun startTokenExpiryMonitor() {

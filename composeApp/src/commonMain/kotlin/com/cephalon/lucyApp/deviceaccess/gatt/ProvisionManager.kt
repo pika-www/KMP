@@ -2,10 +2,13 @@ package com.cephalon.lucyApp.deviceaccess.gatt
 
 import com.cephalon.lucyApp.deviceaccess.BleScanDevice
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -57,7 +60,7 @@ data class ProvisionFlowState(
  * 3. 读取 network_status (7f0c0002)
  * 4. 读取 lucy_pairing_info (7f0c0005)，要求 state=ready 且 binding_status ∈ {pending, bound}
  * 5. 写入 wifi_scan (7f0c0004) → 等待 5s → 读取一次
- * 6. 写入 wifi_config (7f0c0003) → 等待 5s → 读取 network_status 验证
+ * 6. 预读 network_status；未连到目标 ssid 才写 wifi_config (7f0c0003)，随后订阅 network_status 通知等 connected（超时兜底再 read）
  * 7. 写入 lucy_pairing_request (7f0c0006, WRITE_WITH_RESPONSE) → write ACK 返回（OTP 已注入）→ 读取 pairing_info 获取 OTP
  *
  * 流程中的任何 BLE 断开都会触发自动重连：重新扫描该设备 → 连接 → 发现服务 → 重读
@@ -257,7 +260,23 @@ class ProvisionManager(
     }
 
     /**
-     * 协议步骤 6：写入 wifi_config → 等待 5s → 读取 network_status 验证。
+     * 协议步骤 6：下发 Wi-Fi 配置 → 等设备联网 → 进入 Bind。
+     *
+     * 两项优化（替代老的 "write → 固定等 5s → 一次 read" 的逻辑）：
+     *
+     * 1. **快通道（先读再写）**：进入本步骤先读一次 `network_status`。如果设备
+     *    已经连在用户刚选中的同一个 SSID 上，说明固件在之前某次下发中已经成功联网，
+     *    直接返回，跳过本次 `wifi_config` 的 write，避免不必要的切网-重启。
+     *
+     * 2. **订阅通知 + 兜底读**：如果必须 write，就先 enable `network_status` 的 CCCD
+     *    通知，并用 `CoroutineStart.UNDISPATCHED` 在同一线程抢占式起一个 observer
+     *    （保证 observer 的 SharedFlow 订阅在 write 触发的通知到达之前就位），
+     *    然后 write `wifi_config`，等第一个 `isConnected=true` 的事件：
+     *    - 收到通知 → 立即完成，UI 上层随即进入 `Bind` 步；
+     *    - [WIFI_CONNECT_NOTIFY_TIMEOUT_MS] 内没收到 → 兜底再做一次 read，
+     *      防止固件不主动 push 的情况卡死；
+     *    - 任何路径结束都 disable 通知 CCCD，避免后续 pairing 步骤被 network_status
+     *      的残留通知打扰。
      */
     suspend fun configureWifi(
         ssid: String,
@@ -276,22 +295,87 @@ class ProvisionManager(
                 stage = ProvisionFlowStage.ConfiguringWifi,
                 errorMessage = null,
             )
-            router.writeWifiConfig(ssid = normalizedSsid, password = password, hidden = hidden).getOrThrow()
 
-            _state.value = _state.value.copy(stage = ProvisionFlowStage.VerifyingNetwork)
-            println("[BrainBox] wifi_config: 等待 ${GattRouter.WIFI_CONFIG_WAIT_MS}ms 后读取 network_status...")
-            kotlinx.coroutines.delay(GattRouter.WIFI_CONFIG_WAIT_MS)
+            // 1) 快通道：设备已经连接到目标 Wi-Fi → 直接跳过 write。
+            val fastPath = runCatching { router.readNetworkStatus().getOrThrow() }
+                .onFailure {
+                    println("[BrainBox] wifi_config 前预读 network_status 失败: ${it.message}，继续走 write 分支")
+                }
+                .getOrNull()
+            if (fastPath != null) {
+                println(
+                    "[BrainBox] wifi_config 前预读 network_status: " +
+                        "state=${fastPath.state}, ssid=${fastPath.ssid}, ip=${fastPath.ip}",
+                )
+                if (fastPath.isConnected && fastPath.ssid.equals(normalizedSsid, ignoreCase = true)) {
+                    println(
+                        "[BrainBox] 设备已连接到目标 Wi-Fi (ssid=${fastPath.ssid})，" +
+                            "跳过 wifi_config 下发，直接进入 Bind",
+                    )
+                    _state.value = _state.value.copy(
+                        networkStatus = fastPath,
+                        stage = ProvisionFlowStage.Completed,
+                    )
+                    return@runCatching fastPath
+                }
+            }
 
-            val status = router.readNetworkStatus().getOrThrow()
-            println("[BrainBox] network_status after wifi_config: state=${status.state}, ssid=${status.ssid}, ip=${status.ip}, error=${status.error}")
-            _state.value = _state.value.copy(networkStatus = status)
+            // 2) 正常分支：enable notify → 订阅 → write → 等通知/超时兜底。
+            val enableNotifyOk = router.enableNetworkStatusNotify()
+                .onFailure { println("[BrainBox] enableNetworkStatusNotify 失败: ${it.message}，只能靠超时兜底 read") }
+                .isSuccess
 
-            if (!status.isConnected) {
-                throw IllegalStateException(status.error.ifBlank { "设备联网失败（state=${status.state}）" })
+            val finalStatus = try {
+                coroutineScope {
+                    // UNDISPATCHED：observer 在本线程同步进入 collect，确保 write 之前
+                    // SharedFlow 的订阅已经就位，不会漏掉任何紧接着 write 发出的通知。
+                    val observer = async(start = CoroutineStart.UNDISPATCHED) {
+                        router.observeNetworkStatus()
+                            .filter { it.isConnected }
+                            .first()
+                    }
+                    try {
+                        router.writeWifiConfig(
+                            ssid = normalizedSsid,
+                            password = password,
+                            hidden = hidden,
+                        ).getOrThrow()
+                        _state.value = _state.value.copy(stage = ProvisionFlowStage.VerifyingNetwork)
+                        println(
+                            "[BrainBox] wifi_config 已下发，等待 network_status connected 通知 " +
+                                "(最长 ${WIFI_CONNECT_NOTIFY_TIMEOUT_MS}ms)...",
+                        )
+
+                        val viaNotify = withTimeoutOrNull(WIFI_CONNECT_NOTIFY_TIMEOUT_MS) { observer.await() }
+                        viaNotify ?: run {
+                            println(
+                                "[BrainBox] ${WIFI_CONNECT_NOTIFY_TIMEOUT_MS}ms 内未收到 connected 通知，" +
+                                    "兜底 readNetworkStatus",
+                            )
+                            router.readNetworkStatus().getOrThrow()
+                        }
+                    } finally {
+                        observer.cancel()
+                    }
+                }
+            } finally {
+                if (enableNotifyOk) {
+                    runCatching { router.disableNetworkStatusNotify() }
+                }
+            }
+
+            println(
+                "[BrainBox] network_status final: state=${finalStatus.state}, " +
+                    "ssid=${finalStatus.ssid}, ip=${finalStatus.ip}, error=${finalStatus.error}",
+            )
+            _state.value = _state.value.copy(networkStatus = finalStatus)
+
+            if (!finalStatus.isConnected) {
+                throw IllegalStateException(finalStatus.error.ifBlank { "设备联网失败（state=${finalStatus.state}）" })
             }
 
             _state.value = _state.value.copy(stage = ProvisionFlowStage.Completed)
-            status
+            finalStatus
         }.onFailure { error ->
             _state.value = _state.value.copy(
                 stage = ProvisionFlowStage.Failed,
@@ -542,6 +626,11 @@ class ProvisionManager(
     companion object {
         private const val RECONNECT_RECOVERY_DELAY_MS = 2_000L
         private const val RECONNECT_SCAN_TIMEOUT_MS = 15_000L
+        // 写入 wifi_config 之后等 network_status 通知达到 connected 的最长时间。
+        // 选 15s：覆盖常见的 DHCP/Auth/关联握手耗时；真快路径（几百 ms~2s 内收到通知）会立即早退，
+        // 所以这个超时只是兜底给"固件不主动 push"场景触发一次 fallback read。
+        // 旧的固定等 5s 再 read 的逻辑对慢路由（尤其 5GHz DFS 信道）会假阴性。
+        private const val WIFI_CONNECT_NOTIFY_TIMEOUT_MS = 15_000L
         // 单轮重连失败后的退避时间，避免紧密循环。
         private const val RECONNECT_RETRY_BACKOFF_MS = 3_000L
         // 重连后写 CCCD 成功与 read pairing_info 之间的短小 settle：给设备内部时间

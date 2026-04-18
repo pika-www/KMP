@@ -19,6 +19,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 @OptIn(DelicateDecomposeApi::class) // 添加这一行
 
@@ -162,12 +166,32 @@ class RootComponentImpl(
                             println("[BrainBox] 绑定成功 cdi=$cdi，设置连接标记...")
                             authRepository.setConnectionFlag()
                             sdkSessionManager.selectDevice(cdi)
+
+                            // 绑定成功后的新流程（与旧的 "先跳转再后台连接" 不同）：
+                            // 1. 先把 SDK 连好（下发 provision_model 需要 NATS publish；
+                            //    同时 OnlineNpcDeviceObserver 才会起来跑 runPingAndEmit）。
+                            // 2. 下发一次 provision_model 给刚拿到的 cdi。
+                            // 3. 记录这个 cdi，等它出现在 sdkSessionManager.onlineDevices 里
+                            //    （即 runPingAndEmit 发现了它）再跳转对话页。
+                            println("[BrainBox] 绑定后连接 SDK...")
+                            val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
+                            println("[BrainBox] SDK 连接结果: ${connectResult.isSuccess}")
+
+                            if (connectResult.isSuccess) {
+                                pushProvisionModelToNewDevice(cdi)
+                                println("[BrainBox] 等待 cdi=$cdi 出现在 runPingAndEmit 结果中...")
+                                val onlineResult = awaitCdiOnline(cdi)
+                                if (onlineResult.isSuccess) {
+                                    println("[BrainBox] cdi=$cdi 已上线，跳转对话页")
+                                } else {
+                                    println("[BrainBox] 等待 cdi=$cdi 上线超时：${onlineResult.exceptionOrNull()?.message}，仍然跳转对话页由 AgentModel 兜底等待")
+                                }
+                            } else {
+                                println("[BrainBox] SDK 未连上，跳过 provision_model 与 await-online，直接跳转对话页由 AgentModel 兜底")
+                            }
+
                             println("[BrainBox] 跳转对话页 targetCdi=$cdi")
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
-                            // SDK 连接放后台，不阻塞导航
-                            println("[BrainBox] 后台初始化 SDK...")
-                            val result = sdkSessionManager.ensureConnectedIfTokenValid()
-                            println("[BrainBox] SDK 连接结果: ${result.isSuccess}")
                         }
                     }
 
@@ -274,9 +298,28 @@ class RootComponentImpl(
                     override fun onScanSuccess(cdi: String) {
                         scope.launch {
                             authRepository.setConnectionFlag()
+                            sdkSessionManager.selectDevice(cdi)
+
+                            // 扫码绑定 = BLE/OTP 绑定的另一个入口，流程对齐 onOpenBrainBoxLoginSuccess：
+                            // 先连 SDK → 下发 provision_model → 等 cdi 上线 → 再跳转。
+                            println("[ScanBind] 绑定后连接 SDK...")
+                            val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
+                            println("[ScanBind] SDK 连接结果: ${connectResult.isSuccess}")
+
+                            if (connectResult.isSuccess) {
+                                pushProvisionModelToNewDevice(cdi)
+                                println("[ScanBind] 等待 cdi=$cdi 出现在 runPingAndEmit 结果中...")
+                                val onlineResult = awaitCdiOnline(cdi)
+                                if (onlineResult.isSuccess) {
+                                    println("[ScanBind] cdi=$cdi 已上线，跳转对话页")
+                                } else {
+                                    println("[ScanBind] 等待 cdi=$cdi 上线超时：${onlineResult.exceptionOrNull()?.message}，仍然跳转对话页由 AgentModel 兜底等待")
+                                }
+                            } else {
+                                println("[ScanBind] SDK 未连上，跳过 provision_model 与 await-online，直接跳转对话页由 AgentModel 兜底")
+                            }
+
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
-                            // SDK 连接放后台，不阻塞导航
-                            sdkSessionManager.ensureConnectedIfTokenValid()
                         }
                     }
                 }
@@ -289,6 +332,83 @@ class RootComponentImpl(
                     }
                 }
             )
+        }
+    }
+
+    /**
+     * 订阅 [SdkSessionManager.onlineDevices]，等到目标 [cdi] 出现在列表里再返回成功。
+     *
+     * 列表的数据源是 [lucy.im.sdk.internal.OnlineNpcDeviceObserver]：
+     * - `runPingAndEmit` 在 SDK 启动和重连时主动 ping 一次 discover subject
+     * - discover subject 的订阅会持续把增量设备列表推上来
+     *
+     * 所以一旦新绑定的 cdi 被云侧 discover 发现（或增量上报），本方法就会解除阻塞。
+     *
+     * @param timeoutMillis 最多等这么久；超时返回 failure，调用方自行决定兜底（通常是"仍然跳转，由对话页兜底再等"）。
+     */
+    private suspend fun awaitCdiOnline(
+        cdi: String,
+        timeoutMillis: Long = CDI_ONLINE_WAIT_TIMEOUT_MS,
+    ): Result<Unit> {
+        val normalized = cdi.trim()
+        if (normalized.isBlank()) {
+            return Result.failure(IllegalArgumentException("cdi 不能为空"))
+        }
+        // 先检查一次当前快照，避免"已在线"场景还要无谓地 flow.first 一下。
+        if (sdkSessionManager.onlineDevices.value.any { it.cdi == normalized }) {
+            return Result.success(Unit)
+        }
+        val hit = withTimeoutOrNull(timeoutMillis) {
+            sdkSessionManager.onlineDevices
+                .map { devices -> devices.any { it.cdi == normalized } }
+                .filter { it }
+                .first()
+        }
+        return if (hit == true) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException("等待 cdi=$normalized 上线超时 (${timeoutMillis}ms)"))
+        }
+    }
+
+    /**
+     * 绑定一台新设备（BLE/OTP 或扫码）成功后调用：拉最新模型配置 → 下发给新 cdi。
+     *
+     * 行为约定：
+     * - 网络/字段/SDK 任意一环失败，都只打日志不抛，保证绑定-跳转主路径不被打断。
+     * - `modelId` 固定取 `models[0].id`（与协议约定一致：接口返回的模型列表首项即默认激活项）。
+     * - `switchDefaultModel=true` + `restartRequested=true`，让新设备切到本账号默认模型并重启应用。
+     */
+    private suspend fun pushProvisionModelToNewDevice(cdi: String) {
+        val response = authRepository.getModelConfig()
+        val config = response.data
+        if (response.code != 20000 || config == null) {
+            println("[BrainBox] provision_model 跳过：model-config 拉取失败 code=${response.code} msg=${response.msg}")
+            return
+        }
+        val firstModelId = config.models.firstOrNull()?.id?.trim().orEmpty()
+        if (firstModelId.isBlank()) {
+            println("[BrainBox] provision_model 跳过：model-config models 为空或首项 id 为空")
+            return
+        }
+        val providerId = config.providerId.trim()
+        if (providerId.isBlank()) {
+            println("[BrainBox] provision_model 跳过：model-config providerId 为空")
+            return
+        }
+        val pushResult = sdkSessionManager.publishProvisionModelToNpc(
+            cdi = cdi,
+            providerId = providerId,
+            modelId = firstModelId,
+            apiKey = config.apiKey,
+            baseUrl = config.baseUrl,
+            switchDefaultModel = true,
+            restartRequested = true,
+        )
+        if (pushResult.isSuccess) {
+            println("[BrainBox] provision_model 推送成功 cdi=$cdi providerId=$providerId modelId=$firstModelId")
+        } else {
+            println("[BrainBox] provision_model 推送失败 cdi=$cdi: ${pushResult.exceptionOrNull()?.message}")
         }
     }
 
@@ -330,5 +450,12 @@ class RootComponentImpl(
 
     private companion object {
         private const val KEY_ONBOARDING_SEEN = "onboarding.seen"
+
+        // 绑定后等 cdi 出现在 sdkSessionManager.onlineDevices 里的最长时间：
+        // - discover ping 默认 pingTimeoutMs 是 SDK 内部设置，通常几秒
+        // - 设备绑定后可能正在启动/重启（provision_model.restartRequested=true 也会触发重启），
+        //   留足够余量避免"首次绑完刚好赶上重启窗口"把用户卡在首页
+        // 与 DeviceChatManager.DEFAULT_ONLINE_TIMEOUT_MS (30s) 对齐。
+        private const val CDI_ONLINE_WAIT_TIMEOUT_MS = 30_000L
     }
 }

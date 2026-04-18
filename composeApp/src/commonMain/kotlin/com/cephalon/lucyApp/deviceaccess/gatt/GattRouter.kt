@@ -212,7 +212,12 @@ class GattRouter(
     }
 
     /**
-     * 协议步骤 6：向 wifi_config 写入凭证。调用方负责等待 5s 后读取 network_status。
+     * 协议步骤 6：向 wifi_config 写入凭证。
+     *
+     * 调用方（[com.cephalon.lucyApp.deviceaccess.gatt.ProvisionManager.configureWifi]）
+     * 的新协议：write 之前先预读一次 network_status（快通道）；write 之后订阅
+     * network_status 通知等第一个 connected 事件，超时再做一次 fallback read。
+     * 不再有固定 5s 延时。
      */
     suspend fun writeWifiConfig(
         ssid: String,
@@ -409,9 +414,6 @@ class GattRouter(
 
         /** 协议步骤 5：整体超时上限 20s；仍未 ready 就抛错，让 UI 或调用方决定重试。 */
         const val WIFI_SCAN_OVERALL_TIMEOUT_MS = 20_000L
-
-        /** 协议步骤 6：写入 wifi_config 后等待 5s 再读取 network_status。 */
-        const val WIFI_CONFIG_WAIT_MS = 5_000L
 
         /**
          * 协议步骤 7：写完 lucy_pairing_request 后等多久再 read lucy_pairing_info。
