@@ -22,6 +22,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.contentOrNull
@@ -922,8 +923,12 @@ class SdkSessionManager(
                             "<binary payload ${messagePayload.size} bytes>",
                         )
                     appLogD(TAG, "[NasConsumer] 收到 NAS 消息 subject=$subject payload=$messageText")
-                    if (!handleNasResponse(subject, messageText)) {
-                        appLogD(TAG, "[NasConsumer] 收到未识别消息 subject=$subject msg=${messageText.take(500)}")
+                    try {
+                        if (!handleNasResponse(subject, messageText)) {
+                            appLogD(TAG, "[NasConsumer] 收到未识别消息 subject=$subject msg=${messageText.take(500)}")
+                        }
+                    } catch (e: Throwable) {
+                        appLogD(TAG, "[NasConsumer] 解析消息异常(已忽略): ${e::class.simpleName} ${e.message} subject=$subject msg=${messageText.take(300)}")
                     }
                 }
             appLogD(TAG, "[NasConsumer] NAS consumer 启动成功")
@@ -1178,13 +1183,20 @@ class SdkSessionManager(
         startObservers(session)
     }
 
+    /** 安全取 JsonPrimitive，非 primitive 类型返回 null 而非抛异常 */
+    private val JsonElement?.safePrimitiveContentOrNull: String?
+        get() = (this as? JsonPrimitive)?.contentOrNull
+
+    private val JsonElement?.safePrimitiveBooleanOrNull: Boolean?
+        get() = (this as? JsonPrimitive)?.booleanOrNull
+
     /** 尝试解析并分发 NAS 响应，返回 true 表示已处理 */
     private fun handleNasResponse(subject: String, messageText: String): Boolean {
         appLogD(
             TAG,
             "[NAS] 订阅接受文件列表响应 ",
         )
-        val nasFileListResponse = parseNasFileListResponse(messageText)
+        val nasFileListResponse = runCatching { parseNasFileListResponse(messageText) }.getOrNull()
         if (nasFileListResponse != null) {
             val matchedRequestId = findMatchingNasFileListRequestId(nasFileListResponse)
             if (matchedRequestId != null) {
@@ -1203,7 +1215,7 @@ class SdkSessionManager(
             }
             return true
         }
-        val nasFileGetResponse = parseNasFileGetResponse(messageText)
+        val nasFileGetResponse = runCatching { parseNasFileGetResponse(messageText) }.getOrNull()
         if (nasFileGetResponse != null) {
             val matchedRequestId = findMatchingNasFileGetRequestId(nasFileGetResponse)
             if (matchedRequestId != null) {
@@ -1222,7 +1234,7 @@ class SdkSessionManager(
             }
             return true
         }
-        val nasRegisterResponse = parseNasRegisterBlobsResponse(messageText)
+        val nasRegisterResponse = runCatching { parseNasRegisterBlobsResponse(messageText) }.getOrNull()
         if (nasRegisterResponse != null) {
             val matchedRequestId = findMatchingNasRegisterRequestId(nasRegisterResponse)
             if (matchedRequestId != null) {
