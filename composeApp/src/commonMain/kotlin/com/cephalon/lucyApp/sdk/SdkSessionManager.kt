@@ -21,7 +21,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.contentOrNull
@@ -1592,7 +1594,7 @@ class SdkSessionManager(
             kind = body["kind"]?.jsonPrimitive?.contentOrNull ?: kinds.singleOrNull(),
             items = items,
             nextCursor = body["next_cursor"]?.jsonPrimitive?.contentOrNull,
-            error = body["error"]?.jsonPrimitive?.contentOrNull,
+            error = nasJsonErrorMessage(body["error"]),
         )
     }
 
@@ -1618,8 +1620,8 @@ class SdkSessionManager(
                     NasRegisterBlobResult(
                         blobRef = blobRef,
                         ok = resultObject["ok"]?.jsonPrimitive?.booleanOrNull ?: false,
-                        id = resultObject["id"]?.jsonPrimitive?.contentOrNull,
-                        error = resultObject["error"]?.jsonPrimitive?.contentOrNull,
+                        id = nasJsonOptionalString(resultObject["id"]),
+                        error = nasJsonErrorMessage(resultObject["error"]),
                     )
                 }
                 ?: emptyList()
@@ -1664,7 +1666,7 @@ class SdkSessionManager(
                 root["request_id"]?.jsonPrimitive?.contentOrNull
                     ?: body["request_id"]?.jsonPrimitive?.contentOrNull,
             item = item,
-            error = body["error"]?.jsonPrimitive?.contentOrNull,
+            error = nasJsonErrorMessage(body["error"]),
         )
     }
 
@@ -1891,3 +1893,29 @@ enum class SdkConnectionState {
     CONNECTED,
     ERROR,
 }
+
+/** String field that may be JSON null, a primitive, or absent — never force [JsonElement.jsonPrimitive]. */
+internal fun nasJsonOptionalString(element: JsonElement?): String? =
+    when (element) {
+        null, is JsonNull -> null
+        is JsonPrimitive -> element.contentOrNull
+        else -> null
+    }
+
+/** NAS `error` may be a string or `{ "code", "message" }`. */
+internal fun nasJsonErrorMessage(element: JsonElement?): String? =
+    when (element) {
+        null, is JsonNull -> null
+        is JsonPrimitive -> element.contentOrNull
+        is JsonObject -> {
+            val code = nasJsonOptionalString(element["code"])
+            val message = nasJsonOptionalString(element["message"])
+            when {
+                !message.isNullOrBlank() && !code.isNullOrBlank() -> "[$code] $message"
+                !message.isNullOrBlank() -> message
+                !code.isNullOrBlank() -> code
+                else -> null
+            }
+        }
+        else -> null
+    }
