@@ -22,7 +22,7 @@ enum class GattRoute(
     DeviceInfo(BrainBoxGattProtocol.DEVICE_INFO_UUID),
     NetworkStatus(BrainBoxGattProtocol.NETWORK_STATUS_UUID),
     WifiConfig(BrainBoxGattProtocol.WIFI_CONFIG_UUID, writeWithResponse = false),
-    WifiScan(BrainBoxGattProtocol.WIFI_SCAN_UUID, writeWithResponse = false),
+    WifiScan(BrainBoxGattProtocol.WIFI_SCAN_UUID),
     LucyPairingInfo(BrainBoxGattProtocol.LUCY_PAIRING_INFO_UUID),
     LucyPairingRequest(BrainBoxGattProtocol.LUCY_PAIRING_REQUEST_UUID, writeWithResponse = true),
 }

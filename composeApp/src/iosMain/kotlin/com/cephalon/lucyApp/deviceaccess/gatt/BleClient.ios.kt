@@ -204,6 +204,40 @@ private const val CONNECT_TIMEOUT_MS = 15_000L
 private const val DISCOVER_TIMEOUT_MS = 15_000L
 private const val READ_TIMEOUT_MS = 10_000L
 private const val WRITE_TIMEOUT_MS = 10_000L
+// 主动 disconnect 后等 didDisconnectPeripheral 回调的上限；超时强制将 state 置为 Disconnected。
+private const val DISCONNECT_TIMEOUT_MS = 3_000L
+
+/**
+ * 把 NSError 的 domain / code / localizedDescription 一并拼出来，便于区分“设备返回的
+ * ATT 错误”（CBATTErrorDomain）和“iOS 本地的 Core Bluetooth 错误”（CBErrorDomain）。
+ *
+ * 对 BrainBox OTP 流程来说两种 code 最关键：
+ *  - `code=14 (0x0E)` UNLIKELY_ERROR：BLE 规范通用错误，标准 bluez 把
+ *    `org.bluez.Error.Failed` 默认映射到这里。
+ *  - `code=128..159 (0x80-0x9F)` APPLICATION_ERROR：BLE 规范留给上层应用/厂商
+ *    自定义的错误区间。BrainBox 设备 Lucy pairing IPC 失败落在这里，说明设备端
+ *    用了自定义的 ATT 错误码（非原生 bluez 映射，可能是打过补丁的 bluez 或
+ *    btstack/zephyr 等其他协议栈）。
+ *
+ * 两种情况客户端都只能看到一个数字，细分仍然需要去设备端日志看 Lucy 插件的
+ * 错误字符串（pairing ipc is not enabled / lucy pairing client is not connected /
+ * pairing ipc: request timed out / pairing ipc: duplicate request id /
+ * pairing ipc: <Lucy 原始错误>）。
+ *
+ * 格式例：
+ *  "[domain=CBATTErrorDomain, code=14 UNLIKELY_ERROR->bluez Error.Failed] Unknown ATT error."
+ *  "[domain=CBATTErrorDomain, code=128 (0x80) APPLICATION_ERROR->需看设备端日志] Unknown ATT error."
+ */
+private fun NSError.describe(): String {
+    val hint = when {
+        domain == "CBATTErrorDomain" && code == 14L ->
+            " UNLIKELY_ERROR->bluez Error.Failed"
+        domain == "CBATTErrorDomain" && code in 0x80L..0x9FL ->
+            " (0x${code.toString(16).uppercase()}) APPLICATION_ERROR->设备端自定义错误,需看 Lucy/bluez 日志"
+        else -> ""
+    }
+    return "[domain=$domain, code=$code$hint] $localizedDescription"
+}
 
 private class IosBleGattConnection(
     private val manager: CBCentralManager,
@@ -219,12 +253,13 @@ private class IosBleGattConnection(
     private val readContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<ByteArray>>>()
     private val writeContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<Unit>>>()
     private val notifyContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<Unit>>>()
+    private var disconnectContinuation: kotlin.coroutines.Continuation<Unit>? = null
 
     private val delegate = object : NSObject(), CBPeripheralDelegateProtocol {
         override fun peripheral(peripheral: CBPeripheral, didDiscoverServices: NSError?) {
             if (didDiscoverServices != null) {
                 state.value = BleGattConnectionState.Error
-                discoverContinuation?.resume(Result.failure(IllegalStateException(didDiscoverServices.localizedDescription)))
+                discoverContinuation?.resume(Result.failure(IllegalStateException("discoverServices 失败 ${didDiscoverServices.describe()}")))
                 discoverContinuation = null
                 return
             }
@@ -248,7 +283,7 @@ private class IosBleGattConnection(
         ) {
             if (error != null) {
                 state.value = BleGattConnectionState.Error
-                discoverContinuation?.resume(Result.failure(IllegalStateException(error.localizedDescription)))
+                discoverContinuation?.resume(Result.failure(IllegalStateException("discoverCharacteristics 失败 ${error.describe()}")))
                 discoverContinuation = null
                 return
             }
@@ -272,7 +307,7 @@ private class IosBleGattConnection(
             val uuid = didUpdateValueForCharacteristic.UUID.UUIDString
             if (error != null) {
                 readContinuations.remove(uuid.normalizedUuid())
-                    ?.resume(Result.failure(IllegalStateException(error.localizedDescription)))
+                    ?.resume(Result.failure(IllegalStateException("读取特征失败 ${error.describe()}, uuid=$uuid")))
                 return
             }
             val value = didUpdateValueForCharacteristic.value?.toByteArray() ?: byteArrayOf()
@@ -297,7 +332,7 @@ private class IosBleGattConnection(
             if (error == null) {
                 continuation.resume(Result.success(Unit))
             } else {
-                continuation.resume(Result.failure(IllegalStateException(error.localizedDescription)))
+                continuation.resume(Result.failure(IllegalStateException("写入特征失败 ${error.describe()}, uuid=$uuid")))
             }
         }
 
@@ -312,7 +347,7 @@ private class IosBleGattConnection(
             if (error == null) {
                 continuation.resume(Result.success(Unit))
             } else {
-                continuation.resume(Result.failure(IllegalStateException(error.localizedDescription)))
+                continuation.resume(Result.failure(IllegalStateException("设置通知失败 ${error.describe()}, uuid=$uuid")))
             }
         }
     }
@@ -361,6 +396,9 @@ private class IosBleGattConnection(
             ?.let { IllegalStateException(it) }
             ?: IllegalStateException("GATT 已断开")
         failAllPending(disconnectError)
+        // 主动 disconnect() 在等待平台回调确认掉线，此刻 resume。
+        disconnectContinuation?.resume(Unit)
+        disconnectContinuation = null
     }
 
     override suspend fun discoverServices(): Result<List<BleGattService>> {
@@ -452,7 +490,23 @@ private class IosBleGattConnection(
     }
 
     override suspend fun disconnect() {
-        manager.cancelPeripheralConnection(peripheral)
+        // 已经断开（例如 disconnectWatcher 先检测到）直接返回，避免无谓等待。
+        val current = state.value
+        if (current == BleGattConnectionState.Disconnected || current == BleGattConnectionState.Idle) {
+            return
+        }
+        // 挂起直到 didDisconnectPeripheral 回调（onDisconnected resume），确保上层
+        // 的 waitUntilDisconnected 语义详实有效。
+        val completed = withTimeoutOrNull(DISCONNECT_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                disconnectContinuation = continuation
+                manager.cancelPeripheralConnection(peripheral)
+            }
+        }
+        if (completed == null) {
+            println("[BrainBox] disconnect 超时未收到 didDisconnectPeripheral 回调，强制清理")
+            disconnectContinuation = null
+        }
         state.value = BleGattConnectionState.Disconnected
     }
 

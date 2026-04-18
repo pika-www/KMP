@@ -250,21 +250,32 @@ fun LoginScreen(
         sheetTitle = "Welcome to Lucy"
     }
 
+    // 从当前 username 实时归一化为 (account, isEmail)；非法/空则返回 null。
+    // 提取此 helper 的原因：原先只有 validateAccount（失焦时）才会更新 normalizedAccount，
+    // 导致用户输入账号后不点别处、直接点「获取验证码」时 normalizedAccount 仍是空串，
+    // onSendCode 误判为"未输入"。需要每次点击按钮都能实时拿到最新输入。
+    val normalizeCurrentAccount: () -> Pair<String, Boolean>? = normalize@{
+        val input = username.trim()
+        if (input.isBlank()) return@normalize null
+        val emailPattern = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$")
+        val normalizedEmail = if (emailPattern.matches(input)) input else null
+        val normalizedPhone = input.replace(" ", "")
+            .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
+            .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
+            .takeIf { Regex("^1\\d{10}$").matches(it) }
+        val isEmail = normalizedEmail != null
+        val account = normalizedEmail ?: normalizedPhone ?: return@normalize null
+        account to isEmail
+    }
+
     val validateAccount: () -> Unit = {
         val input = username.trim()
         if (input.isNotBlank()) {
-            val emailPattern = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$")
-            val normalizedEmail = if (emailPattern.matches(input)) input else null
-            val normalizedPhone = input.replace(" ", "")
-                .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
-                .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
-                .takeIf { Regex("^1\\d{10}$").matches(it) }
-
-            val isEmail = normalizedEmail != null
-            val account = normalizedEmail ?: normalizedPhone
-            if (account == null) {
+            val normalized = normalizeCurrentAccount()
+            if (normalized == null) {
                 toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
             } else {
+                val (account, isEmail) = normalized
                 isAccountEmail = isEmail
                 normalizedAccount = account
                 scope.launch {
@@ -337,7 +348,7 @@ fun LoginScreen(
 
                 // 标题
                 Text(
-                    text = "欢迎使用 Lucy",
+                    text = "欢迎使用脑花",
                     color = Color.Black.copy(alpha = 0.90f),
                     fontSize = ds.sp(28f),
                     fontWeight = FontWeight.Medium,
@@ -527,17 +538,22 @@ fun LoginScreen(
                                     }
                                 } else {
                                     // 密码登录模式（未注册时需要验证码）
-                                    if (normalizedAccount.isBlank()) {
+                                    // 与注册页同理：不依赖失焦写入的 normalizedAccount，每次点击实时归一化。
+                                    val normalized = normalizeCurrentAccount()
+                                    if (normalized == null) {
                                         toastState.show("请先输入正确的手机号或邮箱")
                                         return@LoginSheetContent
                                     }
+                                    val (account, isEmail) = normalized
+                                    normalizedAccount = account
+                                    isAccountEmail = isEmail
                                     val pwdActionType = if (needsRegister) "register" else "login"
                                     scope.launch {
                                         isLoading = true
-                                        val response = if (isAccountEmail) {
-                                            authRepository.getCode(email = normalizedAccount, actionType = pwdActionType, appType = "lucy")
+                                        val response = if (isEmail) {
+                                            authRepository.getCode(email = account, actionType = pwdActionType, appType = "lucy")
                                         } else {
-                                            authRepository.getCode(phone = normalizedAccount, actionType = pwdActionType, appType = "lucy")
+                                            authRepository.getCode(phone = account, actionType = pwdActionType, appType = "lucy")
                                         }
                                         isLoading = false
                                         if (response.code == 20000) startTimer() else toastState.show(response.msg)
@@ -596,16 +612,23 @@ fun LoginScreen(
                             registerPhone = registerPhone,
                             onRegisterPhoneChange = { registerPhone = it },
                             onSendCode = { startTimer ->
-                                if (normalizedAccount.isBlank()) {
+                                // 实时归一化当前输入，不再依赖失焦时刻写入的 normalizedAccount——
+                                // 用户可能输完账号直接点「获取验证码」没有失焦过。
+                                val normalized = normalizeCurrentAccount()
+                                if (normalized == null) {
                                     toastState.show("请先输入正确的手机号或邮箱")
                                     return@LoginSheetContent
                                 }
+                                val (account, isEmail) = normalized
+                                // 同步回本地 state，让后续 performLogin 能直接用到最新归一化结果。
+                                normalizedAccount = account
+                                isAccountEmail = isEmail
                                 scope.launch {
                                     isLoading = true
-                                    val response = if (isAccountEmail) {
-                                        authRepository.getCode(email = normalizedAccount, actionType = "register", appType = "lucy")
+                                    val response = if (isEmail) {
+                                        authRepository.getCode(email = account, actionType = "register", appType = "lucy")
                                     } else {
-                                        authRepository.getCode(phone = normalizedAccount, actionType = "register", appType = "lucy")
+                                        authRepository.getCode(phone = account, actionType = "register", appType = "lucy")
                                     }
                                     isLoading = false
                                     if (response.code == 20000) startTimer() else toastState.show(response.msg)

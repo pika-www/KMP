@@ -40,9 +40,56 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.UUID
 import kotlin.coroutines.resume
+
+// 主动 disconnect 后等待 STATE_DISCONNECTED 平台回调的上限；超时强制走清理路径。
+private const val DISCONNECT_TIMEOUT_MS = 3_000L
+
+/**
+ * Android `BluetoothGattCallback` 的 status 只是一个 int，默认打出来就是个数字，
+ * 定位需要再查表。这个表把常见 ATT / GATT 错误码映射到 BLE 规范或 Android 内部名称，
+ * 特别是 0x0E UNLIKELY_ERROR（对应 bluez `org.bluez.Error.Failed`，等价于 lucy_pairing_request
+ * 协议文档里的五种 IPC 错误）会直接标注出来，省翻 ATT 规范。
+ */
+private fun gattStatusName(status: Int): String = when (status) {
+    BluetoothGatt.GATT_SUCCESS -> "SUCCESS"
+    0x01 -> "INVALID_HANDLE"
+    BluetoothGatt.GATT_READ_NOT_PERMITTED -> "READ_NOT_PERMITTED"
+    BluetoothGatt.GATT_WRITE_NOT_PERMITTED -> "WRITE_NOT_PERMITTED"
+    0x04 -> "INVALID_PDU"
+    BluetoothGatt.GATT_INSUFFICIENT_AUTHENTICATION -> "INSUFFICIENT_AUTHENTICATION"
+    BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED -> "REQUEST_NOT_SUPPORTED"
+    BluetoothGatt.GATT_INVALID_OFFSET -> "INVALID_OFFSET"
+    0x08 -> "INSUFFICIENT_AUTHORIZATION"
+    0x09 -> "PREPARE_QUEUE_FULL"
+    0x0A -> "ATTRIBUTE_NOT_FOUND"
+    0x0B -> "ATTRIBUTE_NOT_LONG"
+    0x0C -> "INSUFFICIENT_KEY_SIZE"
+    BluetoothGatt.GATT_INVALID_ATTRIBUTE_LENGTH -> "INVALID_ATTRIBUTE_LENGTH"
+    0x0E -> "UNLIKELY_ERROR (bluez Error.Failed 标准映射)"
+    BluetoothGatt.GATT_INSUFFICIENT_ENCRYPTION -> "INSUFFICIENT_ENCRYPTION"
+    0x10 -> "UNSUPPORTED_GROUP_TYPE"
+    0x11 -> "INSUFFICIENT_RESOURCES"
+    0x13 -> "CONNECTION_TERMINATED_BY_PEER"
+    0x16 -> "CONNECTION_TERMINATED_BY_LOCAL_HOST"
+    0x22 -> "LMP_RESPONSE_TIMEOUT"
+    0x3E -> "CONNECTION_FAILED_ESTABLISH"
+    // Android BluetoothGatt 自定义常量：系统级通用 GATT 错误
+    0x85 -> "GATT_ERROR (Android generic)"
+    0x8F -> "LMP_TIMEOUT"
+    // BLE ATT 规范 0x80-0x9F 段：Application Error 保留区，设备端自定义。
+    // BrainBox 的 Lucy pairing IPC 错误（pairing ipc is not enabled / lucy pairing
+    // client is not connected / pairing ipc: request timed out / duplicate request
+    // id / Lucy 原始错误）即落在此区间，细分仍需查设备端 Lucy/bluez 日志。
+    in 0x80..0x9F -> "APPLICATION_ERROR (设备端自定义,需看 Lucy/bluez 日志)"
+    else -> "UNKNOWN"
+}
+
+private fun formatGattStatus(status: Int): String =
+    "0x${status.toString(16).uppercase(Locale.US).padStart(2, '0')}($status) ${gattStatusName(status)}"
 
 private fun Context.hasBlePermission(permission: String): Boolean {
     return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
@@ -253,6 +300,7 @@ private class AndroidBleGattConnection private constructor(
     private val readContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<ByteArray>>>()
     private val writeContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<Unit>>>()
     private val descriptorContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<Unit>>>()
+    private var disconnectContinuation: kotlin.coroutines.Continuation<Unit>? = null
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -260,9 +308,9 @@ private class AndroidBleGattConnection private constructor(
             when {
                 status != BluetoothGatt.GATT_SUCCESS -> {
                     state.value = BleGattConnectionState.Error
-                    connectContinuation?.resume(Result.failure(IllegalStateException("GATT 连接失败(status=$status)")))
+                    connectContinuation?.resume(Result.failure(IllegalStateException("GATT 连接失败(status=${formatGattStatus(status)})")))
                     connectContinuation = null
-                    failAllPending("GATT 连接异常断开(status=$status)")
+                    failAllPending("GATT 连接异常断开(status=${formatGattStatus(status)})")
                     runCatching { gatt.close() }
                 }
                 newState == BluetoothProfile.STATE_CONNECTED -> {
@@ -278,6 +326,9 @@ private class AndroidBleGattConnection private constructor(
                     }
                     failAllPending("GATT 已断开")
                     runCatching { gatt.close() }
+                    // 主动 disconnect() 在等待平台回调确认掉线，此刻 resume。
+                    disconnectContinuation?.resume(Unit)
+                    disconnectContinuation = null
                 }
             }
         }
@@ -285,7 +336,7 @@ private class AndroidBleGattConnection private constructor(
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 state.value = BleGattConnectionState.Error
-                discoverContinuation?.resume(Result.failure(IllegalStateException("发现服务失败(status=$status)")))
+                discoverContinuation?.resume(Result.failure(IllegalStateException("发现服务失败(status=${formatGattStatus(status)})")))
                 discoverContinuation = null
                 return
             }
@@ -324,7 +375,7 @@ private class AndroidBleGattConnection private constructor(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 continuation.resume(Result.success(Unit))
             } else {
-                continuation.resume(Result.failure(IllegalStateException("写入特征失败(status=$status, uuid=${characteristic.uuid})")))
+                continuation.resume(Result.failure(IllegalStateException("写入特征失败(status=${formatGattStatus(status)}, uuid=${characteristic.uuid})")))
             }
         }
 
@@ -338,7 +389,7 @@ private class AndroidBleGattConnection private constructor(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 continuation.resume(Result.success(Unit))
             } else {
-                continuation.resume(Result.failure(IllegalStateException("设置通知失败(status=$status, uuid=${descriptor.characteristic.uuid})")))
+                continuation.resume(Result.failure(IllegalStateException("设置通知失败(status=${formatGattStatus(status)}, uuid=${descriptor.characteristic.uuid})")))
             }
         }
 
@@ -488,7 +539,29 @@ private class AndroidBleGattConnection private constructor(
     }
 
     override suspend fun disconnect() {
-        runCatching { gatt.disconnect() }
+        // 已经断开（例如 disconnectWatcher 先检测到）直接返回，避免无谓等待。
+        val current = state.value
+        if (current == BleGattConnectionState.Disconnected || current == BleGattConnectionState.Idle) {
+            runCatching { gatt.close() }
+            return
+        }
+        // 挂起直到 onConnectionStateChange(STATE_DISCONNECTED) 回调，不再像以前那样同步
+        // 反手将 state 设为 Disconnected（那样后续 waitUntilDisconnected 是空操作）。
+        val completed = withTimeoutOrNull(DISCONNECT_TIMEOUT_MS) {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                disconnectContinuation = continuation
+                val started = runCatching { gatt.disconnect() }.isSuccess
+                if (!started) {
+                    // gatt.disconnect() 没启动，回调不会到，直接 resume 避免挂死。
+                    disconnectContinuation = null
+                    continuation.resume(Unit)
+                }
+            }
+        }
+        if (completed == null) {
+            println("[BrainBox] disconnect 超时未收到 STATE_DISCONNECTED 回调，强制清理")
+            disconnectContinuation = null
+        }
         runCatching { gatt.close() }
         state.value = BleGattConnectionState.Disconnected
     }
@@ -505,7 +578,7 @@ private class AndroidBleGattConnection private constructor(
         if (status == BluetoothGatt.GATT_SUCCESS) {
             continuation.resume(Result.success(value))
         } else {
-            continuation.resume(Result.failure(IllegalStateException("读取特征失败(status=$status, uuid=$characteristicUuid)")))
+            continuation.resume(Result.failure(IllegalStateException("读取特征失败(status=${formatGattStatus(status)}, uuid=$characteristicUuid)")))
         }
     }
 

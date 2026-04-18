@@ -58,7 +58,7 @@ data class ProvisionFlowState(
  * 4. 读取 lucy_pairing_info (7f0c0005)，要求 state=ready 且 binding_status ∈ {pending, bound}
  * 5. 写入 wifi_scan (7f0c0004) → 等待 5s → 读取一次
  * 6. 写入 wifi_config (7f0c0003) → 等待 5s → 读取 network_status 验证
- * 7. 写入 lucy_pairing_request (7f0c0006) → 等待 3s → 读取 pairing_info 获取 OTP
+ * 7. 写入 lucy_pairing_request (7f0c0006, WRITE_WITH_RESPONSE) → write ACK 返回（OTP 已注入）→ 读取 pairing_info 获取 OTP
  *
  * 流程中的任何 BLE 断开都会触发自动重连：重新扫描该设备 → 连接 → 发现服务 → 重读
  * pairing_info。重连失败会按固定退避时间循环重试，直到成功或 [cancel] 被调用。
@@ -179,6 +179,7 @@ class ProvisionManager(
 
             _state.value = _state.value.copy(stage = ProvisionFlowStage.Discovering)
             router.discoverCharacteristics().getOrThrow()
+            router.logCharacteristicProperties()
 
             // 启动断开监听：一旦 GATT 变 Disconnected/Error，立即向 UI 发事件并标记 Failed。
             startDisconnectWatcher()
@@ -301,7 +302,11 @@ class ProvisionManager(
     }
 
     /**
-     * 协议步骤 7：写入 lucy_pairing_request → 等待 3s → 读取 pairing_info 获取 OTP。
+     * 协议步骤 7：写入 lucy_pairing_request（WRITE_WITH_RESPONSE）→ 固定等 5s 后
+     * 读取 pairing_info → 按 `otp` 字段判定成功/失败。
+     *
+     * 不再信任 write ACK（实测固件会回 ATT code=128/14，但 Lucy IPC 仍可能异步
+     * 完成注入 OTP），详见 [GattRouter.requestOtpAndReadPairingInfo] 的 KDoc。
      *
      * 如果 pairing_info.bindingStatus 已经是 "bound"，跳过写入直接返回当前信息（设备已绑定）。
      */
@@ -391,6 +396,21 @@ class ProvisionManager(
         _state.value = ProvisionFlowState(stage = ProvisionFlowStage.Idle)
     }
 
+    /**
+     * UI 主动触发一次完整重连：断开当前 BLE → 已挂起的 [startDisconnectWatcher] 立即触发 →
+     * [attemptReconnect] 接管（无上限重试）→ 成功后发出 [reconnectedEvents]。
+     *
+     * 用于 UI 在 ATT/GATT 层错误时（典型：lucy_pairing_request 写入后固件 BLE 栈复位，写返回
+     * "Unknown ATT error"）放弃 in-place 重试，直接走完整重连流程。重连成功后 UI 会自动再
+     * 触发一次业务调用（如重新写 request_id 拿 OTP）。
+     *
+     * 不持有 [gattMutex]，避免和正在执行的 attemptReconnect 互锁；disconnect 本身幂等。
+     */
+    suspend fun forceReconnect() {
+        println("[BrainBox] forceReconnect: 主动断开 BLE，让 disconnectWatcher 接管自动重连")
+        runCatching { connectionManager.disconnect() }
+    }
+
     fun dispose() {
         watcherScope.cancel()
     }
@@ -420,11 +440,19 @@ class ProvisionManager(
     /**
      * BLE 断开时的自动重连流程，内部循环重试直到成功或 cancel() 被调用：
      * 1. 设置 stage = Reconnecting
-     * 2. 等 2s 让设备 BLE 栈恢复
-     * 3. 重新扫描同一 device id（最多 15s）
-     * 4. 重新 connect + discoverCharacteristics
-     * 5. 重读 pairing_info。任一步失败 → 退避 3s 后从步骤 2 重试。
-     * 6. 成功后重新挂载断开监听，发出 reconnectedEvents 让 UI 重新写入 request_id 并读 OTP。
+     * 2. disconnect()：挂起到平台回调（Android STATE_DISCONNECTED / iOS didDisconnectPeripheral）
+     *    真正确认掉线，相当于 "waitUntilDisconnected"。
+     * 3. 等 2s（RECONNECT_RECOVERY_DELAY_MS）让设备 BLE 栈复位并重新广播。
+     * 4. 重新扫描同一 device id（最多 15s）。
+     * 5. connect + discoverCharacteristics + logCharacteristicProperties。
+     * 6. enableLucyPairingInfoNotify()：写 CCCD 提前订阅；**失败仅告警不中断**，避免设备
+     *    未声明 NOTIFY 时无限 backoff。后续 per-call 会在 requestOtpAndReadPairingInfo 里
+     *    再尝试一次并在需要时走 read fallback。
+     * 7. 若 enable 成功则等 300ms（POST_NOTIFY_ENABLE_DELAY_MS）让设备完成订阅状态内部设置；
+     *    失败路径直接跳过 settle 进入下一步。
+     * 8. 重读 pairing_info。任一步失败 → 退避 3s 后从步骤 2 重试。
+     * 9. 成功后重新挂载断开监听，发出 reconnectedEvents 让 UI 写入 request_id 并读 OTP。
+     *    （requestOtpAndReadPairingInfo 内仍会 per-call 重新 enable notify，CCCD 幂等，无副作用。）
      *
      * 注意：本函数运行在 watcherScope 的协程中，[cancel] 会 cancel() 该协程，从而终止循环。
      */
@@ -463,6 +491,20 @@ class ProvisionManager(
 
                     connectionManager.connect(target).getOrThrow()
                     router.discoverCharacteristics().getOrThrow()
+                    router.logCharacteristicProperties()
+
+                    // 主动写 CCCD 启用 lucy_pairing_info 的 notify：目的是在 read pairing_info
+                    // 之前把设备端订阅状态先建好。注意 **不 getOrThrow**：若设备根本没声明
+                    // NOTIFY，或 CCCD 写偶发失败，我们不希望本轮重连无限 backoff——per-call 的
+                    // requestOtpAndReadPairingInfo 已经有 "enable 失败 → 走 read fallback" 的
+                    // 优雅降级，这里保持同样容忍度，只告警并继续。
+                    val notifyEnableResult = router.enableLucyPairingInfoNotify()
+                    if (notifyEnableResult.isSuccess) {
+                        println("[BrainBox] 第 $retry 轮重连后 enableNotify 成功，settle ${POST_NOTIFY_ENABLE_DELAY_MS}ms 再读 pairing_info")
+                        kotlinx.coroutines.delay(POST_NOTIFY_ENABLE_DELAY_MS)
+                    } else {
+                        println("[BrainBox] WARN 第 $retry 轮重连 enableNotify 失败: ${notifyEnableResult.exceptionOrNull()?.message}，跳过 settle，直接 read pairing_info（后续 per-call 会回退到 read 模式）")
+                    }
 
                     // 重读 pairing_info，让 UI 拿到最新状态。
                     val pairingInfo = router.readLucyPairingInfo().getOrThrow()
@@ -502,6 +544,9 @@ class ProvisionManager(
         private const val RECONNECT_SCAN_TIMEOUT_MS = 15_000L
         // 单轮重连失败后的退避时间，避免紧密循环。
         private const val RECONNECT_RETRY_BACKOFF_MS = 3_000L
+        // 重连后写 CCCD 成功与 read pairing_info 之间的短小 settle：给设备内部时间
+        // 完成 "订阅状态上构" 的后续步骤。经验值 300ms。
+        private const val POST_NOTIFY_ENABLE_DELAY_MS = 300L
         // 服务端绑定成功后，验证 pairing_info 的最大尝试次数（设备需要短暂时间把状态刷新为 bound）。
         private const val BIND_VERIFY_MAX_ATTEMPTS = 3
         private const val BIND_VERIFY_RETRY_DELAY_MS = 2_000L

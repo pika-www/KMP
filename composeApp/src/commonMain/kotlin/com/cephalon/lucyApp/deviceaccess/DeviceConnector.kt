@@ -114,7 +114,7 @@ class DeviceConnector(
             return fail(error.message ?: "Wi‑Fi 配置失败")
         }
 
-        // 协议步骤 7：写入 lucy_pairing_request → 等待 3s → 读取 pairing_info 获取 OTP / CDI。
+        // 协议步骤 7：写入 lucy_pairing_request（带 Response，write ACK 返回时 OTP 已注入）→ 读取 pairing_info 获取 OTP / CDI。
         val pairingInfo = provisionManager.requestOtpAfterWifi().getOrElse { error ->
             return fail(error.message ?: "请求 OTP 失败")
         }
