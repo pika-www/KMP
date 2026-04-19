@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.screens.agentmodel
 
 import com.cephalon.lucyApp.logging.appLogD
+import com.cephalon.lucyApp.sdk.MediaAttachment
 import com.russhwolf.settings.Settings
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -24,6 +25,9 @@ private data class SerializableChatItem(
     val recordingId: String? = null,
     val recordingName: String? = null,
     val recordingPath: String? = null,
+    val mediaBlobRefs: List<String>? = null,
+    val mediaContentTypes: List<String?>? = null,
+    val mediaFileNames: List<String?>? = null,
 )
 
 @Serializable
@@ -43,7 +47,14 @@ private data class SerializableChatHistory(
 // ── ChatItem ↔ Serializable 转换 ──
 
 private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
-    is ChatItem.Assistant -> SerializableChatItem(type = "assistant", text = text, messageId = messageId)
+    is ChatItem.Assistant -> SerializableChatItem(
+        type = "assistant",
+        text = text,
+        messageId = messageId,
+        mediaBlobRefs = attachments.map { it.blobRef }.ifEmpty { null },
+        mediaContentTypes = attachments.map { it.contentType }.ifEmpty { null },
+        mediaFileNames = attachments.map { it.fileName }.ifEmpty { null },
+    )
     is ChatItem.User -> SerializableChatItem(type = "user", text = text, messageId = messageId)
     is ChatItem.UserAttachments -> SerializableChatItem(
         type = "user_attachments",
@@ -65,7 +76,16 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
 }
 
 private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
-    "assistant" -> ChatItem.Assistant(text = text ?: "", messageId = messageId)
+    "assistant" -> {
+        val mediaAttachments = mediaBlobRefs?.mapIndexed { i, ref ->
+            MediaAttachment(
+                blobRef = ref,
+                contentType = mediaContentTypes?.getOrNull(i),
+                fileName = mediaFileNames?.getOrNull(i),
+            )
+        } ?: emptyList()
+        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments)
+    }
     "user" -> ChatItem.User(text = text ?: "", messageId = messageId)
     "user_attachments" -> {
         val uris = attachmentUris.orEmpty()
