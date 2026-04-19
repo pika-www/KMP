@@ -507,11 +507,21 @@ internal fun BrainBoxWifiStep(
     isConnectingWifi: Boolean,
     onRefreshWifi: () -> Unit,
     onConnectWifi: () -> Unit,
+    currentSsid: String? = null,
+    isSelectedCurrent: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         selectedDevice?.let {
             BrainBoxSelectedDevice(device = it)
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        if (!currentSsid.isNullOrBlank()) {
+            BrainBoxInfoCard(
+                title = "设备已连接到 $currentSsid",
+                body = "可继续沿用当前 Wi‑Fi 进入绑定，也可在下方选择其他网络切换。",
+            )
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
         if (wifiMode == BrainBoxWifiMode.NearbyScan) {
@@ -585,17 +595,19 @@ internal fun BrainBoxWifiStep(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        OutlinedTextField(
-            value = wifiPassword,
-            onValueChange = onWifiPasswordChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Wi‑Fi 密码") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        )
+        // 选中"当前已连接"的网络时不需要重新下发 wifi_config，隐藏密码框避免误导用户。
+        if (!isSelectedCurrent) {
+            Spacer(modifier = Modifier.height(14.dp))
+            OutlinedTextField(
+                value = wifiPassword,
+                onValueChange = onWifiPasswordChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Wi‑Fi 密码") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -615,7 +627,7 @@ internal fun BrainBoxWifiStep(
                     modifier = Modifier.size(18.dp),
                 )
             } else {
-                Text(text = "连接 Wi‑Fi")
+                Text(text = if (isSelectedCurrent) "使用当前 Wi‑Fi 并继续" else "连接 Wi‑Fi 并继续")
             }
         }
     }

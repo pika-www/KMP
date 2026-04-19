@@ -232,16 +232,36 @@ internal fun BrainBoxWifiCard(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = network.ssid,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (selected) Color.White else Color(0xFF111111),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = network.ssid,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (selected) Color.White else Color(0xFF111111),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (network.isCurrent) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selected) Color.White.copy(alpha = 0.18f) else Color(0xFF1F2535),
+                        ) {
+                            Text(
+                                text = "已连接",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (network.isSecure) "已加密网络" else "开放网络",
+                    text = buildString {
+                        append(if (network.isSecure) "已加密网络" else "开放网络")
+                        if (network.isCurrent) append(" · 设备当前使用")
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (selected) Color.White.copy(alpha = 0.74f) else Color(0xFF777777),
                 )

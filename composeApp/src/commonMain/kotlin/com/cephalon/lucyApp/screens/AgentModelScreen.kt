@@ -78,6 +78,7 @@ import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.time.currentTimeMillis
 import com.cephalon.lucyApp.media.platformSaveFile
 import kotlinx.coroutines.launch
+import com.cephalon.lucyApp.screens.agentmodel.ChatHistoryCache
 import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachmentType
@@ -133,6 +134,7 @@ fun AgentModelScreen(
     initialTargetCdi: String? = null,
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
+    val chatHistoryCache = koinInject<ChatHistoryCache>()
     val uriHandler = LocalUriHandler.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
@@ -146,6 +148,8 @@ fun AgentModelScreen(
     // 解析优先级：用户显式选择 > 路由传入 > 当前首个在线设备
     // 避免"设备在线但未被显式选过" → 发送时误报"没有可用的设备"
     val currentCdi = selectedDeviceCdi ?: initialTargetCdi ?: onlineDeviceCdis.firstOrNull()
+    // 聊天记录按 (userId, cdi) 双键持久化；未登录用户走 guest 桶，不同账号的对话不会串。
+    val effectiveUserId = userInfo?.userId?.trim()?.takeIf { it.isNotBlank() }
 
     val logs = remember {
         mutableStateListOf(
@@ -155,7 +159,8 @@ fun AgentModelScreen(
         )
     }
 
-    // 纯内存对话列表，不做本地持久化
+    // 对话列表是本地持久化的：按 (userId, cdi) 落到 Settings；当任一 key 变化会重新 load。
+    // remember 里先放一个占位的"新对话"，等第一次 load 完成后会被真实历史替换（若存在）。
     val conversations = remember {
         mutableStateListOf(
             ConversationItem(
@@ -167,6 +172,69 @@ fun AgentModelScreen(
         )
     }
     var selectedConversationId by remember { mutableStateOf("1") }
+    // didLoad 用于：第一次 load 完成之前，snapshotFlow 的自动 save 不启动，避免拿占位对话覆盖磁盘历史。
+    // key(effectiveUserId, currentCdi) 在登录账号/设备切换时重置为 false，走一轮新的 load-save 循环。
+    var didLoad by remember(effectiveUserId, currentCdi) { mutableStateOf(false) }
+
+    // ── 初始加载：每次 (effectiveUserId, currentCdi) 组合变化，从磁盘拉出对应历史对话 ──
+    // 没有 cdi（设备尚未解析到）时跳过，等拿到 cdi 再 load。
+    // - 有历史：整体替换内存 conversations，恢复 selectedConversationId。
+    // - 没历史（新设备 / 新账号 / 首次使用）：清空内存列表并放一条干净的"新对话"占位，
+    //   关键点：**不能原样保留上一台设备的对话**，否则 UI 上切换设备像是"没切换"，
+    //   随后 snapshotFlow 的自动保存还会把旧设备的对话污染到新设备的 key 下。
+    LaunchedEffect(effectiveUserId, currentCdi) {
+        val cdi = currentCdi
+        if (cdi.isNullOrBlank()) {
+            // 还没解析到 cdi（比如设备刚进页面还在上线），等下一次触发
+            return@LaunchedEffect
+        }
+        val loaded = chatHistoryCache.load(effectiveUserId, cdi)
+        val convs = loaded?.first.orEmpty()
+        if (convs.isNotEmpty()) {
+            conversations.clear()
+            conversations.addAll(convs)
+            val savedSelId = loaded?.second
+            selectedConversationId = savedSelId?.takeIf { id -> convs.any { it.id == id } }
+                ?: convs.first().id
+        } else {
+            // 新设备/新账号首次进入：换一套全新的占位对话，避免沿用上一组 (userId, cdi) 的内存残留。
+            val freshId = currentTimeMillis().toString()
+            conversations.clear()
+            conversations.add(
+                ConversationItem(
+                    id = freshId,
+                    title = "新对话",
+                    messages = emptyList(),
+                    lastActiveAt = currentTimeMillis(),
+                )
+            )
+            selectedConversationId = freshId
+        }
+        didLoad = true
+    }
+
+    // ── 自动保存：load 完成后才启动，监听 conversations/selectedConversationId 任一变化就写回磁盘 ──
+    // 用 snapshotFlow 感知 mutableStateListOf 的变化；.drop(1) 跳过第一帧（load 刚完成时的那次 emit），
+    // 避免白写一次（load 下来的内容再写回去）。
+    LaunchedEffect(effectiveUserId, currentCdi, didLoad) {
+        if (!didLoad) return@LaunchedEffect
+        val cdi = currentCdi ?: return@LaunchedEffect
+        if (cdi.isBlank()) return@LaunchedEffect
+        snapshotFlow { conversations.toList() to selectedConversationId }
+            .drop(1)
+            .collect { (convs, selId) ->
+                chatHistoryCache.save(effectiveUserId, cdi, convs, selId)
+            }
+    }
+
+    // 记录 SDK messageId 真正归属的 cdi。
+    // 用户在 A 上发了消息后切到 B：内存 conversations 已经被 B 的历史替换，
+    // 但 A 的流式回复仍会通过 LaunchedEffect(msgId) 不断回调到本地。
+    // 通过 messageIdToCdi[msgId] = "A"，所有流式 upsert / remove / append 就能识别出
+    // "目标设备不是当前设备"，转而把更新直接写到 A 的磁盘存档里，避免回复丢失。
+    // 必须声明在使用它的 helper 函数（upsert/remove/append）之前 ——
+    // Kotlin 局部声明不支持前向引用。
+    val messageIdToCdi = remember { mutableStateMapOf<String, String>() }
 
     fun updateConversation(
         conversationId: String?,
@@ -177,12 +245,39 @@ fun AgentModelScreen(
         val index = conversations.indexOfFirst { it.id == targetId }
         if (index >= 0) {
             conversations[index] = transform(conversations[index])
-            // no-op: 不再持久化
+            // 下方的 snapshotFlow LaunchedEffect 会监听 conversations 变化自动保存，
+            // 这里不再直接调用 cache.save，避免与 debounce 逻辑重复。
         }
     }
 
     fun updateSelectedConversation(transform: (ConversationItem) -> ConversationItem) {
         updateConversation(selectedConversationId, transform = transform)
+    }
+
+    // 读取"实时的 currentCdi"（直接从 StateFlow.value 取，绕过 compose 捕获），
+    // 避免在 LaunchedEffect 里被旧闭包锁住的 currentCdi 做决策。
+    fun liveCurrentCdi(): String? =
+        sdkSessionManager.selectedDeviceCdi.value
+            ?: initialTargetCdi
+            ?: sdkSessionManager.onlineDeviceCdis.value.firstOrNull()
+
+    // 按目标 cdi 路由的 update：
+    // - targetCdi == null / blank / 当前设备：走内存路径，snapshotFlow 会自动 save；
+    // - targetCdi 指向其它设备：跳过内存，直接 read-modify-write 那个 cdi 的磁盘存档。
+    // 这样即使用户切换了设备，原设备上正在发生的流式回复/错误提示仍能落到正确的存档里。
+    fun mutateConversationOnCdi(
+        conversationId: String?,
+        targetCdi: String?,
+        transform: (ConversationItem) -> ConversationItem,
+    ) {
+        val convId = conversationId ?: return
+        val normalizedTarget = targetCdi?.trim()?.takeIf { it.isNotEmpty() }
+        val liveCdi = liveCurrentCdi()
+        if (normalizedTarget == null || normalizedTarget == liveCdi) {
+            updateConversation(convId, transform = transform)
+        } else {
+            chatHistoryCache.mutateConversation(effectiveUserId, normalizedTarget, convId, transform)
+        }
     }
 
     fun appendMessageToSelectedConversation(message: ChatItem) {
@@ -208,7 +303,12 @@ fun AgentModelScreen(
         text: String,
         attachments: List<MediaAttachment> = emptyList(),
     ) {
-        updateConversation(conversationId, persist = false) { conversation ->
+        // 用 messageId 反查这条流式消息属于哪台设备：
+        // - 找得到、且是当前设备 → 内存路径，snapshotFlow 顺手保存；
+        // - 找得到、且**不是**当前设备 → 直接落盘到那个设备的存档（用户已经切走了）；
+        // - 找不到（兜底，比如重启后回放旧 streaming）→ 当成当前设备处理，至少不丢现场。
+        val targetCdi = messageIdToCdi[messageId]
+        mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
             var targetIndex = updatedMessages.indexOfLast {
                 it is ChatItem.Assistant && it.messageId == messageId
@@ -224,7 +324,7 @@ fun AgentModelScreen(
                     println("[Streaming] upsert fallback: 用孤立占位符 idx=$targetIndex 替代")
                 }
             }
-            println("[Streaming] upsert convId=$conversationId msgId=$messageId targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
+            println("[Streaming] upsert convId=$conversationId msgId=$messageId targetCdi=$targetCdi targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
             val existing = updatedMessages.getOrNull(targetIndex) as? ChatItem.Assistant
             val mergedAttachments = attachments.ifEmpty { existing?.attachments ?: emptyList() }
             if (targetIndex >= 0) {
@@ -240,7 +340,9 @@ fun AgentModelScreen(
     }
 
     fun removeAssistantPlaceholderInConversation(conversationId: String?, messageId: String? = null) {
-        updateConversation(conversationId) { conversation ->
+        // 同样按 messageId 路由到原设备；messageId 为 null 时退化为当前设备（与历史行为一致）。
+        val targetCdi = messageId?.let { messageIdToCdi[it] }
+        mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
             var placeholderIndex =
                 updatedMessages.indexOfLast {
@@ -266,8 +368,12 @@ fun AgentModelScreen(
         }
     }
 
-    fun appendMessageToConversation(conversationId: String?, message: ChatItem) {
-        updateConversation(conversationId) { conversation ->
+    fun appendMessageToConversationOnCdi(
+        conversationId: String?,
+        targetCdi: String?,
+        message: ChatItem,
+    ) {
+        mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
             val updatedMessages = conversation.messages + message
             val nextTitle = when {
                 conversation.title != "新对话" && conversation.title.isNotBlank() -> conversation.title
@@ -281,6 +387,11 @@ fun AgentModelScreen(
                 lastActiveAt = currentTimeMillis()
             )
         }
+    }
+
+    fun appendMessageToConversation(conversationId: String?, message: ChatItem) {
+        // 默认走当前设备。需要把消息落到指定 cdi 时调用 [appendMessageToConversationOnCdi]。
+        appendMessageToConversationOnCdi(conversationId, targetCdi = null, message = message)
     }
 
     val orderedConversations = conversations
@@ -486,13 +597,20 @@ fun AgentModelScreen(
                         // 如果有错误，追加错误提示到对话中
                         if (errorText != null) {
                             removeAssistantPlaceholderInConversation(convId, msgId)
-                            appendMessageToConversation(convId, ChatItem.Error(errorText))
+                            // 错误消息也得走和占位符同一台设备的存档：用户可能已切走。
+                            appendMessageToConversationOnCdi(
+                                convId,
+                                targetCdi = messageIdToCdi[msgId],
+                                message = ChatItem.Error(errorText),
+                            )
                             println("AgentModel: 流式输出错误 msgId=$msgId, convId=$convId, error=$errorText")
                         } else {
                             removeAssistantPlaceholderInConversation(convId, msgId)
                         }
                         println("AgentModel: 流式输出结束 msgId=$msgId, convId=$convId, textLen=${text.length}, attachments=${finalAttachments.size}, wasStreaming=$streamingStarted")
                         activeStreamingRequests.remove(msgId)
+                        // 释放 messageId → cdi 的映射，避免长会话累积。
+                        messageIdToCdi.remove(msgId)
                         break
                     }
 
@@ -569,6 +687,11 @@ fun AgentModelScreen(
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
             val targetConversationId = selectedConversationId
+            // 点击发送的瞬间捕获"归属设备"：用户点击后异步去连接/解析 targetCdi，期间如果
+            // 切换了设备，后续的占位符清理、发送失败提示、成功后的 messageId 回填都必须
+            // 落到原设备的存档里，而不是新设备。所以这里把 currentCdi 快照一份，全流程
+            // 都用 sendingCdi 做路由 key。
+            val sendingCdi = currentCdi
 
             // ── 特殊指令：脑花 功能/能力 → 直接展示技能卡片，不走 publishTextToNpc ──
             if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
@@ -597,7 +720,7 @@ fun AgentModelScreen(
                 text.ifBlank {
                     if (imageAttachments.isNotEmpty()) "" else ""
                 }
-            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}")
+            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}, sendingCdi=$sendingCdi")
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -607,10 +730,19 @@ fun AgentModelScreen(
                 val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
                 println("[Chat] ensureConnectedIfTokenValid 结果: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
                 if (connectResult.isFailure) {
-                    removeAssistantPlaceholderInConversation(targetConversationId)
-                    appendMessageToConversation(
+                    // 路由到点击发送时所在的设备：用户此刻可能已切到别的设备。
+                    mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                        val msgs = conv.messages.toMutableList()
+                        val idx = msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                        }
+                        if (idx >= 0) msgs.removeAt(idx)
+                        conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                    }
+                    appendMessageToConversationOnCdi(
                         targetConversationId,
-                        ChatItem.System("连接失败：${connectResult.exceptionOrNull()?.message ?: "unknown"}")
+                        targetCdi = sendingCdi,
+                        message = ChatItem.System("连接失败：${connectResult.exceptionOrNull()?.message ?: "unknown"}")
                     )
                     return@launch
                 }
@@ -639,10 +771,22 @@ fun AgentModelScreen(
 
                 if (targetCdi == null) {
                     println("[Chat] 解析 CDI 失败: observerHasEmitted=${sdkSessionManager.deviceObserverHasEmitted.value}, onlineCdis=${sdkSessionManager.onlineDeviceCdis.value}")
-                    removeAssistantPlaceholderInConversation(targetConversationId)
-                    appendMessageToConversation(
+                    // 路由到发送瞬间捕获的 sendingCdi：通常此时 sendingCdi 同样为 null，
+                    // mutateConversationOnCdi 会退化到当前内存路径，行为和原来一致；
+                    // 但极少数情况下 sendingCdi 存在而 targetCdi=null（比如 observer 瞬时掉线），
+                    // 这时消息应该留在原设备的存档里。
+                    mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                        val msgs = conv.messages.toMutableList()
+                        val idx = msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                        }
+                        if (idx >= 0) msgs.removeAt(idx)
+                        conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                    }
+                    appendMessageToConversationOnCdi(
                         targetConversationId,
-                        ChatItem.System("没有可用的设备，请等待设备上线后重试")
+                        targetCdi = sendingCdi,
+                        message = ChatItem.System("没有可用的设备，请等待设备上线后重试")
                     )
                     return@launch
                 }
@@ -670,20 +814,36 @@ fun AgentModelScreen(
                             // 预上传失败或未开始，回退到发送时上传
                             val imageBytes = mediaAccessController.readUriToBytes(att.uri)
                             if (imageBytes == null) {
-                                removeAssistantPlaceholderInConversation(targetConversationId)
-                                appendMessageToConversation(
+                                mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                                    val msgs = conv.messages.toMutableList()
+                                    val idx = msgs.indexOfLast {
+                                        it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                                    }
+                                    if (idx >= 0) msgs.removeAt(idx)
+                                    conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                                }
+                                appendMessageToConversationOnCdi(
                                     targetConversationId,
-                                    ChatItem.System("读取图片失败，无法发送")
+                                    targetCdi = sendingCdi,
+                                    message = ChatItem.System("读取图片失败，无法发送")
                                 )
                                 return@launch
                             }
                             val fileName = att.displayName()
                             val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
                             if (uploadResult.isFailure) {
-                                removeAssistantPlaceholderInConversation(targetConversationId)
-                                appendMessageToConversation(
+                                mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                                    val msgs = conv.messages.toMutableList()
+                                    val idx = msgs.indexOfLast {
+                                        it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                                    }
+                                    if (idx >= 0) msgs.removeAt(idx)
+                                    conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                                }
+                                appendMessageToConversationOnCdi(
                                     targetConversationId,
-                                    ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
+                                    targetCdi = sendingCdi,
+                                    message = ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
                                 )
                                 return@launch
                             }
@@ -707,32 +867,68 @@ fun AgentModelScreen(
                 }
 
                 sendResult.onSuccess { messageId ->
-                    println("[Chat] 发送成功: messageId=$messageId, targetCdi=$targetCdi, convId=$targetConversationId")
-                    updateConversation(targetConversationId) { conv ->
+                    println("[Chat] 发送成功: messageId=$messageId, targetCdi=$targetCdi, sendingCdi=$sendingCdi, convId=$targetConversationId")
+
+                    // 关键：把 messageId → sendingCdi 登记下来，后续流式回复/错误会用这个映射
+                    // 把更新路由到原设备的存档里，即使此刻用户已经切换到其它设备。
+                    if (sendingCdi != null) {
+                        messageIdToCdi[messageId] = sendingCdi
+                    }
+
+                    // 回填用户消息 + Assistant 占位符的 messageId；同样按 sendingCdi 路由：
+                    // 当前设备还是它就走内存，不是就直接落到它的磁盘存档。
+                    mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
-                        val idx = msgs.indexOfLast {
+
+                        // 1) 回填最后一条"尚未绑定 messageId"的用户消息（就是刚刚发出去的那条）。
+                        //    持久化时这条消息就能带上 SDK 返回的 19 位 messageId，和助手回复配对。
+                        val userIdx = msgs.indexOfLast {
+                            (it is ChatItem.User && it.messageId == null) ||
+                                (it is ChatItem.UserAttachments && it.messageId == null)
+                        }
+                        if (userIdx >= 0) {
+                            when (val old = msgs[userIdx]) {
+                                is ChatItem.User -> msgs[userIdx] = old.copy(messageId = messageId)
+                                is ChatItem.UserAttachments -> msgs[userIdx] = old.copy(messageId = messageId)
+                                else -> {}
+                            }
+                        }
+
+                        // 2) 给 Assistant 占位符绑上同一个 messageId（作为 source_message_id），
+                        //    流式回调通过它在本地找到占位符并 upsert 成真实回复。
+                        val assistantIdx = msgs.indexOfLast {
                             it is ChatItem.Assistant &&
                                     it.messageId == null &&
                                     it.text == STREAMING_PLACEHOLDER_TEXT
                         }
-                        println("[Chat] 查找占位符: idx=$idx, totalMsgs=${msgs.size}")
-                        if (idx >= 0) {
-                            msgs[idx] = ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT, messageId)
+                        println("[Chat] 回填 messageId: userIdx=$userIdx, assistantIdx=$assistantIdx, totalMsgs=${msgs.size}")
+                        if (assistantIdx >= 0) {
+                            msgs[assistantIdx] = ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT, messageId)
                         }
                         conv.copy(messages = msgs)
                     }
+
                     if (targetConversationId != null) {
                         activeStreamingRequests[messageId] = targetConversationId
-                        println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, size=${activeStreamingRequests.size}")
+                        println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, cdi=$sendingCdi, size=${activeStreamingRequests.size}")
                     }
                 }
 
                 sendResult.onFailure { error ->
-                    println("[Chat] 发送失败: targetCdi=$targetCdi, error=${error.message}")
-                    removeAssistantPlaceholderInConversation(targetConversationId)
-                    appendMessageToConversation(
+                    println("[Chat] 发送失败: targetCdi=$targetCdi, sendingCdi=$sendingCdi, error=${error.message}")
+                    // 同样路由到 sendingCdi：失败提示要落到用户发送时所在的那台设备的存档。
+                    mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                        val msgs = conv.messages.toMutableList()
+                        val idx = msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                        }
+                        if (idx >= 0) msgs.removeAt(idx)
+                        conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                    }
+                    appendMessageToConversationOnCdi(
                         targetConversationId,
-                        ChatItem.System("发送失败：${error.message ?: "unknown"}")
+                        targetCdi = sendingCdi,
+                        message = ChatItem.System("发送失败：${error.message ?: "unknown"}")
                     )
                 }
             }

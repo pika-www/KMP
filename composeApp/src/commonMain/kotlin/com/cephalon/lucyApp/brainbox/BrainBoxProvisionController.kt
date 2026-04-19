@@ -19,6 +19,8 @@ data class BrainBoxWifiNetwork(
     val ssid: String,
     val strengthLevel: Int = 0,
     val isSecure: Boolean = true,
+    /** 脑花盒子当前已连接的那个 Wi‑Fi 会带上这个标记，UI 上会展示"已连接"并允许直接沿用。 */
+    val isCurrent: Boolean = false,
 )
 
 interface BrainBoxProvisionController {

@@ -97,7 +97,34 @@ fun BrainBoxLoginSheet(
     val provisionState by provisionManager.state.collectAsState()
     val bleDevices = bleScanState.devices.map { it.toBrainBoxBleDevice() }
     val isBleScanning = bleScanState.isScanning
-    val wifiNetworks = provisionState.wifiNetworks.map { it.toBrainBoxWifiNetwork() }
+    // 设备当前连接的 Wi‑Fi SSID（来自 connectDevice 阶段读到的 network_status）。
+    // 用来：(1) 在 Wi‑Fi 列表里给这条加上"已连接"标记；(2) 当扫描结果里没包含它时
+    // 兜底 prepend 一条占位项，保证用户总能看到并选回当前网络。
+    val currentSsid = provisionState.networkStatus
+        ?.takeIf { it.isConnected }
+        ?.ssid
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+    val scannedWifiNetworks = provisionState.wifiNetworks.map { raw ->
+        raw.toBrainBoxWifiNetwork(
+            isCurrent = currentSsid != null && raw.ssid.equals(currentSsid, ignoreCase = true),
+        )
+    }
+    val wifiNetworks: List<BrainBoxWifiNetwork> = if (
+        currentSsid != null &&
+        scannedWifiNetworks.none { it.ssid.equals(currentSsid, ignoreCase = true) }
+    ) {
+        listOf(
+            BrainBoxWifiNetwork(
+                ssid = currentSsid,
+                strengthLevel = 0,
+                isSecure = true,
+                isCurrent = true,
+            ),
+        ) + scannedWifiNetworks
+    } else {
+        scannedWifiNetworks
+    }
     val isWifiLoading = provisionState.stage == ProvisionFlowStage.Connecting ||
         provisionState.stage == ProvisionFlowStage.Discovering ||
         provisionState.stage == ProvisionFlowStage.ReadingDeviceInfo ||
@@ -159,6 +186,10 @@ fun BrainBoxLoginSheet(
         BrainBoxWifiMode.NearbyScan -> selectedWifiSsid.trim()
         BrainBoxWifiMode.ManualOnly -> manualSsid.trim()
     }
+    // 当前选中的 SSID 就是设备此刻连接的那一个：无需重写 wifi_config，走短路径直接进入 Bind。
+    val isSelectedCurrent = currentSsid != null &&
+        selectedWifiName.isNotBlank() &&
+        selectedWifiName.equals(currentSsid, ignoreCase = true)
     val currentSheetStepIndex = when (currentStep) {
         BrainBoxStep.Scan -> 0
         BrainBoxStep.Wifi -> 1
@@ -171,6 +202,19 @@ fun BrainBoxLoginSheet(
         } else {
             provisionManager.stopScan()
             provisionManager.cancel()
+        }
+    }
+
+    // 进入 Wi‑Fi 步骤且用户还没做选择时，自动默认选中设备当前连接的 SSID。
+    // 这样默认按钮会呈现"使用当前 Wi‑Fi 并继续"，符合"保持当前网络"的最常见诉求；
+    // 用户点击列表里其它 SSID 即可切换为"连接新 Wi‑Fi"的分支。
+    LaunchedEffect(currentStep, currentSsid) {
+        val ssid = currentSsid
+        if (currentStep == BrainBoxStep.Wifi &&
+            selectedWifiSsid.isBlank() &&
+            !ssid.isNullOrBlank()
+        ) {
+            selectedWifiSsid = ssid
         }
     }
 
@@ -385,10 +429,10 @@ fun BrainBoxLoginSheet(
                 provisionManager.stopScan()
                 val device = selectedBleDevice?.toBleScanDevice()
                 if (device != null) {
-                    // 能进入这一分支说明 connectDevice 完成时 networkStatus 不是 "connected"，
-                    // 需要用户手动挑一个 Wi‑Fi 并输密码。若 connectDevice 时已 connected，
-                    // 上方 .onSuccess 分支已直接跳到 Bind 步，本分支不会触发。
-                    // 用户从 Bind 手动 goPrevious 回来换 Wi‑Fi 时也走这里，直接刷新列表。
+                    // connectDevice 完成后总会进入本步骤：无论设备是否已联网，都刷新附近 Wi‑Fi 列表。
+                    // 若设备已联网，currentSsid 非空，列表里会把对应的那条打上"已连接"标记，让用户在
+                    // "沿用当前 Wi‑Fi"（connectWifi 短路径）或"切换其他 Wi‑Fi"（走 configureWifi）之间选择。
+                    // 用户从 Bind 步 goPrevious 回来换 Wi‑Fi 时也走这里，再刷新一次列表。
                     val networkStatus = provisionManager.state.value.networkStatus
                     println(
                         "[BrainBox] Wi‑Fi 步骤: networkStatus=${networkStatus?.state}, " +
@@ -500,13 +544,23 @@ fun BrainBoxLoginSheet(
 
     fun connectWifi() {
         val ssid = selectedWifiName
-        val networkRequiresPassword = when (wifiMode) {
-            BrainBoxWifiMode.NearbyScan -> selectedWifiNetwork?.isSecure == true
-            BrainBoxWifiMode.ManualOnly -> true
-        }
         if (ssid.isBlank()) {
             toastState.show("请选择要连接的 Wi‑Fi")
             return
+        }
+        // 短路径：用户选的就是设备当前连接的那一个 SSID —— 不下发 wifi_config，直接进入 Bind。
+        // connectDevice 阶段已读过 network_status 并确认联网；再走 configureWifi 会触发固件切网，
+        // 可能引发 BLE 断连-重连，体验更差。
+        if (isSelectedCurrent) {
+            println("[BrainBox] 用户沿用当前 Wi‑Fi ($ssid)，跳过 wifi_config 直接进入 Bind")
+            wifiConnectedSsid = ssid
+            currentStep = BrainBoxStep.Bind
+            requestOtpAndBind()
+            return
+        }
+        val networkRequiresPassword = when (wifiMode) {
+            BrainBoxWifiMode.NearbyScan -> selectedWifiNetwork?.isSecure == true
+            BrainBoxWifiMode.ManualOnly -> true
         }
         if (networkRequiresPassword && wifiPassword.isBlank()) {
             toastState.show("请输入 Wi‑Fi 密码")
@@ -594,24 +648,23 @@ fun BrainBoxLoginSheet(
                                     provisionManager.connectDevice(device)
                                         .onSuccess {
                                             connectingDeviceId = null
-                                            // 已联网的盒子直接跳过 Wi‑Fi 配网步，
-                                            // 进入绑定步并立刻调用 requestOtpAndBind（协议步骤 7）。
+                                            // 不再因为设备已联网而自动跳到 Bind 步。
+                                            // 由 Wi‑Fi 步骤向用户展示"已连接到 XXX"，并允许他选择"沿用当前"或"切换其他 Wi‑Fi"；
+                                            // 沿用分支在 connectWifi() 里短路，直接进入 Bind，不再下发 wifi_config。
                                             val networkStatus = provisionManager.state.value.networkStatus
                                             if (networkStatus?.isConnected == true) {
                                                 println(
                                                     "[BrainBox] 设备已联网 (state=${networkStatus.state}, " +
                                                         "ssid=${networkStatus.ssid}, ip=${networkStatus.ip})，" +
-                                                        "跳过 Wi‑Fi 配网，直接进入绑定步并请求 OTP",
+                                                        "进入 Wi‑Fi 步骤让用户确认沿用或切换网络",
                                                 )
                                                 wifiConnectedSsid = networkStatus.ssid.ifBlank { wifiConnectedSsid }
-                                                currentStep = BrainBoxStep.Bind
-                                                requestOtpAndBind()
                                             } else {
                                                 println(
                                                     "[BrainBox] 设备未联网 (state=${networkStatus?.state ?: "null"})，进入 Wi‑Fi 配网步骤",
                                                 )
-                                                currentStep = BrainBoxStep.Wifi
                                             }
+                                            currentStep = BrainBoxStep.Wifi
                                         }
                                         .onFailure { error ->
                                             connectingDeviceId = null
@@ -647,6 +700,8 @@ fun BrainBoxLoginSheet(
                             isConnectingWifi = isConnectingWifi,
                             onRefreshWifi = ::refreshWifiAgain,
                             onConnectWifi = ::connectWifi,
+                            currentSsid = currentSsid,
+                            isSelectedCurrent = isSelectedCurrent,
                         )
                     }
                     BrainBoxStep.Bind -> {
@@ -688,7 +743,7 @@ private fun BrainBoxBleDevice.toBleScanDevice(): BleScanDevice {
     )
 }
 
-private fun GattWifiNetwork.toBrainBoxWifiNetwork(): BrainBoxWifiNetwork {
+private fun GattWifiNetwork.toBrainBoxWifiNetwork(isCurrent: Boolean = false): BrainBoxWifiNetwork {
     return BrainBoxWifiNetwork(
         ssid = ssid,
         strengthLevel = when (val currentSignal = signal ?: 0) {
@@ -699,5 +754,6 @@ private fun GattWifiNetwork.toBrainBoxWifiNetwork(): BrainBoxWifiNetwork {
             else -> 0
         },
         isSecure = isSecure,
+        isCurrent = isCurrent || active,
     )
 }

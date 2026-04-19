@@ -33,17 +33,51 @@ internal data class ImagePreviewState(
 )
 
 internal sealed class ChatItem {
+    /**
+     * 聊天消息在当前会话里的业务 id（由 SDK 的 generateMessageId19() 产出的 19 位字符串，
+     * 或重放历史时从缓存读回的值）。
+     *
+     * 语义约定：
+     * - 用户侧消息（[User] / [UserAttachments]）：发送到 NPC 成功后回填 SDK 返回的 messageId；
+     *   发送失败或本地还没派发时为 null。
+     * - 助手消息（[Assistant]）：采用所回复的那条用户消息的 messageId（作为 source_message_id），
+     *   流式期间通过它在本地找到占位符并 upsert。
+     * - [System] / [Error] / [RecordingItem]：本地注入的消息，messageId 一般为 null，
+     *   持久化时保留字段以便跨端同步 / 将来与服务端对齐。
+     */
+    abstract val messageId: String?
+
     data class Assistant(
         val text: String,
-        val messageId: String? = null,
+        override val messageId: String? = null,
         val attachments: List<MediaAttachment> = emptyList(),
     ) : ChatItem()
-    data class User(val text: String) : ChatItem()
-    data class UserAttachments(val text: String?, val attachments: List<DraftAttachment>) : ChatItem()
-    data class System(val text: String) : ChatItem()
-    data class RecordingItem(val id: String, val name: String, val path: String) : ChatItem()
-    data class Error(val text: String) : ChatItem()
-    data object SkillSuggestions : ChatItem()
+    data class User(
+        val text: String,
+        override val messageId: String? = null,
+    ) : ChatItem()
+    data class UserAttachments(
+        val text: String?,
+        val attachments: List<DraftAttachment>,
+        override val messageId: String? = null,
+    ) : ChatItem()
+    data class System(
+        val text: String,
+        override val messageId: String? = null,
+    ) : ChatItem()
+    data class RecordingItem(
+        val id: String,
+        val name: String,
+        val path: String,
+        override val messageId: String? = null,
+    ) : ChatItem()
+    data class Error(
+        val text: String,
+        override val messageId: String? = null,
+    ) : ChatItem()
+    data object SkillSuggestions : ChatItem() {
+        override val messageId: String? = null
+    }
 }
 
 internal data class ConversationItem(

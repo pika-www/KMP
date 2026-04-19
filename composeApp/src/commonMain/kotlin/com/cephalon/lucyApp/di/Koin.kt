@@ -8,6 +8,7 @@ import com.cephalon.lucyApp.deviceaccess.DeviceConnector
 import com.cephalon.lucyApp.deviceaccess.ProvisionUseCase
 import com.cephalon.lucyApp.network.NetworkUrlFactory
 import com.cephalon.lucyApp.network.createNetworkClient
+import com.cephalon.lucyApp.screens.agentmodel.ChatHistoryCache
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.settings.createSettings
 import com.cephalon.lucyApp.ws.WsApi
@@ -39,6 +40,7 @@ val appModule = module {
     single { WsApi(get(), get()) }
     single { WsRepository(get()) }
     single { BalanceWsManager(get(), get(), get(), get()) }
+    single { ChatHistoryCache(get()) }
     // IAPManager is provided by platform modules
 }
 
