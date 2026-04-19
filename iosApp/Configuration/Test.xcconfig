@@ -1,0 +1,5 @@
+#include "Config.xcconfig"
+
+// --- Test 环境配置 ---
+APP_ENV = test
+KOTLIN_FRAMEWORK_BUILD_TYPE = debug

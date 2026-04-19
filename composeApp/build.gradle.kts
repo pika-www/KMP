@@ -12,7 +12,15 @@ plugins {
 kotlin {
 
     // ✅ 继续使用（虽然 deprecated，但当前最稳）
-    androidTarget()
+    androidTarget {
+        compilations.all {
+            compileTaskProvider.configure {
+                compilerOptions {
+                    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+                }
+            }
+        }
+    }
 
     // ✅ iOS
     val blobRoot = rootProject.projectDir.resolve("sdk/lucy-im-sdk-kotlin/lucy-blob").absolutePath
@@ -143,6 +151,10 @@ android {
     namespace = "com.cephalon.lucyApp"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.cephalon.lucyApp"
         minSdk = libs.versions.android.minSdk.get().toInt()
@@ -158,8 +170,23 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "APP_ENV", "\"test\"")
+        }
+        create("staging") {
+            initWith(getByName("debug"))
+            buildConfigField("String", "APP_ENV", "\"test\"")
+        }
         getByName("release") {
             isMinifyEnabled = false
+            buildConfigField("String", "APP_ENV", "\"release\"")
+        }
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "脑花-${buildType.name}.apk"
         }
     }
 

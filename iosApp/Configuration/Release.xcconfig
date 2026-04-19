@@ -1,0 +1,4 @@
+#include "Config.xcconfig"
+
+// --- Release 环境配置 ---
+APP_ENV = release
