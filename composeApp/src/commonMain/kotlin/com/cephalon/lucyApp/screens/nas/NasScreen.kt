@@ -684,6 +684,7 @@ fun NasScreen(onBack: () -> Unit) {
     selectedAudio?.let { audio ->
         NasAudioDetailScreen(
             audio = audio,
+            targetCdi = targetCdi,
             mediaController = mediaController,
             onBack = ::handleNasBack,
             onShare = {
@@ -710,6 +711,7 @@ fun NasScreen(onBack: () -> Unit) {
     selectedDocument?.let { document ->
         NasDocumentDetailScreen(
             document = document,
+            targetCdi = targetCdi,
             onBack = ::handleNasBack,
             onShare = {
                 println("分享文档: ${document.name}")

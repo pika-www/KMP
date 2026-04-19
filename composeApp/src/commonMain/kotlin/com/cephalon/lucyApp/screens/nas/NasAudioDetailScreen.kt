@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,13 +65,18 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.PlatformMediaAccessController
+import com.cephalon.lucyApp.media.platformSaveCacheFile
+import com.cephalon.lucyApp.sdk.SdkSessionManager
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
+import org.koin.compose.koinInject
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
 @Composable
 internal fun NasAudioDetailScreen(
     audio: NasAudioItem,
+    targetCdi: String,
     mediaController: PlatformMediaAccessController,
     onBack: () -> Unit,
     onShare: () -> Unit,
@@ -81,11 +88,44 @@ internal fun NasAudioDetailScreen(
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+    val sdkSessionManager = koinInject<SdkSessionManager>()
+    val coroutineScope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
     var isSeeking by remember(audio.id) { mutableStateOf(false) }
     var sliderPositionMillis by remember(audio.id) { mutableFloatStateOf(0f) }
+    var localFilePath by remember(audio.id) { mutableStateOf<String?>(null) }
+    var fileLoading by remember(audio.id) { mutableStateOf(false) }
+    var fileError by remember(audio.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(audio.fileId, targetCdi) {
+        val fid = audio.fileId ?: run {
+            fileError = "文件 ID 缺失"
+            return@LaunchedEffect
+        }
+        if (localFilePath != null) return@LaunchedEffect
+        fileLoading = true
+        fileError = null
+        coroutineScope.launch {
+            runCatching {
+                val getResponse = sdkSessionManager.getFileFromNas(
+                    targetCdi = targetCdi,
+                    fileId = fid,
+                ).getOrThrow()
+                val blobRef = getResponse.item?.blobRef
+                    ?: throw IllegalStateException("文件详情缺少 blobRef")
+                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+                platformSaveCacheFile(bytes, audio.name)
+            }.onSuccess { path ->
+                localFilePath = path
+                fileLoading = false
+            }.onFailure { err ->
+                fileError = err.message ?: "加载音频失败"
+                fileLoading = false
+            }
+        }
+    }
 
     val playbackState = mediaController.audioPlaybackState
     val isCurrentAudio = playbackState.sourceId == audio.id
@@ -250,14 +290,19 @@ internal fun NasAudioDetailScreen(
                 0 -> AudioPlayerContent(
                     audio = audio,
                     isPlaying = isPlaying,
+                    fileLoading = fileLoading,
+                    fileError = fileError,
                     currentPositionMillis = if (isSeeking) sliderPositionMillis.roundToLong() else currentPositionMillis,
                     durationMillis = durationMillis,
                     onPlayPauseClick = {
-                        mediaController.toggleAudioPlayback(
-                            sourceId = audio.id,
-                            name = audio.name,
-                            source = audio.path
-                        )
+                        val path = localFilePath
+                        if (path != null) {
+                            mediaController.toggleAudioPlayback(
+                                sourceId = audio.id,
+                                name = audio.name,
+                                source = path
+                            )
+                        }
                     },
                     onProgressChange = { value ->
                         isSeeking = true
@@ -281,6 +326,8 @@ internal fun NasAudioDetailScreen(
 private fun AudioPlayerContent(
     audio: NasAudioItem,
     isPlaying: Boolean,
+    fileLoading: Boolean = false,
+    fileError: String? = null,
     currentPositionMillis: Long,
     durationMillis: Long,
     onPlayPauseClick: () -> Unit,
@@ -292,19 +339,44 @@ private fun AudioPlayerContent(
 ) {
     val ds = LocalDesignScale.current
     Column(modifier = modifier.fillMaxWidth()) {
-        // 中间音频图标
+        // 中间音频图标 / 加载状态 / 错误状态
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Audiotrack,
-                contentDescription = null,
-                modifier = Modifier.size(ds.sm(120.dp)),
-                tint = Color(0xFF3A3A3C)
-            )
+            when {
+                fileLoading -> {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            color = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(ds.sm(32.dp))
+                        )
+                        Spacer(modifier = Modifier.height(ds.sm(12.dp)))
+                        Text(
+                            text = "加载音频中…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF8E8E93)
+                        )
+                    }
+                }
+                fileError != null -> {
+                    Text(
+                        text = fileError,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF8E8E93)
+                    )
+                }
+                else -> {
+                    Icon(
+                        imageVector = Icons.Default.Audiotrack,
+                        contentDescription = null,
+                        modifier = Modifier.size(ds.sm(120.dp)),
+                        tint = Color(0xFF3A3A3C)
+                    )
+                }
+            }
         }
 
         // 音频标题

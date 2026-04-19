@@ -30,10 +30,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,12 +51,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.PlatformDocumentPreview
+import com.cephalon.lucyApp.media.platformSaveCacheFile
+import com.cephalon.lucyApp.sdk.SdkSessionManager
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
+import org.koin.compose.koinInject
 import kotlin.math.abs
 
 @Composable
 internal fun NasDocumentDetailScreen(
     document: NasDocumentItem,
+    targetCdi: String,
     onBack: () -> Unit,
     onShare: () -> Unit,
     onDownload: () -> Unit,
@@ -64,8 +72,41 @@ internal fun NasDocumentDetailScreen(
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+    val sdkSessionManager = koinInject<SdkSessionManager>()
+    val coroutineScope = rememberCoroutineScope()
 
     var showMenu by remember { mutableStateOf(false) }
+    var localFilePath by remember(document.id) { mutableStateOf<String?>(null) }
+    var fileLoading by remember(document.id) { mutableStateOf(false) }
+    var fileError by remember(document.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(document.fileId, targetCdi) {
+        val fid = document.fileId ?: run {
+            fileError = "文件 ID 缺失"
+            return@LaunchedEffect
+        }
+        if (localFilePath != null) return@LaunchedEffect
+        fileLoading = true
+        fileError = null
+        coroutineScope.launch {
+            runCatching {
+                val getResponse = sdkSessionManager.getFileFromNas(
+                    targetCdi = targetCdi,
+                    fileId = fid,
+                ).getOrThrow()
+                val blobRef = getResponse.item?.blobRef
+                    ?: throw IllegalStateException("文件详情缺少 blobRef")
+                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+                platformSaveCacheFile(bytes, document.name)
+            }.onSuccess { path ->
+                localFilePath = path
+                fileLoading = false
+            }.onFailure { err ->
+                fileError = err.message ?: "加载文档失败"
+                fileLoading = false
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -204,13 +245,38 @@ internal fun NasDocumentDetailScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f),
+            contentAlignment = Alignment.Center
         ) {
-            PlatformDocumentPreview(
-                source = document.path,
-                fileName = document.name,
-                modifier = Modifier.fillMaxSize()
-            )
+            when {
+                fileLoading -> {
+                    CircularProgressIndicator(
+                        color = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(ds.sm(32.dp))
+                    )
+                }
+                fileError != null -> {
+                    Text(
+                        text = fileError ?: "加载失败",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF8E8E93)
+                    )
+                }
+                localFilePath != null -> {
+                    PlatformDocumentPreview(
+                        source = localFilePath!!,
+                        fileName = document.name,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                else -> {
+                    Text(
+                        text = "准备加载文档…",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF8E8E93)
+                    )
+                }
+            }
         }
         } // end Column
 

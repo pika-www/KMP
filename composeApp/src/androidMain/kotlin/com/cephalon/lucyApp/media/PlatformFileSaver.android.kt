@@ -8,6 +8,16 @@ import com.cephalon.lucyApp.screens.agentmodel.AndroidAppContextHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+actual suspend fun platformSaveCacheFile(bytes: ByteArray, fileName: String): String =
+    withContext(Dispatchers.IO) {
+        val context = AndroidAppContextHolder.appContext
+        val cacheDir = java.io.File(context.cacheDir, "NaoHuaCache")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+        val file = java.io.File(cacheDir, fileName)
+        file.writeBytes(bytes)
+        file.absolutePath
+    }
+
 actual suspend fun platformSaveFile(bytes: ByteArray, fileName: String, mimeType: String): String =
     withContext(Dispatchers.IO) {
         val context = AndroidAppContextHolder.appContext

@@ -4,6 +4,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import platform.Foundation.NSData
@@ -59,6 +60,25 @@ private suspend fun saveImageToPhotoLibrary(bytes: ByteArray, fileName: String):
                 )
             }
         }
+    }
+
+@OptIn(ExperimentalForeignApi::class)
+actual suspend fun platformSaveCacheFile(bytes: ByteArray, fileName: String): String =
+    withContext(Dispatchers.IO) {
+        val cacheDir = platform.Foundation.NSTemporaryDirectory() + "NaoHuaCache"
+        val fm = NSFileManager.defaultManager
+        if (!fm.fileExistsAtPath(cacheDir)) {
+            fm.createDirectoryAtPath(cacheDir, withIntermediateDirectories = true, attributes = null, error = null)
+        }
+        val filePath = "$cacheDir/$fileName"
+        val nsData = bytes.usePinned { pinned ->
+            NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
+        }
+        val wrote = nsData.writeToFile(filePath, atomically = true)
+        if (!wrote) {
+            throw IllegalStateException("写入缓存文件失败: $filePath")
+        }
+        filePath
     }
 
 @OptIn(ExperimentalForeignApi::class)
