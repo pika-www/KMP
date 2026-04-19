@@ -4,14 +4,14 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-
-	<key>UIRequiresFullScreen</key>
-	<true/>
-
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+	</array>
 </dict>
 </plist>
