@@ -789,6 +789,10 @@ fun AgentModelScreen(
                 toastMessage = "文件上传中"
                 return@Unit
             }
+            if (localAttachments.any { attachmentUploadStates[it.uri] !is AttachmentUploadState.Success }) {
+                toastMessage = "文件上传未完成，请稍后重试"
+                return@Unit
+            }
 
             val targetConversationId = selectedConversationId
             // 点击发送的瞬间捕获"归属设备"：用户点击后异步去连接/解析 targetCdi，期间如果
@@ -826,6 +830,8 @@ fun AgentModelScreen(
                 text.ifBlank {
                     if (hasMediaAttachments) "" else ""
                 }
+            // 在 launch 之前快照上传状态，避免下方同步 remove 导致协程内读到 null
+            val uploadStatesSnapshot = attachmentUploadStates.toMap()
             println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, localCount=${localMediaAttachments.size}, nasCount=${nasAttachments.size}, sendingCdi=$sendingCdi")
             appendMessageToConversation(
                 targetConversationId,
@@ -904,7 +910,7 @@ fun AgentModelScreen(
 
                     // ── 处理本地附件（图片/文件/音频，已在选取时预上传）──
                     for (att in localMediaAttachments) {
-                        val uploadState = attachmentUploadStates[att.uri]
+                        val uploadState = uploadStatesSnapshot[att.uri]
                         if (uploadState is AttachmentUploadState.Success) {
                             mediaItems.add(SdkSessionManager.MediaItem(
                                 blobRef = uploadState.blobRef,
@@ -941,7 +947,20 @@ fun AgentModelScreen(
                         val blobRef = nasResponse.item?.blobRef
                         if (blobRef.isNullOrBlank()) {
                             println("[Chat] NAS 文件缺少 blobRef fileId=$nasFileId")
-                            continue
+                            mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                                val msgs = conv.messages.toMutableList()
+                                val idx = msgs.indexOfLast {
+                                    it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                                }
+                                if (idx >= 0) msgs.removeAt(idx)
+                                conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                            }
+                            appendMessageToConversationOnCdi(
+                                targetConversationId,
+                                targetCdi = sendingCdi,
+                                message = ChatItem.System("NAS 文件数据异常（缺少 blobRef），请重试")
+                            )
+                            return@launch
                         }
                         val fileName = att.displayName ?: "file"
                         val contentType = inferContentType(fileName)
