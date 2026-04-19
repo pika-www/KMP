@@ -167,7 +167,8 @@ internal fun AgentModelMessageList(
                 is ChatItem.User -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         Surface(
-                            shape = RoundedCornerShape(ds.sm(99.dp)),
+                            // 右侧用户发送气泡统一 22dp 圆角（旧值 99dp 是胶囊形）
+                            shape = RoundedCornerShape(ds.sm(22.dp)),
                             color = Color.White,
                             border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
                             modifier = Modifier
@@ -191,7 +192,8 @@ internal fun AgentModelMessageList(
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         val imageCellSize = ((bubbleMaxWidth - 28.dp - 8.dp) / 2).coerceAtMost(132.dp)
                         Surface(
-                            shape = RoundedCornerShape(ds.sm(16.dp)),
+                            // 右侧用户附件气泡同样 22dp，和文字气泡视觉一致
+                            shape = RoundedCornerShape(ds.sm(22.dp)),
                             color = Color.White,
                             border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
                             modifier = Modifier

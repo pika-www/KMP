@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import com.cephalon.lucyApp.clipboard.platformCopyToClipboard
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -85,9 +86,14 @@ internal fun Bubble(
                 }
             }
         } else {
+            // 注意：左侧 Assistant 气泡刻意不挂 clickable / onClick。
+            // Modifier.clickable 内部走 detectTapGestures，会消费 long-press，
+            // 导致 iOS 上 SelectionContainer 收不到长按手势，整段文字就无法选中复制。
+            // "点击对话区收起键盘 / 收起附件面板" 的交互依然由外层
+            // AgentModelScreen 的 pointerInput 负责（tap 事件会向上冒泡），
+            // 所以去掉这里的 clickable 没有功能损失，反而换回了 iOS 的文本选择。
             Box(
                 modifier = Modifier
-                    .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
                     .wrapContentWidth()
                     .widthIn(max = bubbleMaxWidth)
             ) {
@@ -148,7 +154,10 @@ private fun MarkdownBubbleText(
                         )
                         IconButton(
                             onClick = {
+                                // 双写：先写 Compose 剪贴板（自动跨平台），再走一层平台原生 API，
+                                // 保证 iOS 侧在 BasicTextField 长按菜单"粘贴"时一定能取到这段文本。
                                 clipboardManager.setText(AnnotatedString(codeContent))
+                                platformCopyToClipboard(codeContent)
                                 onCopySuccess?.invoke()
                             },
                             modifier = Modifier

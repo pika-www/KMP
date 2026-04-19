@@ -29,15 +29,20 @@ import com.cephalon.lucyApp.api.LucyDevice
 import com.cephalon.lucyApp.api.channelDeviceId
 import com.cephalon.lucyApp.time.currentTimeMillis
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
+import com.cephalon.lucyApp.brainbox.BrainBoxProvisionController
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiMode
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
+import com.cephalon.lucyApp.brainbox.PhoneWifiState
+import com.cephalon.lucyApp.brainbox.WifiCredentialCache
 import com.cephalon.lucyApp.brainbox.rememberBrainBoxProvisionController
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.components.ToastHost
+import com.cephalon.lucyApp.components.ToastState
 import com.cephalon.lucyApp.components.rememberToastState
 import com.cephalon.lucyApp.deviceaccess.BleScanDevice
 import com.cephalon.lucyApp.deviceaccess.gatt.GattWifiNetwork
 import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage
+import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionManager
 import com.cephalon.lucyApp.deviceaccess.gatt.rememberProvisionManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -89,6 +94,7 @@ fun BrainBoxLoginSheet(
     onBindSuccess: (cdi: String) -> Unit,
 ) {
     val authRepository = koinInject<AuthRepository>()
+    val wifiCredentialCache = koinInject<WifiCredentialCache>()
     val controller = rememberBrainBoxProvisionController()
     val provisionManager = rememberProvisionManager()
     val scope = rememberCoroutineScope()
@@ -105,8 +111,16 @@ fun BrainBoxLoginSheet(
         ?.ssid
         ?.trim()
         ?.takeIf { it.isNotBlank() }
-    val scannedWifiNetworks = provisionState.wifiNetworks.map { raw ->
-        raw.toBrainBoxWifiNetwork(
+    // 改动：Wi‑Fi 列表改用"手机端扫描"（controller.wifiNetworks），不再走 BLE 让设备扫网
+    // （原来是 provisionState.wifiNetworks，来自 provisionManager.refreshWifiNetworks →
+    // router.scanWifi()）。原因：BLE 扫网耗时/不稳定，而手机本身就连在同一个 Wi‑Fi 环境里，
+    // 列表用手机看到的足够准确；拿到 SSID 后仍走原逻辑向设备写 wifi_config。
+    val phoneScannedWifi by controller.wifiNetworks.collectAsState()
+    val phoneWifiLoading by controller.isWifiLoading.collectAsState()
+    val scannedWifiNetworks = phoneScannedWifi.map { raw ->
+        // phoneScannedWifi 里的 isCurrent 是手机的当前连接标记；脑花盒子当前连接的 SSID
+        // 要以 network_status 为准（设备视角），所以用 currentSsid 重新算 isCurrent。
+        raw.copy(
             isCurrent = currentSsid != null && raw.ssid.equals(currentSsid, ignoreCase = true),
         )
     }
@@ -125,7 +139,10 @@ fun BrainBoxLoginSheet(
     } else {
         scannedWifiNetworks
     }
-    val isWifiLoading = provisionState.stage == ProvisionFlowStage.Connecting ||
+    // 改动：把 controller.isWifiLoading（手机扫描中）并入 loading 条件。ScanningWifi 分支
+    // 现在理论上不会再被触发（不再调 provisionManager.refreshWifiNetworks），保留不影响。
+    val isWifiLoading = phoneWifiLoading ||
+        provisionState.stage == ProvisionFlowStage.Connecting ||
         provisionState.stage == ProvisionFlowStage.Discovering ||
         provisionState.stage == ProvisionFlowStage.ReadingDeviceInfo ||
         provisionState.stage == ProvisionFlowStage.ReadingNetworkStatus ||
@@ -340,7 +357,13 @@ fun BrainBoxLoginSheet(
                 val isGattLayerError = errorMsg.contains("status=", ignoreCase = true) ||
                     errorMsg.contains("att", ignoreCase = true) ||
                     errorMsg.contains("gatt", ignoreCase = true) ||
-                    errorMsg.contains("尚未建立", ignoreCase = true)
+                    errorMsg.contains("尚未建立", ignoreCase = true) ||
+                    // iOS 特有：CoreBluetooth 的 peripheral.services 被 Services Changed
+                    // indication / 隐式重连清空后，会在 BleClient.ios 里抛"未找到特征"。
+                    // 这条与"status=/att/gatt"同属 BLE 链路层异常，应该走 forceReconnect
+                    // 兜底，而不是当作业务失败只 toast 一下然后卡住。
+                    errorMsg.contains("未找到特征") ||
+                    errorMsg.contains("发现 GATT Service 超时")
                 println("[BrainBox] OTP 请求失败: $errorMsg (isGattLayer=$isGattLayerError)")
                 if (isGattLayerError) {
                     otpReconnectCount++
@@ -427,20 +450,19 @@ fun BrainBoxLoginSheet(
             BrainBoxStep.Scan -> { /* 由上面的 LaunchedEffect 处理 */ }
             BrainBoxStep.Wifi -> {
                 provisionManager.stopScan()
-                val device = selectedBleDevice?.toBleScanDevice()
-                if (device != null) {
-                    // connectDevice 完成后总会进入本步骤：无论设备是否已联网，都刷新附近 Wi‑Fi 列表。
-                    // 若设备已联网，currentSsid 非空，列表里会把对应的那条打上"已连接"标记，让用户在
-                    // "沿用当前 Wi‑Fi"（connectWifi 短路径）或"切换其他 Wi‑Fi"（走 configureWifi）之间选择。
-                    // 用户从 Bind 步 goPrevious 回来换 Wi‑Fi 时也走这里，再刷新一次列表。
-                    val networkStatus = provisionManager.state.value.networkStatus
-                    println(
-                        "[BrainBox] Wi‑Fi 步骤: networkStatus=${networkStatus?.state}, " +
-                            "ssid=${networkStatus?.ssid}, ip=${networkStatus?.ip}，开始刷新附近 Wi‑Fi 列表",
-                    )
-                    provisionManager.refreshWifiNetworks(device).onFailure {
-                        toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
-                    }
+                // 改动：不再让设备用 BLE 扫网（provisionManager.refreshWifiNetworks / wifi_scan）。
+                // 改用手机端扫描（controller.refreshWifiNetworks）直接读"这台手机此刻能看到的 Wi‑Fi"，
+                // 原因是手机跟目标盒子一般处于同一空间，结果更快也更稳；拿到 SSID 后用户选中 +
+                // 输密码仍走原有 provisionManager.configureWifi 向设备下发 wifi_config。
+                // 注：设备未必有 selectedBleDevice 依赖（手机扫网不需要设备参与），但保留 stopScan
+                // 以复用"退出扫描态"的原有副作用。
+                val networkStatus = provisionManager.state.value.networkStatus
+                println(
+                    "[BrainBox] Wi‑Fi 步骤: networkStatus=${networkStatus?.state}, " +
+                        "ssid=${networkStatus?.ssid}, ip=${networkStatus?.ip}，开始刷新手机端附近 Wi‑Fi 列表",
+                )
+                controller.refreshWifiNetworks().onFailure {
+                    toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
                 }
             }
             BrainBoxStep.Bind -> {
@@ -465,11 +487,9 @@ fun BrainBoxLoginSheet(
                 }
                 BrainBoxStep.Wifi -> {
                     toastState.show("设备已重连，正在重新查询附近 Wi‑Fi…")
-                    val device = selectedBleDevice?.toBleScanDevice()
-                    if (device != null) {
-                        provisionManager.refreshWifiNetworks(device).onFailure {
-                            toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
-                        }
+                    // 改动：重连后同样走手机扫网（controller.refreshWifiNetworks），不再向设备下发 wifi_scan。
+                    controller.refreshWifiNetworks().onFailure {
+                        toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
                     }
                 }
                 BrainBoxStep.Bind -> {
@@ -530,13 +550,11 @@ fun BrainBoxLoginSheet(
     }
 
     fun refreshWifiAgain() {
+        // 改动：UI 上的"刷新"按钮也走手机端扫描（controller.refreshWifiNetworks），
+        // 不再依赖 selectedBleDevice。手机扫 Wi‑Fi 不需要跟脑花盒子产生 BLE 交互，
+        // 所以即使 BLE 暂时闪断也能独立跑。
         scope.launch {
-            val device = selectedBleDevice?.toBleScanDevice()
-            if (device == null) {
-                toastState.show("请先选择蓝牙设备")
-                return@launch
-            }
-            provisionManager.refreshWifiNetworks(device).onFailure {
+            controller.refreshWifiNetworks().onFailure {
                 toastState.show(it.message ?: "查询附近 Wi‑Fi 失败")
             }
         }
@@ -571,6 +589,11 @@ fun BrainBoxLoginSheet(
             provisionManager.configureWifi(ssid = ssid, password = wifiPassword)
                 .onSuccess { networkStatus ->
                     wifiConnectedSsid = ssid
+                    // 用户手动配网成功：把 (ssid → 密码) 落盘，下次同 SSID 时自动注入免输。
+                    // 空密码（开放 Wi‑Fi）由 WifiCredentialCache.save 内部过滤，不会污染缓存。
+                    if (wifiPassword.isNotBlank()) {
+                        wifiCredentialCache.save(ssid, wifiPassword)
+                    }
                     toastState.show("设备已连接到 ${networkStatus.ssid.ifBlank { ssid }}")
                     currentStep = BrainBoxStep.Bind
                     // WiFi 连接成功后请求 OTP 并绑定
@@ -648,23 +671,23 @@ fun BrainBoxLoginSheet(
                                     provisionManager.connectDevice(device)
                                         .onSuccess {
                                             connectingDeviceId = null
-                                            // 不再因为设备已联网而自动跳到 Bind 步。
-                                            // 由 Wi‑Fi 步骤向用户展示"已连接到 XXX"，并允许他选择"沿用当前"或"切换其他 Wi‑Fi"；
-                                            // 沿用分支在 connectWifi() 里短路，直接进入 Bind，不再下发 wifi_config。
-                                            val networkStatus = provisionManager.state.value.networkStatus
-                                            if (networkStatus?.isConnected == true) {
-                                                println(
-                                                    "[BrainBox] 设备已联网 (state=${networkStatus.state}, " +
-                                                        "ssid=${networkStatus.ssid}, ip=${networkStatus.ip})，" +
-                                                        "进入 Wi‑Fi 步骤让用户确认沿用或切换网络",
-                                                )
-                                                wifiConnectedSsid = networkStatus.ssid.ifBlank { wifiConnectedSsid }
-                                            } else {
-                                                println(
-                                                    "[BrainBox] 设备未联网 (state=${networkStatus?.state ?: "null"})，进入 Wi‑Fi 配网步骤",
-                                                )
-                                            }
-                                            currentStep = BrainBoxStep.Wifi
+                                            autoInjectPhoneWifiAfterConnect(
+                                                provisionManager = provisionManager,
+                                                controller = controller,
+                                                wifiCredentialCache = wifiCredentialCache,
+                                                toastState = toastState,
+                                                onGoToBind = {
+                                                    currentStep = BrainBoxStep.Bind
+                                                    requestOtpAndBind()
+                                                },
+                                                onGoToWifiStep = {
+                                                    currentStep = BrainBoxStep.Wifi
+                                                },
+                                                setWifiConnectedSsid = { wifiConnectedSsid = it },
+                                                setSelectedWifiSsid = { selectedWifiSsid = it },
+                                                setWifiPassword = { wifiPassword = it },
+                                                setIsConnectingWifi = { isConnectingWifi = it },
+                                            )
                                         }
                                         .onFailure { error ->
                                             connectingDeviceId = null
@@ -741,6 +764,103 @@ private fun BrainBoxBleDevice.toBleScanDevice(): BleScanDevice {
         subtitle = subtitle,
         rssi = rssi,
     )
+}
+
+/**
+ * BLE 连上脑花盒子后"自动把本机 Wi‑Fi 注入给设备"的入口。
+ *
+ * 根据「手机 Wi‑Fi 状态 × 本地密码缓存 × 设备当前联网 SSID」，把用户从尽量多的情况
+ * 里接到 Bind 步骤，实在接不上才退回传统的 Wi‑Fi 手动步骤：
+ *
+ *  1. 手机 Wi‑Fi 关 → toast + 打开系统 Wi‑Fi 设置 → 进 Wi‑Fi 步兜底。
+ *  2. 本机 SSID == 设备 network_status.ssid（设备已连）→ 直接 Bind，不下发 wifi_config。
+ *  3. 本机 SSID 有本地缓存密码 → 自动 configureWifi → 成功进 Bind，失败回 Wi‑Fi 步。
+ *  4. 本机 SSID 无缓存密码 → 进 Wi‑Fi 步，预选本机 SSID，让用户仅需输密码。
+ *  5. 读不到本机 SSID（Unknown：iOS 缺 entitlement / Android 拒权限）→ 进 Wi‑Fi 步。
+ */
+private suspend fun autoInjectPhoneWifiAfterConnect(
+    provisionManager: ProvisionManager,
+    controller: BrainBoxProvisionController,
+    wifiCredentialCache: WifiCredentialCache,
+    toastState: ToastState,
+    onGoToBind: () -> Unit,
+    onGoToWifiStep: () -> Unit,
+    setWifiConnectedSsid: (String?) -> Unit,
+    setSelectedWifiSsid: (String) -> Unit,
+    setWifiPassword: (String) -> Unit,
+    setIsConnectingWifi: (Boolean) -> Unit,
+) {
+    val networkStatus = provisionManager.state.value.networkStatus
+    val deviceSsid = networkStatus?.ssid?.trim()?.takeIf { it.isNotBlank() }
+    val deviceConnected = networkStatus?.isConnected == true
+
+    println(
+        "[BrainBox] connectDevice 完成：设备 isConnected=$deviceConnected, " +
+            "ssid=${deviceSsid ?: "<空>"}，开始读本机 Wi‑Fi 尝试自动注入"
+    )
+
+    when (val phoneWifi = controller.readCurrentPhoneWifi()) {
+        is PhoneWifiState.Disabled -> {
+            // 路径 1：手机 Wi‑Fi 未开。告知用户 + 打开系统 Wi‑Fi 设置；UI 兜底到 Wi‑Fi 步，
+            // 让用户开启后回来可以继续（设备此刻若已联网，Wi‑Fi 步里会把那条 SSID 标"已连接"）。
+            println("[BrainBox] 手机 Wi‑Fi 未开启，提示用户打开并兜底到 Wi‑Fi 步")
+            toastState.show("请先开启手机 Wi‑Fi 并连接到目标网络")
+            controller.openWifiSettings()
+            if (deviceConnected && deviceSsid != null) setWifiConnectedSsid(deviceSsid)
+            onGoToWifiStep()
+        }
+        is PhoneWifiState.Connected -> {
+            val phoneSsid = phoneWifi.ssid
+            println("[BrainBox] 读到本机 SSID=$phoneSsid，设备 SSID=${deviceSsid ?: "<空>"}")
+            // 不管走哪条路径，都把 selectedWifiSsid 预选成本机 SSID，确保用户即便被退回
+            // Wi‑Fi 步骤也能看到"预选上"的那一条。
+            setSelectedWifiSsid(phoneSsid)
+
+            // 路径 2：设备已连到本机同 SSID → 直接 Bind。
+            if (deviceConnected && deviceSsid != null &&
+                deviceSsid.equals(phoneSsid, ignoreCase = true)
+            ) {
+                println("[BrainBox] 设备已连到本机同 SSID ($phoneSsid)，跳过配网直接进入 Bind")
+                setWifiConnectedSsid(deviceSsid)
+                onGoToBind()
+                return
+            }
+
+            // 路径 3：有缓存密码 → 自动下发。
+            val cachedPwd = wifiCredentialCache.get(phoneSsid)
+            if (cachedPwd != null) {
+                setWifiPassword(cachedPwd)
+                toastState.show("正在用本机 Wi‑Fi ($phoneSsid) 为设备配网…")
+                setIsConnectingWifi(true)
+                val result = provisionManager.configureWifi(ssid = phoneSsid, password = cachedPwd)
+                setIsConnectingWifi(false)
+                result.onSuccess { ns ->
+                    println("[BrainBox] 自动配网成功 (ssid=${ns.ssid}, ip=${ns.ip})，进入 Bind")
+                    setWifiConnectedSsid(ns.ssid.ifBlank { phoneSsid })
+                    onGoToBind()
+                }.onFailure { error ->
+                    // 不主动清缓存：密码多数情况下仍正确，失败更可能是链路抖动。
+                    // 把用户接到 Wi‑Fi 步（SSID + 密码已预填），让他"直接再点一次连接"即可重试。
+                    println("[BrainBox] 自动配网失败: ${error.message}，回到 Wi‑Fi 步骤让用户手动确认")
+                    toastState.show(error.message ?: "自动配网失败，请手动确认 Wi‑Fi 设置")
+                    if (deviceConnected && deviceSsid != null) setWifiConnectedSsid(deviceSsid)
+                    onGoToWifiStep()
+                }
+                return
+            }
+
+            // 路径 4：无缓存密码 → Wi‑Fi 步，SSID 预选。
+            println("[BrainBox] 本机 SSID=$phoneSsid 无缓存密码，进入 Wi‑Fi 步等用户输入密码")
+            if (deviceConnected && deviceSsid != null) setWifiConnectedSsid(deviceSsid)
+            onGoToWifiStep()
+        }
+        is PhoneWifiState.Unknown -> {
+            // 路径 5：读不到本机 SSID（iOS 缺 entitlement / Android 拒权限），兜底原有手动步骤。
+            println("[BrainBox] 读不到本机 SSID（Unknown），进入 Wi‑Fi 步骤让用户手动配置")
+            if (deviceConnected && deviceSsid != null) setWifiConnectedSsid(deviceSsid)
+            onGoToWifiStep()
+        }
+    }
 }
 
 private fun GattWifiNetwork.toBrainBoxWifiNetwork(isCurrent: Boolean = false): BrainBoxWifiNetwork {

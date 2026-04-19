@@ -9,9 +9,21 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+<<<<<<< Updated upstream
 	<key>UIDeviceFamily</key>
 	<array>
 		<integer>1</integer>
 	</array>
+=======
+
+	<!--
+	  读取当前 Wi‑Fi SSID（NEHotspotNetwork.fetchCurrent）从 iOS 13 起硬性依赖定位权限：
+	  系统把 SSID 视为"能推断出用户所在位置"的隐私数据，只有当 CLLocationManager
+	  授权状态为 authorizedWhenInUse / authorizedAlways 时才会把 SSID 返回给 App。
+	  这个 key 少了，requestWhenInUseAuthorization 连弹框都不会出现。
+	-->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>需要定位权限来读取当前 Wi‑Fi 名称，用于自动为脑花盒子配网。</string>
+>>>>>>> Stashed changes
 </dict>
 </plist>

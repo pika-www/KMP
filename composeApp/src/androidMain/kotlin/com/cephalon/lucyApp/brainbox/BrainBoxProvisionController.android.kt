@@ -13,6 +13,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.ScanResult as WifiScanResult
 import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
@@ -76,6 +77,50 @@ private fun wifiSignalLevel(level: Int): Int {
         level >= -85 -> 1
         else -> 0
     }
+}
+
+/**
+ * 规范化 Android WifiInfo.getSSID()：去掉两端双引号，并把 "<unknown ssid>" / 空串 视作未知。
+ *
+ * - API 28 及以下：`WifiManager.connectionInfo.ssid` 直接是 `"foo"` 这种带引号的字符串；
+ * - API 29+：同样是带引号，但若 App 没有 ACCESS_FINE_LOCATION，会得到占位符 "<unknown ssid>"；
+ * - API 30+ 推荐从 `ConnectivityManager.getNetworkCapabilities(...).transportInfo as WifiInfo`
+ *   读，对权限的依赖和上面一致。
+ */
+private fun normalizeWifiSsid(rawSsid: String?): String? {
+    if (rawSsid.isNullOrBlank()) return null
+    val trimmed = rawSsid.trim()
+    val unquoted = if (trimmed.length >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+        trimmed.substring(1, trimmed.length - 1)
+    } else {
+        trimmed
+    }
+    if (unquoted.isBlank()) return null
+    if (unquoted.equals(WifiManager.UNKNOWN_SSID, ignoreCase = true)) return null
+    // API 33 以下常量 WifiManager.UNKNOWN_SSID = "<unknown ssid>"，这里额外兼容文字写法。
+    if (unquoted == "<unknown ssid>") return null
+    return unquoted
+}
+
+/**
+ * 当前连接中的 Wi‑Fi 信息（若有）。
+ *
+ * 优先从 API 31+ 的 `NetworkCapabilities.transportInfo` 取 WifiInfo，
+ * 老版本退回 `WifiManager.connectionInfo`。两条路径都需要 ACCESS_FINE_LOCATION（API 28+）。
+ */
+private fun readActiveWifiInfo(
+    connectivityManager: ConnectivityManager,
+    wifiManager: WifiManager,
+): WifiInfo? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val active = connectivityManager.activeNetwork ?: return null
+        val caps = connectivityManager.getNetworkCapabilities(active) ?: return null
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
+        val info = caps.transportInfo
+        return info as? WifiInfo
+    }
+    @Suppress("DEPRECATION")
+    return wifiManager.connectionInfo
 }
 
 private fun mapWifiNetworks(results: List<WifiScanResult>): List<BrainBoxWifiNetwork> {
@@ -285,6 +330,37 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
                     bluetoothManager.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
                 }
                 isBleScanningState.value = false
+            }
+
+            override suspend fun readCurrentPhoneWifi(): PhoneWifiState {
+                refreshState()
+                // 1) 不管权限怎样，WifiManager.isWifiEnabled 都能读。Wi‑Fi 被关 → 直接告诉 UI
+                //    提示用户打开。
+                val wifiEnabled = runCatching { wifiManager.isWifiEnabled }.getOrDefault(false)
+                if (!wifiEnabled) {
+                    println("[BrainBox] readCurrentPhoneWifi: wifi disabled")
+                    return PhoneWifiState.Disabled
+                }
+                // 2) 要读到 SSID，Android 9+ 必须同时持有 ACCESS_FINE_LOCATION。先尝试授权；
+                //    用户拒绝时仍然能落到下面的 `Unknown` 分支，UI 会回退到手动输入。
+                val granted = if (!wifiPermissionGrantedState) {
+                    requestWifiPermission()
+                } else {
+                    true
+                }
+                if (!granted) {
+                    println("[BrainBox] readCurrentPhoneWifi: wifi permission denied -> Unknown")
+                    return PhoneWifiState.Unknown
+                }
+                val info = readActiveWifiInfo(connectivityManager, wifiManager)
+                val ssid = normalizeWifiSsid(info?.ssid)
+                return if (ssid != null) {
+                    println("[BrainBox] readCurrentPhoneWifi: connected ssid=$ssid")
+                    PhoneWifiState.Connected(ssid)
+                } else {
+                    println("[BrainBox] readCurrentPhoneWifi: wifi on but ssid unreadable -> Unknown")
+                    PhoneWifiState.Unknown
+                }
             }
 
             override suspend fun refreshWifiNetworks(): Result<List<BrainBoxWifiNetwork>> {

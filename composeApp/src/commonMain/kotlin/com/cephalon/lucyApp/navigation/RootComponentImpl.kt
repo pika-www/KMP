@@ -66,12 +66,29 @@ class RootComponentImpl(
             sdkSessionManager.reconnectOnAppStartIfTokenExists()
             scope.launch { authRepository.getUserInfo() }
             scope.launch { authRepository.getModelConfig() }
-            // 本地缓存未命中时，异步查询接口并跳转
-            if (!authRepository.isConnectionFlagCached()) {
-                scope.launch {
-                    val connected = authRepository.checkConnectionFlag()
-                    if (connected) {
-                        navigation.replaceAll(Config.AgentModel())
+
+            // 路由复核：不论 initialConfiguration 取的是 AgentModel 还是 Home，
+            // 这里都按 "当前账号是否真有绑定设备" 做一次权威判定：
+            // - 有 token + 有设备（且接入过）→ AgentModel；
+            // - 有 token 但设备列表为空 → 回 Home 让用户选择接入方式，
+            //   无论本地 KEY_CONNECTION_FLAG 是否缓存为 true 都不该直接进对话页。
+            scope.launch {
+                val connected = authRepository.checkConnectionFlag()
+                val hasDevice = connected && authRepository.getDevices().isNotEmpty()
+                println("RootComponent: init route-check connected=$connected hasDevice=$hasDevice")
+                val currentConfig = runCatching { stack.value.active.configuration }.getOrNull()
+                when {
+                    connected && hasDevice -> {
+                        if (currentConfig !is Config.AgentModel) {
+                            navigation.replaceAll(Config.AgentModel())
+                        }
+                    }
+                    else -> {
+                        if (currentConfig !is Config.Home) {
+                            // 本地 flag 可能是旧账号残留，顺手失效一下
+                            authRepository.invalidateConnectionFlagCache()
+                            navigation.replaceAll(Config.Home())
+                        }
                     }
                 }
             }
@@ -116,8 +133,18 @@ class RootComponentImpl(
                         scope.launch {
                             authRepository.getUserInfo()
                             authRepository.getModelConfig()
+                            // 关键 1：先失效上一轮账号在本地残留的 connection_flag 缓存，
+                            //        强制 checkConnectionFlag() 走一次网络，避免被旧值误判。
+                            authRepository.invalidateConnectionFlagCache()
+
+                            // 关键 2：路由从 "flag" 改为 "当前账号是否真有绑定设备"。
+                            //        connection_flag 只代表"历史上接入过"，解绑光了设备也可能为 true。
+                            //        真正决定该进 AgentModel 还是回 Home（选择接入方式）的，
+                            //        是账号当下是否还有设备可用。
                             val connected = authRepository.checkConnectionFlag()
-                            if (connected) {
+                            val hasDevice = connected && authRepository.getDevices().isNotEmpty()
+                            println("RootComponent: onLoginSuccess connected=$connected hasDevice=$hasDevice")
+                            if (connected && hasDevice) {
                                 navigation.replaceAll(Config.AgentModel())
                             } else {
                                 navigation.replaceAll(Config.Home())

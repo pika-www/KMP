@@ -15,6 +15,11 @@ struct iOSApp: App {
         KoinKt.doInitKoin()
         StoreKitBridge.shared.registerKotlinBridgeHandlers()
         AppleStoreKit2Manager.shared.start()
+
+        // 启动时就提前触发一次定位授权弹窗；Kotlin 侧的 NEHotspotNetwork.fetchCurrent
+        // 只有在 CLLocationManager 授权已通过时才会拿到 SSID，所以最好在用户还没进入
+        // 脑花盒子配网流程之前就把这一步走掉。用户拒绝也 OK，Kotlin 端会按 Unknown 降级。
+        WiFiInfoProvider.shared.ensureLocationAuthorization()
     }
 
     var body: some Scene {

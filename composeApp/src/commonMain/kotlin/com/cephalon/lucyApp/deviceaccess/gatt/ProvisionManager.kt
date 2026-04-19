@@ -101,6 +101,11 @@ class ProvisionManager(
     private val watcherScope = CoroutineScope(Dispatchers.Default)
     private var disconnectWatcherJob: Job? = null
 
+    // BLE 空闲期的 keep-alive 协程：connectDevice / attemptReconnect 成功后启动，
+    // 在 stage=Completed 的"等用户输密码 / 等下一步"这段空闲里周期性读一次 network_status，
+    // 让盒子固件的"等待 wifi_config idle 超时"计时器不断被刷新，规避 BLE 被主动掐断。
+    private var keepAliveJob: Job? = null
+
     // 当前 connectDevice 会话中已经进行的自动重连次数（仅用于日志）。不做上限限制。
     private var reconnectAttemptCount = 0
 
@@ -220,6 +225,9 @@ class ProvisionManager(
                 otp = pairingInfo.otp.takeIf { it.isNotBlank() },
                 errorMessage = null,
             )
+            // connectDevice 成功 → 进入"等用户配网 / 等下一步"的空闲期，挂上 keep-alive
+            // 周期性读 network_status，避免盒子固件因 idle 超时把 BLE 掐掉。
+            startIdleKeepAlive()
             pairingInfo
         }.onFailure { error ->
             _state.value = _state.value.copy(
@@ -473,6 +481,8 @@ class ProvisionManager(
 
     /** 关闭 GATT 连接，清空流程状态。 */
     suspend fun cancel() {
+        // 先停 keep-alive，避免它在主动 disconnect 的过程中还在抢 mutex 做 read。
+        stopIdleKeepAlive()
         disconnectWatcherJob?.cancel()
         disconnectWatcherJob = null
         reconnectAttemptCount = 0
@@ -496,7 +506,53 @@ class ProvisionManager(
     }
 
     fun dispose() {
+        stopIdleKeepAlive()
         watcherScope.cancel()
+    }
+
+    /**
+     * 启动 BLE idle keep-alive：每 [IDLE_KEEP_ALIVE_INTERVAL_MS] 毫秒在 gattMutex 保护下做一次
+     * `readNetworkStatus`。目的是在 stage=Completed 的"等用户手输 SSID/密码"期间让盒子固件
+     * 感知 BLE 还活着，抵消它的"等配网 idle 超时（典型 15~30s）"。
+     *
+     * 非侵入：
+     *   - 只在 stage == Completed 时执行实际 read，其它阶段（Reconnecting / ConfiguringWifi /
+     *     RequestingOtp 等）说明有 in-flight 的主流程操作，keep-alive 让路不插队。
+     *   - 读到的 network_status 会回写 [_state.networkStatus]，等于顺便给 UI 推一个最新快照。
+     *   - 任何读失败都只打日志不退出循环：很可能只是瞬时 ATT 错误，下轮 delay 后再试；
+     *     真的 BLE 断了 [startDisconnectWatcher] 会来调 [stopIdleKeepAlive]。
+     */
+    private fun startIdleKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = watcherScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(IDLE_KEEP_ALIVE_INTERVAL_MS)
+                // 进 lock 之前先快判，避免无意义的排队等锁。
+                if (_state.value.stage != ProvisionFlowStage.Completed) continue
+                val outcome: Result<Unit> = gattMutex.withLock {
+                    // 进了 lock 再复查：等待期间别的 public API 可能刚接手流程。
+                    if (_state.value.stage != ProvisionFlowStage.Completed) {
+                        Result.success(Unit)
+                    } else {
+                        runCatching {
+                            val ns = router.readNetworkStatus().getOrThrow()
+                            _state.value = _state.value.copy(networkStatus = ns)
+                        }
+                    }
+                }
+                outcome.onFailure { error ->
+                    println(
+                        "[BrainBox] idle keep-alive read network_status 失败: ${error.message}" +
+                            "（不致命，等 disconnectWatcher 接管）",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun stopIdleKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = null
     }
 
     private fun startDisconnectWatcher() {
@@ -513,6 +569,10 @@ class ProvisionManager(
                 disconnectWatcherJob = null
                 return@launch
             }
+            // 一旦检测到断开就先停 keep-alive，防止它继续在死连接上尝试 read，
+            // 也让 attemptReconnect 里的 gattMutex.withLock 不用和 keep-alive 抢。
+            // 重连成功会在分支末尾重新 startIdleKeepAlive。
+            stopIdleKeepAlive()
             reconnectAttemptCount++
             println("[BrainBox] 检测到 BLE 断开 (stage=$stage)，开始第 $reconnectAttemptCount 次自动重连（无上限，失败会循环重试）")
             // 注意：不在这里清空 disconnectWatcherJob，保留对当前协程的引用，
@@ -606,6 +666,8 @@ class ProvisionManager(
             if (outcome.isSuccess) {
                 // 挂载新的断开监听到新连接，并通知 UI 重新请求 OTP（新的 request_id）。
                 startDisconnectWatcher()
+                // 重新启动 idle keep-alive，继续抵消固件的 idle 超时。
+                startIdleKeepAlive()
                 println("[BrainBox] 第 $retry 轮自动重连成功，发出 reconnectedEvents")
                 _reconnectedEvents.tryEmit(Unit)
                 return
@@ -639,5 +701,8 @@ class ProvisionManager(
         // 服务端绑定成功后，验证 pairing_info 的最大尝试次数（设备需要短暂时间把状态刷新为 bound）。
         private const val BIND_VERIFY_MAX_ATTEMPTS = 3
         private const val BIND_VERIFY_RETRY_DELAY_MS = 2_000L
+        // BLE idle keep-alive 的轮询间隔。选 8s：显著短于盒子固件常见的 15~30s idle 超时，
+        // 同时足够稀疏不挤占 GATT 通道（用户手点"连接 Wi‑Fi"时 configureWifi 几乎总能立刻拿到 mutex）。
+        private const val IDLE_KEEP_ALIVE_INTERVAL_MS = 8_000L
     }
 }

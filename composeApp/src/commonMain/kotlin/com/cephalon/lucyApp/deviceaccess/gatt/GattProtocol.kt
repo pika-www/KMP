@@ -21,7 +21,11 @@ enum class GattRoute(
 ) {
     DeviceInfo(BrainBoxGattProtocol.DEVICE_INFO_UUID),
     NetworkStatus(BrainBoxGattProtocol.NETWORK_STATUS_UUID),
-    WifiConfig(BrainBoxGattProtocol.WIFI_CONFIG_UUID, writeWithResponse = false),
+    // 改动 1：WifiConfig 由 WRITE_NO_RESPONSE 改为 WRITE_WITH_RESPONSE。
+    // 原因：wifi_config JSON 常 > 20B，必须按 MTU=20 在 writeRoute 里分包串行下发；
+    //       只有带 response 的 Write Request 才保证每包都有 onCharacteristicWrite 回调，
+    //       供下一包据此继续，NR 模式没有回调无法串行。
+    WifiConfig(BrainBoxGattProtocol.WIFI_CONFIG_UUID, writeWithResponse = true),
     WifiScan(BrainBoxGattProtocol.WIFI_SCAN_UUID),
     LucyPairingInfo(BrainBoxGattProtocol.LUCY_PAIRING_INFO_UUID),
     LucyPairingRequest(BrainBoxGattProtocol.LUCY_PAIRING_REQUEST_UUID, writeWithResponse = true),

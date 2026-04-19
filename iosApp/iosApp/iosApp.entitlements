@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Access WiFi Information capability.
+	  作用：允许 App 调用 NEHotspotNetwork.fetchCurrent / CNCopyCurrentNetworkInfo 读取当前
+	       连接的 Wi‑Fi SSID。iOS 12+ 加的限制，不开这条，上面两个 API 调用都会被
+	       nehelper 拦下来，表现是返回 nil，系统日志里伴随
+	           "nehelper sent invalid result code [1] for Wi-Fi information request"。
+	  前置：还必须在 Apple Developer 后台对应的 App ID 里打开 "Access WiFi Information"
+	       capability，并让 provisioning profile 刷新一次 —— 最简单的做法是在 Xcode
+	       的 Signing & Capabilities 里点 "+ Capability" → Access WiFi Information，
+	       Xcode 会自动帮你做后台 + profile 两件事。
+	-->
+	<key>com.apple.developer.networking.wifi-info</key>
+	<true/>
+</dict>
+</plist>

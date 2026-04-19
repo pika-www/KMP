@@ -392,6 +392,11 @@ private class IosBleGattConnection(
 
     fun onDisconnected(error: NSError?) {
         state.value = BleGattConnectionState.Disconnected
+        // 同步清掉 Kotlin 侧的 services 快照：CoreBluetooth 断开后会把 peripheral.services
+        // 及其 characteristics 置 nil，若这里不清，上层 findCharacteristicProperties
+        // 读到的仍是旧 discovery 快照（props 还有值），但随后真正 read/write 走
+        // peripheral.services 时却已为空，出现"快照说有、live 里没有"的分叉。
+        services.value = emptyList()
         val disconnectError = error?.localizedDescription?.takeIf { it.isNotBlank() }
             ?.let { IllegalStateException(it) }
             ?: IllegalStateException("GATT 已断开")
@@ -419,7 +424,7 @@ private class IosBleGattConnection(
     }
 
     override suspend fun readCharacteristic(serviceUuid: String, characteristicUuid: String): Result<ByteArray> {
-        val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
+        val characteristic = findCharacteristicOrRediscover(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
         val key = characteristicUuid.normalizedUuid()
         val result = withTimeoutOrNull(READ_TIMEOUT_MS) {
@@ -441,7 +446,7 @@ private class IosBleGattConnection(
         characteristicUuid: String,
         payload: ByteArray,
     ): Result<Unit> {
-        val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
+        val characteristic = findCharacteristicOrRediscover(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
         val key = characteristicUuid.normalizedUuid()
         val result = withTimeoutOrNull(WRITE_TIMEOUT_MS) {
@@ -463,7 +468,7 @@ private class IosBleGattConnection(
         characteristicUuid: String,
         payload: ByteArray,
     ): Result<Unit> {
-        val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
+        val characteristic = findCharacteristicOrRediscover(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
         return runCatching {
             peripheral.writeValue(payload.toNSData(), forCharacteristic = characteristic, type = 1) // CBCharacteristicWriteWithoutResponse
@@ -475,7 +480,7 @@ private class IosBleGattConnection(
         characteristicUuid: String,
         enabled: Boolean,
     ): Result<Unit> {
-        val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
+        val characteristic = findCharacteristicOrRediscover(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
         return suspendCancellableCoroutine { continuation ->
             notifyContinuations[characteristicUuid.normalizedUuid()] = continuation
@@ -528,6 +533,86 @@ private class IosBleGattConnection(
             ?.characteristics
             ?.filterIsInstance<CBCharacteristic>()
             ?.firstOrNull { it.UUID.UUIDString.normalizedUuid() == characteristicUuid.normalizedUuid() }
+    }
+
+    /**
+     * 找不到特征时的"最后一搏"：先打完整的 live/快照诊断日志，再按条件尝试一次在线
+     * rediscover。命中 miss 的常见原因：
+     *  1. iOS CoreBluetooth 对同一 peripheral 收到了 GATT "Services Changed" indication，
+     *     静默地把 peripheral.services 下每个 CBService.characteristics 置 nil；
+     *  2. 底层链路短暂抖动/后台保活引起的隐式重连，peripheral.services 被整体清空；
+     *  3. 连接其实已经掉了但 disconnectWatcher 还没排上 gattMutex 先把 state 同步好。
+     *
+     * 1/2 两类都可以靠再 discover 一次恢复；3 类 discoverServices 会失败或超时，最终
+     * 仍返回 null，由上层 read/write 抛"未找到特征"→ UI 走 forceReconnect 兜底。
+     */
+    private suspend fun findCharacteristicOrRediscover(
+        serviceUuid: String,
+        characteristicUuid: String,
+    ): CBCharacteristic? {
+        findCharacteristic(serviceUuid, characteristicUuid)?.let { return it }
+
+        logServicesDiagnose(where = "findCharacteristic miss", characteristicUuid = characteristicUuid)
+
+        val canRediscover = state.value == BleGattConnectionState.Ready ||
+            state.value == BleGattConnectionState.Connected ||
+            state.value == BleGattConnectionState.Discovering
+        if (!canRediscover) {
+            println("[BrainBox][diagnose] 不再 rediscover (state=${state.value})，直接返回 null")
+            return null
+        }
+
+        // 若正好有别的 discover 在进行中（例如上层 attemptReconnect），避免冲突直接放弃本次 rediscover，
+        // 让上层错误路径去兜底。
+        if (discoverContinuation != null) {
+            println("[BrainBox][diagnose] 已有 discoverContinuation 在途，跳过本次 rediscover")
+            return null
+        }
+
+        println("[BrainBox][diagnose] miss 后尝试一次 rediscover $characteristicUuid")
+        val rediscover = discoverServices()
+        if (rediscover.isFailure) {
+            println("[BrainBox][diagnose] rediscover 失败: ${rediscover.exceptionOrNull()?.message}")
+            return null
+        }
+        val second = findCharacteristic(serviceUuid, characteristicUuid)
+        if (second == null) {
+            println("[BrainBox][diagnose] rediscover 成功但仍未找到 $characteristicUuid")
+            logServicesDiagnose(where = "after rediscover still miss", characteristicUuid = characteristicUuid)
+        } else {
+            println("[BrainBox][diagnose] rediscover 后恢复 $characteristicUuid")
+        }
+        return second
+    }
+
+    /**
+     * 把 peripheral.services 和 Kotlin 快照 services.value 两边的当前视图都打出来，
+     * 用于排查"快照说有、live 里没有"这种分叉场景。miss 和 after-rediscover 两个时刻都会触发。
+     */
+    private fun logServicesDiagnose(where: String, characteristicUuid: String) {
+        println("[BrainBox][diagnose] $where: target=$characteristicUuid, state=${state.value}")
+        val live = peripheral.services?.filterIsInstance<CBService>()
+        when {
+            live == null ->
+                println("[BrainBox][diagnose]   peripheral.services == null (iOS 侧已清空或尚未 discover)")
+            live.isEmpty() ->
+                println("[BrainBox][diagnose]   peripheral.services = [] (iOS 侧 list 为空)")
+            else -> {
+                println("[BrainBox][diagnose]   peripheral.services size=${live.size}")
+                live.forEach { svc ->
+                    val chars = svc.characteristics?.filterIsInstance<CBCharacteristic>()
+                    val chUuids = chars?.joinToString { it.UUID.UUIDString } ?: "null"
+                    println(
+                        "[BrainBox][diagnose]     service=${svc.UUID.UUIDString}, " +
+                            "characteristics=${chars?.size ?: "null"}, uuids=[$chUuids]",
+                    )
+                }
+            }
+        }
+        val snap = services.value.map { s ->
+            "${s.uuid}(${s.characteristics.size} chars)"
+        }
+        println("[BrainBox][diagnose]   services.value (Kotlin 快照)=$snap")
     }
 }
 

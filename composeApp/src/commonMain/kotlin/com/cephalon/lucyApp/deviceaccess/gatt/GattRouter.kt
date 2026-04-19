@@ -311,21 +311,43 @@ class GattRouter(
                 route.writeWithResponse
             }
         }
-        println("[BrainBox] writeRoute ${route.name}: props=${props?.toPropertyString() ?: "<none>"}, useWithResponse=$useWithResponse")
+        println("[BrainBox] writeRoute ${route.name}: props=${props?.toPropertyString() ?: "<none>"}, useWithResponse=$useWithResponse, totalBytes=${data.size}")
 
-        return if (useWithResponse) {
-            connection.writeCharacteristic(
-                serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
-                characteristicUuid = route.characteristicUuid,
-                payload = data,
-            )
-        } else {
-            connection.writeCharacteristicNoResponse(
-                serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
-                characteristicUuid = route.characteristicUuid,
-                payload = data,
-            )
+        // 改动 2 & 3：按 MTU=20 对 payload 做应用层分包，逐包串行下发，前一包的
+        // connection.writeCharacteristic(...) 返回后才写下一包 —— 由于 platform 端
+        // 只有拿到 onCharacteristicWrite 回调才会 resume 这个 suspend 调用，
+        // 循环天然满足 "等 onCharacteristicWrite 再发下一包"。
+        //
+        // - 单包 payload 上限 = 默认 ATT_MTU(23) - ATT header(3) = 20B。
+        // - 任一包失败立即中断并返回失败，避免半包堆在设备端缓冲。
+        // - 结构维持原有：仍然是一个 suspend fun writeRoute 返回 Result<Unit>，
+        //   仅把"一次写"换成"循环写"，并复用同样的 useWithResponse 分支。
+        val mtuPayload = 20
+        val totalChunks = if (data.isEmpty()) 1 else (data.size + mtuPayload - 1) / mtuPayload
+        for (index in 0 until totalChunks) {
+            val start = index * mtuPayload
+            val end = minOf(start + mtuPayload, data.size)
+            val chunk = if (data.isEmpty()) data else data.copyOfRange(start, end)
+            println("[BrainBox] writeRoute ${route.name}: chunk ${index + 1}/$totalChunks size=${chunk.size}B")
+            val chunkResult = if (useWithResponse) {
+                connection.writeCharacteristic(
+                    serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
+                    characteristicUuid = route.characteristicUuid,
+                    payload = chunk,
+                )
+            } else {
+                connection.writeCharacteristicNoResponse(
+                    serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
+                    characteristicUuid = route.characteristicUuid,
+                    payload = chunk,
+                )
+            }
+            if (chunkResult.isFailure) {
+                println("[BrainBox] writeRoute ${route.name}: chunk ${index + 1}/$totalChunks FAILED: ${chunkResult.exceptionOrNull()?.message}")
+                return chunkResult
+            }
         }
+        return Result.success(Unit)
     }
 
     private fun findCharacteristicProperties(route: GattRoute): Int? {

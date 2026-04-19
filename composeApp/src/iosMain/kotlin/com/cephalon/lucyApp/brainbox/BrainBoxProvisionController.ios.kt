@@ -10,6 +10,8 @@ import com.cephalon.lucyApp.logging.appLogD
 import com.cephalon.lucyApp.scan.rememberOpenAppSettings
 import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import platform.CoreBluetooth.CBAdvertisementDataLocalNameKey
 import platform.CoreBluetooth.CBCentralManager
 import platform.CoreBluetooth.CBCentralManagerDelegateProtocol
@@ -19,6 +21,7 @@ import platform.CoreBluetooth.CBManagerStateUnauthorized
 import platform.CoreBluetooth.CBManagerStateUnsupported
 import platform.CoreBluetooth.CBPeripheral
 import platform.Foundation.NSNumber
+import platform.NetworkExtension.NEHotspotNetwork
 import platform.darwin.NSObject
 
 @Composable
@@ -141,6 +144,29 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
             override fun stopBleScan() {
                 centralManagerState?.stopScan()
                 isBleScanningFlow.value = false
+            }
+
+            override suspend fun readCurrentPhoneWifi(): PhoneWifiState {
+                // iOS 要读到当前连接的 Wi‑Fi SSID 需要满足：
+                //   (1) App 打开 "Access WiFi Information" entitlement；
+                //   (2) 用户已授予定位权限（WhenInUse / Always）；
+                //   (3) 当前确实连接在某个 Wi‑Fi 网络。
+                // 任一不满足，NEHotspotNetwork.fetchCurrent 会回调 nil。此时我们无法区分
+                // 是 Wi‑Fi 未开启、还是没权限、还是没连网络，统一按 Unknown 处理，UI 回退到
+                // 手动输入 SSID/密码的分支。
+                val network = suspendCancellableCoroutine<NEHotspotNetwork?> { cont ->
+                    NEHotspotNetwork.fetchCurrentWithCompletionHandler { result ->
+                        if (cont.isActive) cont.resume(result)
+                    }
+                }
+                val ssid = network?.SSID?.trim()?.takeIf { it.isNotBlank() }
+                return if (ssid != null) {
+                    println("[BrainBox] readCurrentPhoneWifi: connected ssid=$ssid")
+                    PhoneWifiState.Connected(ssid)
+                } else {
+                    println("[BrainBox] readCurrentPhoneWifi: fetchCurrent returned nil -> Unknown (缺 entitlement / 定位权限 / 未连 Wi‑Fi)")
+                    PhoneWifiState.Unknown
+                }
             }
 
             override suspend fun refreshWifiNetworks(): Result<List<BrainBoxWifiNetwork>> {

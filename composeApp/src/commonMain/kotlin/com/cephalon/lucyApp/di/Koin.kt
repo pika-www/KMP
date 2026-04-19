@@ -3,6 +3,7 @@ package com.cephalon.lucyApp.di
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.api.AuthApi
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.brainbox.WifiCredentialCache
 import com.cephalon.lucyApp.deviceaccess.DeviceChatManager
 import com.cephalon.lucyApp.deviceaccess.DeviceConnector
 import com.cephalon.lucyApp.deviceaccess.ProvisionUseCase
@@ -41,6 +42,7 @@ val appModule = module {
     single { WsRepository(get()) }
     single { BalanceWsManager(get(), get(), get(), get()) }
     single { ChatHistoryCache(get()) }
+    single { WifiCredentialCache(get()) }
     // IAPManager is provided by platform modules
 }
 

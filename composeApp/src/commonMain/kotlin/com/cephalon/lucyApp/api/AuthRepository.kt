@@ -256,6 +256,16 @@ class AuthRepository(
      */
     fun isConnectionFlagCached(): Boolean = settings.getBoolean(KEY_CONNECTION_FLAG, false)
 
+    /**
+     * 仅清掉本地 connection_flag 缓存（保留 token、用户信息等）。
+     *
+     * 登录入口应在调用 [checkConnectionFlag] 之前先失效一次，避免上一个账号残留的
+     * 缓存 flag 让全新账号被错误地直接带进 AgentModel 对话页。
+     */
+    fun invalidateConnectionFlagCache() {
+        settings.remove(KEY_CONNECTION_FLAG)
+    }
+
     // ---- 设备绑定（OTP） ----
 
     private val deviceBindingPath = "/aiden/lucy-server/v1/channels/lucy/devices/device-bindings"
