@@ -1,8 +1,14 @@
 package com.cephalon.lucyApp.deviceaccess.gatt
 
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
 // BLE 特性 property 位掩码，Android BluetoothGattCharacteristic.PROPERTY_* 与
@@ -43,86 +49,129 @@ class GattRouter(
     }
 
     /**
-     * 协议步骤 7：向 lucy_pairing_request 写入 `{"request_id":"<millis>"}`，固定等待
-     * [OTP_READ_AFTER_WRITE_DELAY_MS]（5s）后读取 `lucy_pairing_info`，以 `otp` 字段是否
-     * 有值作为成功判据。
+     * 协议步骤 7：订阅 `lucy_pairing_info` 的 notify → 写 `lucy_pairing_request` → 等 notify 推回
+     * 含 OTP 的 payload。Notify 未到时兜底 read，enable notify 失败时降级为"固定 delay + read"。
+     *
+     * ## 为什么用 notify 替代固定 delay + read
+     * 目标硬件（Intel AX210 Wi-Fi 6E + BT 5.3 combo 模块）的射频前端共享,gateway 的
+     * lucy-im-sdk presence 心跳（10s 一次）+ HTTP/2 长连接几乎不给 BLE 留空窗,BLE 每
+     * 10~20s 被 Wi-Fi 抢占一次。旧实现需要 BLE 连续在线 ≥5s 才能完成 write→delay(5s)→read,
+     * 在这种硬件下几乎总在 delay 区间掉线 → UI forceReconnect → 死循环。
+     *
+     * 新流程把 BLE 必需在线时间从 ≥5s 砍到 ~1-2s：
+     *   1. `enableLucyPairingInfoNotify()` 写 CCCD（和 attemptReconnect 的 enable 幂等）
+     *   2. `CoroutineStart.UNDISPATCHED` 在本线程就位一个 `first()` 订阅,
+     *      **保证订阅在 write 触发的 notify 到达之前已生效**
+     *   3. write `lucy_pairing_request`（服务端 InjectOtp 后会 setValue →
+     *      emitPropertiesChanged,BlueZ 把新值 notify 给客户端）
+     *   4. 等第一个 `isBound || isOtpValid` 的 notify 或 [OTP_NOTIFY_TIMEOUT_MS] 超时
+     *   5. 命中 → 立刻返回；超时 → 兜底短 delay + read（处理服务端确实没 notify 的场景）
+     *   6. 一开始 enable notify 就失败 → 走旧路径 [OTP_READ_AFTER_WRITE_DELAY_MS] + read,
+     *      保底兼容不支持 notify 的设备。
      *
      * ## 为什么不信任 write ACK
-     * 协议文档声称「write ACK 返回时 OTP 已注入」，但实测 BrainBox 设备即便 write 返回
-     * ATT 错误（常见 `code=128` APPLICATION_ERROR / `code=14` UNLIKELY_ERROR），Lucy IPC
-     * 仍可能异步完成把 OTP 注入到 `lucy_pairing_info`。把 write ACK 当成败点会漏报成功，
-     * 把正常流程搞成 forceReconnect 死循环。
-     *
-     * 新策略：
-     * 1. 正常写入（仍用 WRITE_WITH_RESPONSE 以满足协议 handler 触发条件）
-     * 2. **不论 write 是否报错**，等 5s 给设备端 Lucy 插件完成同步 IPC（文档标称 1–3s，
-     *    5s 是宽松窗口）
-     * 3. 主动 read `lucy_pairing_info`；
-     *    - read 失败（status/att/timeout 类）→ 真正的 BLE 链路异常，返回 failure，由上层
-     *      forceReconnect 接管
-     *    - read 成功 → 看 payload：
-     *      - `isBound=true` 或 `isOtpValid=true` → 成功
-     *      - 其他 → 业务失败（设备端 IPC 没跑通），返回 failure 让 UI 展示"请检查设备"，
-     *        **不触发** forceReconnect（因为重连解决不了 Lucy 插件未就绪等问题）
+     * 实测服务端即便 write 返回 ATT 错误（code=128/14）,Lucy IPC 仍可能异步完成 OTP 注入；
+     * write 失败**不中断**,仍按 notify/read 终态判定。
      *
      * ## 协议错误字符串对照（仅供排查设备端日志时用）
-     * bluez 映射 `org.bluez.Error.Failed` → ATT 0x0E；部分设备走自定义映射 → 0x80 段：
      *  - `pairing ipc is not enabled`         → 设备未启用 `--lucy-pairing-sock`
      *  - `lucy pairing client is not connected` → Lucy 插件未连 socket
      *  - `pairing ipc: request timed out`     → 8s 内 Lucy 未返回 OTP
-     *  - `pairing ipc: duplicate request id`  → `request_id` 判重（本实现用毫秒时间戳规避）
+     *  - `pairing ipc: duplicate request id`  → `request_id` 判重（毫秒时间戳规避）
      *  - `pairing ipc: <Lucy 原始错误>`       → Lucy 侧业务失败
-     * 这些字符串不会通过 ATT 回传客户端，细分仍需查设备端日志。
      *
      * ## OTP 有效期
-     * 约 5 分钟（见 [LucyPairingInfoPayload.otpExpiresAtMs] / [LucyPairingInfoPayload.isOtpExpired]），
+     * 约 5 分钟（见 [LucyPairingInfoPayload.otpExpiresAtMs] / [LucyPairingInfoPayload.isOtpExpired]）,
      * 过期后需重新调用本函数申请新 OTP。
      */
-    suspend fun requestOtpAndReadPairingInfo(): Result<LucyPairingInfoPayload> {
+    suspend fun requestOtpAndReadPairingInfo(): Result<LucyPairingInfoPayload> = coroutineScope {
         val requestId = kotlinx.datetime.Clock.System.now().toEpochMilliseconds().toString()
         val payload = LucyPairingRequestPayload(requestId = requestId)
 
-        // 1) 写入 lucy_pairing_request。write 的 ATT 错误仅告警不中断——后续读 pairing_info
-        //    的结果才是终态判据。
-        println("[BrainBox] lucy_pairing_request write (with response): request_id=$requestId")
-        val writeResult = writeRoute(
-            route = GattRoute.LucyPairingRequest,
-            payload = dispatcher.toJsonObject(payload),
-        )
-        if (writeResult.isFailure) {
+        // 1) 首选 notify 路径：CCCD 写入幂等,enable 失败时降级到"固定 delay + read"。
+        val enableNotifyResult = enableLucyPairingInfoNotify()
+        val notifyEnabled = enableNotifyResult.isSuccess
+        if (!notifyEnabled) {
             println(
-                "[BrainBox] WARN lucy_pairing_request write 返回错误但按策略继续等 " +
-                    "${OTP_READ_AFTER_WRITE_DELAY_MS}ms 再读 pairing_info: " +
-                    "${writeResult.exceptionOrNull()?.message}",
+                "[BrainBox] enableLucyPairingInfoNotify 失败,降级到固定 delay + read 路径: " +
+                    "${enableNotifyResult.exceptionOrNull()?.message}",
             )
         }
 
-        // 2) 固定等 5s 给设备端 Lucy 插件完成 IPC。
-        println("[BrainBox] 等待 ${OTP_READ_AFTER_WRITE_DELAY_MS}ms 后读 lucy_pairing_info")
-        delay(OTP_READ_AFTER_WRITE_DELAY_MS)
-
-        // 3) 主动 read pairing_info。read 失败 = BLE 链路异常，返回 failure 让 UI forceReconnect。
-        val info = readLucyPairingInfo().getOrElse { readError ->
-            println("[BrainBox] read lucy_pairing_info 失败: ${readError.message}")
-            return Result.failure(readError)
-        }
-        println(
-            "[BrainBox] pairing_info after ${OTP_READ_AFTER_WRITE_DELAY_MS}ms: " +
-                "state=${info.state}, bindingStatus=${info.bindingStatus}, " +
-                "otp=${info.otp.ifBlank { "<empty>" }}, otpExpiresAtMs=${info.otpExpiresAtMs}, " +
-                "cdi=${info.channelDeviceId}",
-        )
-
-        // 4) 终态判定：设备已绑定 或 拿到未过期 OTP → 成功；否则业务失败。
-        return if (info.isBound || info.isOtpValid) {
-            Result.success(info)
+        // 2) UNDISPATCHED：让 observer.collect 在本线程立即进入等待,避免 write 触发的
+        //    notify 先于 await 到达而被丢掉。仅在 notify enable 成功时订阅。
+        val observer = if (notifyEnabled) {
+            async(start = CoroutineStart.UNDISPATCHED) {
+                observeLucyPairingInfo()
+                    .filter { it.isBound || it.isOtpValid }
+                    .first()
+            }
         } else {
-            Result.failure(
-                IllegalStateException(
-                    "设备未下发 OTP（otp=${info.otp.ifBlank { "空" }}, state=${info.state}, " +
-                        "bindingStatus=${info.bindingStatus}），请检查设备配对服务",
-                ),
+            null
+        }
+
+        try {
+            // 3) 写 lucy_pairing_request。write 失败仍按策略继续等 notify/fallback 判定终态。
+            println("[BrainBox] lucy_pairing_request write (with response): request_id=$requestId")
+            val writeResult = writeRoute(
+                route = GattRoute.LucyPairingRequest,
+                payload = dispatcher.toJsonObject(payload),
             )
+            if (writeResult.isFailure) {
+                println(
+                    "[BrainBox] WARN lucy_pairing_request write 返回错误但继续等 notify/fallback read: " +
+                        "${writeResult.exceptionOrNull()?.message}",
+                )
+            }
+
+            // 4) 首选路径：等 notify 推送。observer == null 说明 enable 未成功,直接跳到降级。
+            val viaNotify = if (observer != null) {
+                println("[BrainBox] 等待 lucy_pairing_info notify (最长 ${OTP_NOTIFY_TIMEOUT_MS}ms)...")
+                withTimeoutOrNull(OTP_NOTIFY_TIMEOUT_MS) { observer.await() }
+            } else {
+                null
+            }
+            if (viaNotify != null) {
+                println(
+                    "[BrainBox] pairing_info via notify: state=${viaNotify.state}, " +
+                        "bindingStatus=${viaNotify.bindingStatus}, " +
+                        "otp=${viaNotify.otp.ifBlank { "<empty>" }}, " +
+                        "otpExpiresAtMs=${viaNotify.otpExpiresAtMs}, cdi=${viaNotify.channelDeviceId}",
+                )
+                return@coroutineScope Result.success(viaNotify)
+            }
+
+            // 5) 兜底：notify 未到或未订阅。若 notify 已订阅仅短等 [OTP_FALLBACK_READ_DELAY_MS]
+            //    再 read（合理假设服务端已注入但没 emit notify）；否则按旧的宽松窗口。
+            val fallbackWaitMs = if (notifyEnabled) OTP_FALLBACK_READ_DELAY_MS else OTP_READ_AFTER_WRITE_DELAY_MS
+            println("[BrainBox] notify 未达,等待 ${fallbackWaitMs}ms 后兜底 read lucy_pairing_info")
+            delay(fallbackWaitMs)
+
+            val info = readLucyPairingInfo().getOrElse { readError ->
+                println("[BrainBox] fallback read lucy_pairing_info 失败: ${readError.message}")
+                return@coroutineScope Result.failure(readError)
+            }
+            println(
+                "[BrainBox] pairing_info fallback read: state=${info.state}, " +
+                    "bindingStatus=${info.bindingStatus}, otp=${info.otp.ifBlank { "<empty>" }}, " +
+                    "otpExpiresAtMs=${info.otpExpiresAtMs}, cdi=${info.channelDeviceId}",
+            )
+
+            if (info.isBound || info.isOtpValid) {
+                Result.success(info)
+            } else {
+                Result.failure(
+                    IllegalStateException(
+                        "设备未下发 OTP（otp=${info.otp.ifBlank { "空" }}, state=${info.state}, " +
+                            "bindingStatus=${info.bindingStatus}）,请检查设备配对服务",
+                    ),
+                )
+            }
+        } finally {
+            observer?.cancel()
+            if (notifyEnabled) {
+                runCatching { disableLucyPairingInfoNotify() }
+            }
         }
     }
 
@@ -430,13 +479,31 @@ class GattRouter(
         const val WIFI_SCAN_OVERALL_TIMEOUT_MS = 20_000L
 
         /**
-         * 协议步骤 7：写完 lucy_pairing_request 后等多久再 read lucy_pairing_info。
+         * 协议步骤 7 的首选路径：等 `lucy_pairing_info` notify 推送的上限。
          *
          * 设计依据：
-         * - 协议文档标称 Lucy 插件同步 IPC 约 1–3s；5s 留足宽松窗口
-         * - 不再依赖 write ACK（见 [requestOtpAndReadPairingInfo] KDoc），write 过早
-         *   失败或未携带 OTP 信息时，这个 delay 给设备端一个稳定的 IPC 完成窗口
-         * - 不做多轮轮询：5s 后一次 read 判定成败；真正的 BLE 链路问题走 forceReconnect
+         * - Lucy 插件同步 IPC 标称 1–3s；8s 留足余量覆盖 HTTP/2 pre-bind 慢回合
+         * - 超时即视为"notify 没到",走 [OTP_FALLBACK_READ_DELAY_MS] 兜底 read
+         * - 在 AX210 combo 芯片等"BLE 每 10~20s 被 Wi-Fi 挤掉一次"的硬件下,把
+         *   首选路径封顶在 8s 是为了尽量落在 BLE 在线间歇期内
+         */
+        const val OTP_NOTIFY_TIMEOUT_MS = 8_000L
+
+        /**
+         * 协议步骤 7 的 notify 兜底路径：notify 已订阅但未按期到达时,短等后再 read。
+         *
+         * 设计依据：
+         * - notify 未达 ≠ OTP 没注入；此时服务端端可能已经 InjectOtp 但 emit notify 失败
+         *   或被 BLE 链路抖动吞掉。短等 500ms 给可能的竞态窗口一个机会,再主动 read。
+         * - 比旧的 [OTP_READ_AFTER_WRITE_DELAY_MS]（5s）激进,前提是 notify 已订阅
+         */
+        const val OTP_FALLBACK_READ_DELAY_MS = 500L
+
+        /**
+         * 协议步骤 7 的降级路径：当 `enableLucyPairingInfoNotify()` 一开始就失败（设备
+         * 未声明 NOTIFY / CCCD 写异常）时,退回到旧版"固定 delay + read"行为。
+         *
+         * 设计依据：协议文档标称 Lucy 插件 IPC 约 1–3s；5s 是兼容降级的宽松窗口。
          */
         const val OTP_READ_AFTER_WRITE_DELAY_MS = 5_000L
     }
