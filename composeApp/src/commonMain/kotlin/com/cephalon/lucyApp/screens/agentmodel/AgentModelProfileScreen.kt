@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +36,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +82,7 @@ import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.channelDeviceId
 import com.cephalon.lucyApp.api.CloseAccountRequest
+import com.cephalon.lucyApp.api.ModelRecordItem
 import com.cephalon.lucyApp.api.RechargeRuleItem
 import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.cephalon.lucyApp.components.CodeInput
@@ -417,17 +423,13 @@ internal fun AgentModelProfileScreen(
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        Column(
+                        RechargeContent(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = 18.dp)
-                                .verticalScroll(rememberScrollState()),
-                        ) {
-                            RechargeContent(
-                                onNavigateToPackage = { currentPage = ProfilePage.RechargePackage }
-                            )
-                        }
+                                .padding(horizontal = 18.dp),
+                            onNavigateToPackage = { currentPage = ProfilePage.RechargePackage },
+                        )
                     }
                 }
 
@@ -1027,144 +1029,324 @@ private fun AccountDetailContent(
 
 @Composable
 private fun RechargeContent(
+    modifier: Modifier = Modifier,
     onNavigateToPackage: () -> Unit = {},
 ) {
+    val authRepository: AuthRepository = koinInject()
     val balanceWsManager: BalanceWsManager = koinInject()
     val balanceData by balanceWsManager.balance.collectAsState()
     val uriHandler = LocalUriHandler.current
     val isIos = remember { getPlatform().name.startsWith("iOS", ignoreCase = true) }
+    val coroutineScope = rememberCoroutineScope()
 
     val paidBalance = balanceData.balances["1"] ?: 0L
     val freeBalance = balanceData.balances["4"] ?: 0L
 
-    // 进入充值页面时主动刷新一次余额
-    LaunchedEffect(Unit) {
-        balanceWsManager.refreshBalance()
+    // 用量记录分页状态：
+    //  - [records] 累积列表，随滚动不断 append；
+    //  - [nextPage] 下一次要请求的页码（从 1 开始），请求成功后 +1；
+    //  - [hasMore]  用 "本页长度 < pageSize" 作为 "已到末页" 的启发式判断；
+    //  - [isLoading]/[loadError] 驱动 UI 显示 loading footer / 错误 footer。
+    val records = remember { mutableStateListOf<ModelRecordItem>() }
+    var nextPage by remember { mutableStateOf(1) }
+    var isLoading by remember { mutableStateOf(false) }
+    var hasMore by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+
+    // 触发下一页加载。**`isLoading=true` 必须同步写**（在 launch 外面），否则 LaunchedEffect(Unit)
+    // 的 loadMore 和 LaunchedEffect(shouldLoadMore,...) 的 loadMore 可能在同一帧先后触发：
+    // 第一次 load 把 `isLoading=true` 放在协程里等调度，LazyColumn 首次 layout 时 `shouldLoadMore`
+    // 会瞬间为 true（records 还空、总项数只有 4），第二个 LaunchedEffect 检查到 `isLoading=false`
+    // 直接放行，两次 loadMore 都以 pageIndex=1 发出去 → `records.addAll` 同一批两次
+    // → LazyColumn `key` 冲突 → IllegalArgumentException 崩溃。
+    //
+    // 失败时 hasMore 仍保留为 true，方便用户点 "重试" footer；
+    // 成功返回空页或不足一页时关掉 hasMore，UI 切到 "已加载全部" footer。
+    val loadMore: () -> Unit = load@{
+        if (isLoading || !hasMore) return@load
+        isLoading = true
+        loadError = null
+        val pageIndex = nextPage
+        coroutineScope.launch {
+            try {
+                val resp = authRepository.getModelRecords(
+                    pageIndex = pageIndex,
+                    pageSize = MODEL_RECORD_PAGE_SIZE,
+                )
+                val data = resp.data
+                if (resp.code == 20000 && data != null) {
+                    // 兜底去重：后端极端情况下可能因分页边界返回重叠行；LazyColumn key
+                    // 用的是 record.id，重复 id 会直接抛 IllegalArgumentException。
+                    val existingIds = records.mapNotNullTo(HashSet()) {
+                        it.id.takeIf { id -> id.isNotBlank() }
+                    }
+                    val fresh = data.list.filter { it.id.isBlank() || it.id !in existingIds }
+                    records.addAll(fresh)
+                    nextPage = pageIndex + 1
+                    hasMore = data.list.size >= MODEL_RECORD_PAGE_SIZE
+                } else {
+                    loadError = resp.msg.ifBlank { "加载失败" }
+                }
+            } finally {
+                isLoading = false
+            }
+        }
     }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+    // 首次进入：刷新余额 + 拉第一页。
+    LaunchedEffect(Unit) {
+        balanceWsManager.refreshBalance()
+        loadMore()
+    }
+
+    val listState = rememberLazyListState()
+    // 临近底部（最后 3 项内）自动触发下一页。derivedStateOf 把 visibleItemsInfo/
+    // totalItemsCount 的变化合并成一个布尔，避免每次滚动都重新计算。
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val total = listState.layoutInfo.totalItemsCount
+            total > 0 && lastVisible >= total - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore, hasMore, isLoading) {
+        if (shouldLoadMore && hasMore && !isLoading) {
+            loadMore()
+        }
+    }
+
+    LazyColumn(
+        modifier = modifier,
+        state = listState,
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        // lucy Pro 卡片
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = Color.White,
-            shadowElevation = 2.dp,
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEEEEEE))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+        // ── lucy Pro 卡片（余额） ──
+        item(key = "proCard") {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                shadowElevation = 2.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEEEEEE))
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        text = "lucy Pro",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF111111)
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF111111),
-                        modifier = Modifier.clickable {
-                            if (isIos) {
-                                onNavigateToPackage()
-                            } else {
-                                uriHandler.openUri("https://cephalon.cloud")
-                            }
-                        }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "充值",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            text = "lucy Pro",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF111111)
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF111111),
+                            modifier = Modifier.clickable {
+                                if (isIos) {
+                                    onNavigateToPackage()
+                                } else {
+                                    uriHandler.openUri("https://cephalon.cloud")
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = "充值",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFFF0F0F0))
+
+                    Text(
+                        text = "脑力值",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF111111)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "充值剩余脑力值",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF666666)
+                        )
+                        Text(
+                            text = "$paidBalance",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                            color = Color(0xFF111111)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "免费脑力值",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF666666)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFEEEEEE))
+                            )
+                            Text(
+                                text = "$freeBalance",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF111111)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── "用量详情" 标题 ──
+        item(key = "usageHeader") {
+            Text(
+                text = "用量详情",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFF111111)
+            )
+        }
+
+        // ── 每条记录：只展示 时间 / 模型名 / 合计消耗 三个字段 ──
+        // 用 record.id 作稳定 key；极端情况下后端返回空 id，退化用 index-based 的 fallback。
+        items(
+            items = records,
+            key = { record -> record.id.ifBlank { "idx_${records.indexOf(record)}" } },
+        ) { record ->
+            Column {
+                UsageRecordItem(
+                    time = formatRecordTime(record.createdAt),
+                    modelName = record.edges?.model?.name.orEmpty(),
+                    amount = "-${record.inputCepCost + record.outputCepCost}",
+                )
+                HorizontalDivider(color = Color(0xFFF0F0F0))
+            }
+        }
+
+        // ── 分页 footer：loading / empty / error / end / bottomSpacer，互斥展示 ──
+        when {
+            isLoading -> {
+                item(key = "footerLoading") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = Color(0xFF999999),
                         )
                     }
                 }
-
-                HorizontalDivider(color = Color(0xFFF0F0F0))
-
-                Text(
-                    text = "脑力值",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color(0xFF111111)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "充值剩余脑力值",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF666666)
-                    )
-                    Text(
-                        text = "$paidBalance",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF111111)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "免费脑力值",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF666666)
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            }
+            loadError != null -> {
+                item(key = "footerError") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFEEEEEE))
-                        )
                         Text(
-                            text = "$freeBalance",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF111111)
+                            text = loadError ?: "加载失败",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF999999),
+                        )
+                        TextButton(onClick = { loadMore() }) {
+                            Text(text = "点击重试", color = Color(0xFF111111))
+                        }
+                    }
+                }
+            }
+            records.isEmpty() -> {
+                item(key = "footerEmpty") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "暂无用量记录",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF999999),
+                        )
+                    }
+                }
+            }
+            !hasMore -> {
+                item(key = "footerEnd") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "已加载全部",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFBBBBBB),
                         )
                     }
                 }
             }
         }
 
-        // 用量详情
-        Text(
-            text = "用量详情",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color(0xFF111111)
-        )
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            UsageRecordItem(time = "2026.3.20.11:00-12:00", amount = "-82")
-            HorizontalDivider(color = Color(0xFFF0F0F0))
-            UsageRecordItem(time = "2026.3.19.14:00-15:00", amount = "-56")
-            HorizontalDivider(color = Color(0xFFF0F0F0))
-            UsageRecordItem(time = "2026.3.18.09:00-10:00", amount = "-120")
+        item(key = "bottomSpacer") {
+            Spacer(modifier = Modifier.height(32.dp))
         }
-
-        Spacer(modifier = Modifier.height(32.dp))
     }
+}
+
+// 用量记录一次 10 条，够覆盖 5~6 屏、又不会让首屏等太久。
+private const val MODEL_RECORD_PAGE_SIZE = 10
+
+/**
+ * 把后端返回的 ISO 8601 时间字符串转成 `yyyy.MM.dd HH:mm:ss`。
+ *
+ * 典型输入：`"2026-04-19T15:52:46.508505+08:00"`、`"2026-04-19T15:52:46Z"`、
+ * `"2026-04-19T15:52:46+08:00"`。策略是**纯字符串切片**（不做时区换算）：
+ *  - 取 `T` 前 10 位作日期，把 `-` 换 `.` 得到 `"2026.04.19"`；
+ *  - 取 `T` 后首个 `.`/`+`/`-`/`Z` 之前的部分作时间，得到 `"15:52:46"`；
+ *  - 不符合这个格式就原样返回（不要在 UI 里把错误时间再"美化"掩盖解析问题）。
+ * 之所以不过 kotlinx-datetime：后端时间戳自带 `+08:00`，对齐服务端显示即可，
+ * 再做 `Instant.parse → toLocalDateTime(systemDefault)` 反而会把换到用户手机本地时区。
+ */
+private fun formatRecordTime(raw: String): String {
+    if (raw.length < 19) return raw
+    val tIndex = raw.indexOf('T')
+    if (tIndex != 10) return raw
+    val datePart = raw.substring(0, 10).replace('-', '.')
+    val rest = raw.substring(11)
+    val timeEnd = rest.indexOfFirst { it == '.' || it == '+' || it == 'Z' || it == '-' }
+    val timePart = if (timeEnd in 1..rest.length) rest.substring(0, timeEnd) else rest
+    return "$datePart $timePart"
 }
 
 private data class FixedPackage(
@@ -1563,6 +1745,7 @@ private fun PackageCard(
 @Composable
 private fun UsageRecordItem(
     time: String,
+    modelName: String,
     amount: String,
 ) {
     Row(
@@ -1570,17 +1753,32 @@ private fun UsageRecordItem(
             .fillMaxWidth()
             .padding(vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = time,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF666666)
-        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (modelName.isNotBlank()) {
+                Text(
+                    text = modelName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF111111),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = time,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF999999),
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = amount,
             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-            color = Color(0xFF111111)
+            color = Color(0xFF111111),
         )
     }
 }

@@ -254,6 +254,55 @@ data class VerifyTransactionData(
 )
 
 /**
+ * GET /cephalon/user-center/v1/model/record 响应 data 字段。
+ *
+ * 分页协议：请求携带 `page_index`（从 1 起）与 `page_size`；响应回显它们以及 `total`。
+ * 前端用 "本页长度 < page_size" 作为"已加载到末页"的启发式——total 字段仅供展示参考，
+ * 不作为分页终止条件（total 计算口径在后端可能不实时，信 list.size 更稳）。
+ */
+@Serializable
+data class ModelRecordListData(
+    val list: List<ModelRecordItem> = emptyList(),
+    @SerialName("page_index")
+    val pageIndex: Int = 0,
+    @SerialName("page_size")
+    val pageSize: Int = 0,
+    val total: Int = 0,
+)
+
+/**
+ * 单条脑力值用量记录。**只解析 UI 需要的字段**，其余由全局 `ignoreUnknownKeys=true`
+ * 自动忽略（api_token / invoke_times / token_cost / record_time 等都不需要）。
+ *
+ * 展示仅用 3 个字段：
+ *  - [createdAt] 记录创建时间，ISO 8601，如 `"2026-04-19T15:52:46.508505+08:00"`，
+ *    UI 侧 `formatRecordTime()` 会裁到 `"2026.04.19 15:52:46"`。
+ *  - `edges.model.name` 模型名（如 `"kimi-k2.5"`）。
+ *  - [inputCepCost] + [outputCepCost] 合计为用户在这条记录里消耗的脑力值。
+ */
+@Serializable
+data class ModelRecordItem(
+    val id: String = "",
+    @SerialName("created_at")
+    val createdAt: String = "",
+    @SerialName("input_cep_cost")
+    val inputCepCost: Long = 0,
+    @SerialName("output_cep_cost")
+    val outputCepCost: Long = 0,
+    val edges: ModelRecordEdges? = null,
+)
+
+@Serializable
+data class ModelRecordEdges(
+    val model: ModelRecordModelInfo? = null,
+)
+
+@Serializable
+data class ModelRecordModelInfo(
+    val name: String = "",
+)
+
+/**
  * GET /v1/channels/lucy/current-user/model-config
  */
 @Serializable

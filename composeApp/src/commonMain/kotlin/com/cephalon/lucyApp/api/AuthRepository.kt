@@ -147,6 +147,29 @@ class AuthRepository(
         return authApi.post("/orders/apple/verify", request)
     }
 
+    /**
+     * 分页拉取脑力值用量记录：
+     * GET {baseDomain}/cephalon/user-center/v1/model/record?invoke_type=api&page_index=&page_size=
+     *
+     * 该接口不走 /v1/aiden/cephalon-app 前缀，故用 [AuthApi.getAbsolute]。
+     * [pageIndex] 从 1 开始；[pageSize] 由 UI 侧传入（充值页用 10）。
+     * [invokeType] 后端筛选"用户实际调用方式"，当前 UI 固定传 `"api"`。
+     */
+    suspend fun getModelRecords(
+        pageIndex: Int,
+        pageSize: Int,
+        invokeType: String = "api",
+    ): BaseResponse<ModelRecordListData> {
+        return authApi.getAbsolute(
+            "/cephalon/user-center/v1/model/record",
+            mapOf(
+                "invoke_type" to invokeType,
+                "page_index" to pageIndex.toString(),
+                "page_size" to pageSize.toString(),
+            ),
+        )
+    }
+
     // ---- Lucy 设备 ----
 
     private val devicesPath = "/channels/lucy-app/current-user/devices"
