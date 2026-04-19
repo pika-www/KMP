@@ -48,6 +48,12 @@ import kotlin.coroutines.resume
 // 主动 disconnect 后等待 STATE_DISCONNECTED 平台回调的上限；超时强制走清理路径。
 private const val DISCONNECT_TIMEOUT_MS = 3_000L
 
+// 协商后的 ATT MTU 上限。选 185：ATT header 3B + 应用层 payload 182B，足够单包发完
+// wifi_config / lucy_pairing_request / wifi_scan / 完整 pairing_info 读回等所有已知 JSON，
+// 避免依赖 Prepare/Execute Write 在部分 OEM 栈上的实现 bug。设备可能协商出更小值，调用
+// requestMtu 仅为"尽力拉高"。默认 23 下 BLE 栈仍会自动做 long-write，功能不受影响。
+private const val DESIRED_ATT_MTU = 185
+
 /**
  * Android `BluetoothGattCallback` 的 status 只是一个 int，默认打出来就是个数字，
  * 定位需要再查表。这个表把常见 ATT / GATT 错误码映射到 BLE 规范或 Android 内部名称，
@@ -315,6 +321,15 @@ private class AndroidBleGattConnection private constructor(
                 }
                 newState == BluetoothProfile.STATE_CONNECTED -> {
                     state.value = BleGattConnectionState.Connected
+                    // 协商 ATT MTU 到 185，允许多数 JSON（wifi_config / lucy_pairing_request /
+                    // wifi_scan / 完整 pairing_info 读回）一次 direct write 就能完成，绕开
+                    // 部分 OEM 栈在 Prepare/Execute Write 上的 bug。
+                    //
+                    // 不阻塞主流程：即便设备拒绝协商或走默认 23，Android BluetoothGatt 仍会在
+                    // WRITE_TYPE_DEFAULT + write-with-response 下自动走 long-write 把 payload
+                    // 重组给服务端一次 WriteValue；onMtuChanged 仅做日志用。
+                    val requested = runCatching { gatt.requestMtu(DESIRED_ATT_MTU) }.getOrDefault(false)
+                    println("[BrainBox] Android requestMtu($DESIRED_ATT_MTU) submitted=$requested")
                     connectContinuation?.resume(Result.success(this@AndroidBleGattConnection))
                     connectContinuation = null
                 }
@@ -407,6 +422,11 @@ private class AndroidBleGattConnection private constructor(
             characteristic: BluetoothGattCharacteristic,
         ) {
             emitNotification(characteristic.uuid.toString(), characteristic.value ?: byteArrayOf())
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            val ok = status == BluetoothGatt.GATT_SUCCESS
+            println("[BrainBox] Android onMtuChanged: mtu=$mtu, status=${formatGattStatus(status)}, ok=$ok")
         }
     }
 

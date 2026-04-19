@@ -21,10 +21,13 @@ enum class GattRoute(
 ) {
     DeviceInfo(BrainBoxGattProtocol.DEVICE_INFO_UUID),
     NetworkStatus(BrainBoxGattProtocol.NETWORK_STATUS_UUID),
-    // 改动 1：WifiConfig 由 WRITE_NO_RESPONSE 改为 WRITE_WITH_RESPONSE。
-    // 原因：wifi_config JSON 常 > 20B，必须按 MTU=20 在 writeRoute 里分包串行下发；
-    //       只有带 response 的 Write Request 才保证每包都有 onCharacteristicWrite 回调，
-    //       供下一包据此继续，NR 模式没有回调无法串行。
+    // 改动 1：WifiConfig 使用 WRITE_WITH_RESPONSE。
+    // 原因：wifi_config JSON（ssid + password + hidden）常 > 20B，必须让 iOS/Android
+    //       BLE 栈在超 ATT MTU 时自动走 Prepare Write + Execute Write，把整条 payload
+    //       重组成一次 WriteValue 交给服务端 agent 做 json.Unmarshal；
+    //       WRITE_NO_RESPONSE 没有 ACK 链，BLE 栈不会触发 Prepare/Execute 组装，
+    //       会退化为多次独立的 ATT Write Command，服务端按每片独立解析 JSON 必然失败。
+    //       应用层不做分片（见 GattRouter.writeRoute 的改动 4）。
     WifiConfig(BrainBoxGattProtocol.WIFI_CONFIG_UUID, writeWithResponse = true),
     WifiScan(BrainBoxGattProtocol.WIFI_SCAN_UUID),
     LucyPairingInfo(BrainBoxGattProtocol.LUCY_PAIRING_INFO_UUID),

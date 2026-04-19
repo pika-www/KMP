@@ -313,41 +313,33 @@ class GattRouter(
         }
         println("[BrainBox] writeRoute ${route.name}: props=${props?.toPropertyString() ?: "<none>"}, useWithResponse=$useWithResponse, totalBytes=${data.size}")
 
-        // 改动 2 & 3：按 MTU=20 对 payload 做应用层分包，逐包串行下发，前一包的
-        // connection.writeCharacteristic(...) 返回后才写下一包 —— 由于 platform 端
-        // 只有拿到 onCharacteristicWrite 回调才会 resume 这个 suspend 调用，
-        // 循环天然满足 "等 onCharacteristicWrite 再发下一包"。
+        // 改动 4：撤销应用层 20 字节分片循环。BLE 分片是 ATT/L2CAP 层的职责，不应在应用层切。
         //
-        // - 单包 payload 上限 = 默认 ATT_MTU(23) - ATT header(3) = 20B。
-        // - 任一包失败立即中断并返回失败，避免半包堆在设备端缓冲。
-        // - 结构维持原有：仍然是一个 suspend fun writeRoute 返回 Result<Unit>，
-        //   仅把"一次写"换成"循环写"，并复用同样的 useWithResponse 分支。
-        val mtuPayload = 20
-        val totalChunks = if (data.isEmpty()) 1 else (data.size + mtuPayload - 1) / mtuPayload
-        for (index in 0 until totalChunks) {
-            val start = index * mtuPayload
-            val end = minOf(start + mtuPayload, data.size)
-            val chunk = if (data.isEmpty()) data else data.copyOfRange(start, end)
-            println("[BrainBox] writeRoute ${route.name}: chunk ${index + 1}/$totalChunks size=${chunk.size}B")
-            val chunkResult = if (useWithResponse) {
-                connection.writeCharacteristic(
-                    serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
-                    characteristicUuid = route.characteristicUuid,
-                    payload = chunk,
-                )
-            } else {
-                connection.writeCharacteristicNoResponse(
-                    serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
-                    characteristicUuid = route.characteristicUuid,
-                    payload = chunk,
-                )
-            }
-            if (chunkResult.isFailure) {
-                println("[BrainBox] writeRoute ${route.name}: chunk ${index + 1}/$totalChunks FAILED: ${chunkResult.exceptionOrNull()?.message}")
-                return chunkResult
-            }
+        // - iOS Core Bluetooth 的 writeValue(type:.withResponse) 对超出 ATT MTU 的 payload
+        //   自动走 Prepare Write + Execute Write，服务端只会看到一次 WriteValue。
+        // - Android 的 BluetoothGatt.writeCharacteristic(WRITE_TYPE_DEFAULT) 同样由系统
+        //   栈组装；如需单包发更大 payload 可在连接后先 requestMtu(185) 抬高上限。
+        //
+        // 先前按 20B 做应用层分片循环的后果：每片都会独立触发一次 ATT Write Request，
+        // 服务端 BlueZ 把每片作为独立的 WriteValue 回调交给 agent：
+        //   - wifi_config 的 JSON 被切成 3 段，agent 对每段独立 json.Unmarshal，
+        //     在服务端日志里显示 3 次 "invalid wifi config json"。
+        //   - lucy_pairing_request 的 {"request_id":"..."} 被切成 2 段，每段都独立
+        //     触发 requestPairingOtp()，导致一次 UI 请求变成两次云端 pre-bind、
+        //     日志里成对出现 "pairing-ipc: otp injected request_id=ble-...-1/-2"。
+        return if (useWithResponse) {
+            connection.writeCharacteristic(
+                serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
+                characteristicUuid = route.characteristicUuid,
+                payload = data,
+            )
+        } else {
+            connection.writeCharacteristicNoResponse(
+                serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
+                characteristicUuid = route.characteristicUuid,
+                payload = data,
+            )
         }
-        return Result.success(Unit)
     }
 
     private fun findCharacteristicProperties(route: GattRoute): Int? {
