@@ -68,6 +68,34 @@ import com.cephalon.lucyApp.sdk.MediaAttachment
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
 
+/** 根据文件扩展名推断 MIME content type，用于 contentType 为 null 时的兜底分类 */
+private fun inferContentTypeFromFileName(fileName: String?): String? {
+    if (fileName.isNullOrBlank()) return null
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "heic", "heif" -> "image/heic"
+        "bmp" -> "image/bmp"
+        "svg" -> "image/svg+xml"
+        "mp3" -> "audio/mpeg"
+        "m4a", "aac" -> "audio/aac"
+        "wav" -> "audio/wav"
+        "ogg", "oga" -> "audio/ogg"
+        "flac" -> "audio/flac"
+        "wma" -> "audio/x-ms-wma"
+        "opus" -> "audio/opus"
+        "amr" -> "audio/amr"
+        else -> null
+    }
+}
+
+/** 取附件的有效 content type：优先用文件扩展名推断（更可靠），兜底用服务器返回值 */
+private fun MediaAttachment.effectiveContentType(): String? =
+    inferContentTypeFromFileName(fileName) ?: contentType
+
 @Composable
 internal fun AgentModelMessageList(
     messages: List<ChatItem>,
@@ -523,11 +551,11 @@ private fun AssistantAttachments(
     onAttachmentClick: (MediaAttachment) -> Unit = {},
 ) {
     val ds = LocalDesignScale.current
-    val imageAttachments = attachments.filter { it.contentType?.startsWith("image") == true }
-    val audioAttachments = attachments.filter { it.contentType?.startsWith("audio") == true }
+    val imageAttachments = attachments.filter { it.effectiveContentType()?.startsWith("image") == true }
+    val audioAttachments = attachments.filter { it.effectiveContentType()?.startsWith("audio") == true }
     val docAttachments = attachments.filter {
-        val ct = it.contentType
-        ct == null || (ct.startsWith("image") != true && ct.startsWith("audio") != true)
+        val ct = it.effectiveContentType()
+        ct == null || (!ct.startsWith("image") && !ct.startsWith("audio"))
     }
 
     // ── 图片附件：缩略图 + 点击下载 ──
@@ -539,22 +567,22 @@ private fun AssistantAttachments(
                 Box(
                     modifier = Modifier
                         .size(ds.sw(120.dp))
-                        .clip(RoundedCornerShape(ds.sm(8.dp)))
-                        .clickable { onAttachmentClick(att) },
+                        .clip(RoundedCornerShape(ds.sm(8.dp))),
                 ) {
                     BlobImage(
                         blobRef = att.blobRef,
                         contentDescription = att.fileName,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    // 下载图标覆盖
+                    // 仅下载图标可点击
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(ds.sm(6.dp))
                             .size(ds.sm(24.dp))
                             .clip(RoundedCornerShape(ds.sm(12.dp)))
-                            .background(Color.Black.copy(alpha = 0.45f)),
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .clickable { onAttachmentClick(att) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -574,7 +602,7 @@ private fun AssistantAttachments(
         AttachmentFileCard(
             icon = Res.drawable.ic_audio,
             fileName = att.fileName ?: "音频文件",
-            onClick = { onAttachmentClick(att) },
+            onDownloadClick = { onAttachmentClick(att) },
         )
     }
 
@@ -583,7 +611,7 @@ private fun AssistantAttachments(
         AttachmentFileCard(
             icon = Res.drawable.ic_doc,
             fileName = att.fileName ?: "文件",
-            onClick = { onAttachmentClick(att) },
+            onDownloadClick = { onAttachmentClick(att) },
         )
     }
 }
@@ -592,15 +620,14 @@ private fun AssistantAttachments(
 private fun AttachmentFileCard(
     icon: org.jetbrains.compose.resources.DrawableResource,
     fileName: String,
-    onClick: () -> Unit,
+    onDownloadClick: () -> Unit,
 ) {
     val ds = LocalDesignScale.current
     Surface(
         shape = RoundedCornerShape(ds.sm(12.dp)),
         color = Color(0xFFF5F5F7),
         modifier = Modifier
-            .padding(top = ds.sh(4.dp))
-            .clickable(onClick = onClick),
+            .padding(top = ds.sh(4.dp)),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -628,7 +655,9 @@ private fun AttachmentFileCard(
             Icon(
                 painter = painterResource(Res.drawable.ic_download),
                 contentDescription = "下载",
-                modifier = Modifier.size(ds.sm(18.dp)),
+                modifier = Modifier
+                    .size(ds.sm(18.dp))
+                    .clickable(onClick = onDownloadClick),
                 tint = Color(0xFF999999),
             )
         }

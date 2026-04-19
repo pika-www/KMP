@@ -1108,11 +1108,23 @@ class SdkSessionManager(
                 val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
 
                 if (hasSourceId && !sourceMatched) {
-                    // 有 source_message_id 但匹配不上 → 过滤
-                    appLogD(
-                        TAG,
-                        "[Consumer] 过滤掉消息: incomingSourceMessageId=$incomingSourceMessageId, activeIds=$activeIds, matched=false",
-                    )
+                    // 有 source_message_id 但匹配不上活跃请求
+                    // 仅 assistant.final 转发（服务器可能对同一请求分批发送多个 final）
+                    // 其他类型（partial/start/reasoning 等中间事件）直接丢弃，避免重复渲染
+                    if (machineEvent?.type == "assistant.final" &&
+                        (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())
+                    ) {
+                        appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，assistant.final 转为异步媒体推送")
+                        _incomingMediaEvents.tryEmit(
+                            IncomingMediaEvent(
+                                text = machineEvent.text,
+                                attachments = machineEvent.attachments,
+                                eventType = machineEvent.type,
+                            )
+                        )
+                    } else {
+                        appLogD(TAG, "[Consumer] 过滤掉非 final 事件: source_message_id=$incomingSourceMessageId, type=${machineEvent?.type}")
+                    }
                     return@startUserChannelConsumer
                 }
 
@@ -1626,11 +1638,18 @@ class SdkSessionManager(
                         }
                         else -> finalText
                     }
+                    // 合并而非替换：新附件追加到已有列表，按 blobRef 去重，避免分批到达时丢失
+                    val mergedAttachments = if (event.attachments.isEmpty()) {
+                        state.attachments
+                    } else {
+                        val existingRefs = state.attachments.map { it.blobRef }.toSet()
+                        state.attachments + event.attachments.filter { it.blobRef !in existingRefs }
+                    }
                     state.copy(
                         text = resolvedText,
                         streaming = false,
                         streamingStatusText = null,
-                        attachments = event.attachments.ifEmpty { state.attachments },
+                        attachments = mergedAttachments,
                     )
                 }
                 if (isLatest) {

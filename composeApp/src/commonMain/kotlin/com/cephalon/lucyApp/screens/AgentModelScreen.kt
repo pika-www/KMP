@@ -326,7 +326,14 @@ fun AgentModelScreen(
             }
             println("[Streaming] upsert convId=$conversationId msgId=$messageId targetCdi=$targetCdi targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
             val existing = updatedMessages.getOrNull(targetIndex) as? ChatItem.Assistant
-            val mergedAttachments = attachments.ifEmpty { existing?.attachments ?: emptyList() }
+            // 合并而非替换：新附件与已有附件按 blobRef 去重合并，防止分批到达丢文件
+            val mergedAttachments = if (attachments.isEmpty()) {
+                existing?.attachments ?: emptyList()
+            } else {
+                val existingAtts = existing?.attachments.orEmpty()
+                val existingRefs = existingAtts.map { it.blobRef }.toSet()
+                existingAtts + attachments.filter { it.blobRef !in existingRefs }
+            }
             if (targetIndex >= 0) {
                 updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId, mergedAttachments)
             } else {
@@ -538,14 +545,44 @@ fun AgentModelScreen(
         sdkSessionManager.connectIfTokenValid()
     }
 
-    // 监听异步文件/媒体推送（无 source_message_id 的消息），追加到当前对话底部
+    // 监听异步文件/媒体推送（无 source_message_id 或已完成请求的后续 final），追加到当前对话底部
     LaunchedEffect(Unit) {
         sdkSessionManager.incomingMediaEvents.collect { event ->
             println("[MediaEvent] 收到异步媒体推送: type=${event.eventType}, text=${event.text?.take(50)}, attachments=${event.attachments.size}")
             val targetConvId = selectedConversationId
             val chatText = event.text ?: ""
             val chatAttachments = event.attachments
-            if (chatAttachments.isNotEmpty() || chatText.isNotBlank()) {
+            if (chatAttachments.isEmpty() && chatText.isBlank()) return@collect
+
+            // 去重：检查当前对话最后一条 assistant 消息是否文本完全相同
+            val conv = conversations.firstOrNull { it.id == targetConvId }
+            val lastAssistant = conv?.messages?.lastOrNull { it is ChatItem.Assistant } as? ChatItem.Assistant
+            val isDuplicateText = chatText.isNotBlank() && lastAssistant?.text == chatText
+
+            if (isDuplicateText && chatAttachments.isEmpty()) {
+                // 纯文本重复，跳过
+                println("[MediaEvent] 跳过重复文本: ${chatText.take(50)}")
+                return@collect
+            }
+
+            if (isDuplicateText && chatAttachments.isNotEmpty()) {
+                // 文本重复但带新附件 → 合并附件到已有消息，不重复文本
+                println("[MediaEvent] 文本重复，合并 ${chatAttachments.size} 个附件到已有消息")
+                updateConversation(targetConvId) { conversation ->
+                    val msgs = conversation.messages.toMutableList()
+                    val lastIdx = msgs.indexOfLast { it is ChatItem.Assistant }
+                    if (lastIdx >= 0) {
+                        val existing = msgs[lastIdx] as ChatItem.Assistant
+                        val existingRefs = existing.attachments.map { it.blobRef }.toSet()
+                        val newAtts = chatAttachments.filter { it.blobRef !in existingRefs }
+                        if (newAtts.isNotEmpty()) {
+                            msgs[lastIdx] = existing.copy(attachments = existing.attachments + newAtts)
+                        }
+                    }
+                    conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                }
+            } else {
+                // 新内容 → 追加为新消息
                 appendMessageToConversation(
                     targetConvId,
                     ChatItem.Assistant(
