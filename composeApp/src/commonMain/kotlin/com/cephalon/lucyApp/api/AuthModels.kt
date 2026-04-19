@@ -237,39 +237,21 @@ data class RechargeOrderData(
 )
 
 /**
- * /v1/orders/apple/verify 验证交易响应数据
+ * /v1/orders/apple/verify 验证交易响应数据。
+ *
+ * **所有字段都给默认值**：后端在业务错误（如 code=40003 `Apple transaction already bound to
+ * another order`）时返回 `{"data":{}}`，如果 `verified` 是 required `Boolean`，kotlinx 反序列化
+ * 会抛 `JsonConvertException`，被 AuthApi.post 的 catch 压成 `code=-1` + 反序列化 trace，
+ * **真实业务 code/msg 就彻底丢了**。把字段都加默认值后，`{"data":{}}` 能反序列化为
+ * `VerifyTransactionData(verified=false, …)`，外层的 code/msg（业务失败原因）得以正确透传。
  */
 @Serializable
 data class VerifyTransactionData(
-    val verified: Boolean,
+    val verified: Boolean = false,
     @SerialName("order_id")
     val orderId: String? = null,
     val error: String? = null
 )
-
-/**
- * /v1/orders/transfers/{order_id} GET 查询订单状态响应数据。
- * status 取值见 [TransferOrderStatus]：pending / succeed / canceled。
- */
-@Serializable
-data class TransferOrderStatusData(
-    val status: String = "",
-    @SerialName("order_id")
-    val orderId: String? = null,
-    @SerialName("product_id")
-    val productId: String? = null,
-    val amount: Long? = null,
-)
-
-/** GET /orders/transfers/{order_id} 响应里 `status` 字段的枚举常量。 */
-object TransferOrderStatus {
-    /** 订单已创建，Apple 侧支付尚未到账（前端需每 2s 轮询一次）。 */
-    const val PENDING = "pending"
-    /** 订单支付成功，前端可以刷新余额、finishTransaction 并提示用户。 */
-    const val SUCCEED = "succeed"
-    /** 订单取消/失败，前端提示用户失败并终止轮询。 */
-    const val CANCELED = "canceled"
-}
 
 /**
  * GET /v1/channels/lucy/current-user/model-config

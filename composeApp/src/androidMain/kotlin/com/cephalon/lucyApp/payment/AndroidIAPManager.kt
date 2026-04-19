@@ -12,9 +12,10 @@ class AndroidIAPManager : PlatformIAP(), IAPManager {
         return null
     }
 
-    override suspend fun initiatePurchase(productId: String): String? {
-        // TODO: Implement Android IAP
-        return null
+    override suspend fun initiatePurchase(productId: String): PurchaseOutcome {
+        // TODO: Implement Android IAP（Google Play Billing / 其它通道），目前 Android 侧不支持 IAP。
+        // 返回 Failure 让 UI 直接 toast 可读原因，而不是静默压成 Cancelled。
+        return PurchaseOutcome.Failure(message = "Android IAP 尚未实现")
     }
 
     override suspend fun verifyTransaction(transactionId: String): Boolean {

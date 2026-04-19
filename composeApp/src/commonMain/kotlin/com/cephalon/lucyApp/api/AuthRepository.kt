@@ -115,24 +115,36 @@ class AuthRepository(
     }
 
     /**
-     * 验证 Apple IAP 交易 POST /orders/apple/verify
+     * 把 Apple StoreKit 2 已验证交易的 transactionId 交给服务端：
+     * POST /v1/orders/apple/verify  body: {"transaction_id":"...", "order_id":"..."}
      *
-     * 注：新充值流程改用 [getTransferOrderStatus] 轮询 /orders/transfers/{order_id} 代替本地验单，
-     * 本方法暂时保留以防仍有旧调用方依赖。
+     * 调用时机：`handleRechargePackageClick` 的 Step 3，在 Apple 支付成功（拿到
+     * transactionId）之后。Step 1 `createRechargeOrder` 只是在后端预留订单，服务端此时并不
+     * 知道对应 Apple 哪一笔 transaction；这一步把两边挂钩，服务端同步完成签名校验与入账，
+     * `verified=true` 即视为最终 succeed —— 前端**不再轮询** /orders/transfers/{order_id}。
+     *
+     * 参数：
+     *  - [transactionId] 是 Apple StoreKit 2 `Product.purchase()` 返回的 `transaction.id`。
+     *  - [orderId] 是 Step 1 `createRechargeOrder` 响应的 `data.order_id`，一定要同步传。
+     *    后端需要 orderId 才能精确定位到要 verify 哪一条 order（单靠 transactionId 反查不
+     *    唯一：同一 Apple 账号可能有多笔正在处理的未完成交易，同一 order 也可能在异常场景
+     *    下对应多笔 Apple transaction）。
+     *
+     * 响应 [VerifyTransactionData]：
+     *  - `verified=true`  → UI 直接 finishTransaction + 提示成功；
+     *  - `verified=false` → `error` 字段是后端拒绝原因（签名错 / 金额错 / orderId 不匹配 /
+     *     已被消费等），UI 直接透传给用户，**不** finishTransaction（保留 Apple 未完成交易
+     *     给下次启动的 handleUnfinishedTransactions 兜底）。
      */
-    suspend fun verifyAppleIAPTransaction(transactionId: String): BaseResponse<VerifyTransactionData> {
+    suspend fun verifyAppleIAPTransaction(
+        transactionId: String,
+        orderId: String,
+    ): BaseResponse<VerifyTransactionData> {
         val request = mapOf(
-            "transaction_id" to transactionId
+            "transaction_id" to transactionId,
+            "order_id" to orderId,
         )
         return authApi.post("/orders/apple/verify", request)
-    }
-
-    /**
-     * 查询充值订单状态 GET /orders/transfers/{order_id}（需要 Bearer token，由 authApi 自带）。
-     * 返回 `status` 字段为 [TransferOrderStatus] 之一：pending / succeed / canceled。
-     */
-    suspend fun getTransferOrderStatus(orderId: String): BaseResponse<TransferOrderStatusData> {
-        return authApi.get<TransferOrderStatusData>("/orders/transfers/$orderId")
     }
 
     // ---- Lucy 设备 ----

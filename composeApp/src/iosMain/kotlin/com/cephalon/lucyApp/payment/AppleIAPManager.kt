@@ -100,18 +100,29 @@ class AppleIAPManager : PlatformIAP(), IAPManager {
         return null
     }
 
-    override suspend fun initiatePurchase(productId: String): String? {
+    override suspend fun initiatePurchase(productId: String): PurchaseOutcome {
         println("$IAP_LOG_TAG initiatePurchase start, productId=$productId")
-        return suspendCancellableCoroutine<String?> { continuation ->
+        return suspendCancellableCoroutine { continuation ->
             bridge.purchase(productId) { transactionId, errorMessage ->
                 println("$IAP_LOG_TAG initiatePurchase callback, productId=$productId, transactionId=$transactionId, errorMessage=$errorMessage")
-                if (errorMessage.isEmpty()) {
-                    println("$IAP_LOG_TAG initiatePurchase success, transactionId=$transactionId")
-                    continuation.resume(transactionId)
-                } else {
-                    println("$IAP_LOG_TAG initiatePurchase failed, productId=$productId, errorMessage=$errorMessage")
-                    continuation.resume(null)
+                // Swift 侧 StoreKitBridge.purchase 的 completion 协议：
+                //   .success:   completion(transactionId, "")
+                //   .pending:   completion("", "Purchase pending")        ← 必须原样匹配
+                //   .cancelled: completion("", "Purchase cancelled")      ← 必须原样匹配
+                //   .failure:   completion("", <Apple 原话 / 桥接错误>)
+                // （若修改 Swift 端文案务必同步改这里，否则会降级到 Failure 分支——
+                //   不会导致功能错误，但 UI 语义会从"审核中"变成"支付失败"。）
+                val outcome: PurchaseOutcome = when {
+                    errorMessage.isEmpty() && transactionId.isNotEmpty() ->
+                        PurchaseOutcome.Success(transactionId)
+                    errorMessage == "Purchase cancelled" -> PurchaseOutcome.Cancelled
+                    errorMessage == "Purchase pending" -> PurchaseOutcome.Pending
+                    else -> PurchaseOutcome.Failure(
+                        message = errorMessage.ifBlank { "Apple 支付未返回有效结果" },
+                    )
                 }
+                println("$IAP_LOG_TAG initiatePurchase → $outcome")
+                continuation.resume(outcome)
             }
         }
     }

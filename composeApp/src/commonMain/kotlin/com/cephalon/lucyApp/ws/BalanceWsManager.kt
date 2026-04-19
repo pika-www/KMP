@@ -310,20 +310,25 @@ class BalanceWsManager(
     }
 
     /**
-     * 从 WS 消息中解析余额数据并更新 StateFlow
+     * 从 WS 消息中解析余额数据并更新 StateFlow。
      *
      * 响应中 data 层结构:
-     *   {"event_id":15,"data":{"user_id":"...","wallets":[{"symbol_id":1,"amount":20000},...]}}
+     *   {"event_id":15,"data":{"user_id":"...","wallets":[
+     *       {"symbol_id":1,"amount":20000,"real_amount":19800}, ...]}}
      *
-     * 也兼容 balances map 格式:
+     * 也兼容 balances map 格式（HTTP 返回口径也是这个，已是可用余额）:
      *   {"event_id":15,"data":{"balances":{"1":20000,"4":0}}}
+     *
+     * **关键口径**：WS 的 wallets 条目里 UI 只能读 `real_amount`（可用余额），不能用 `amount`
+     * （账面值，含冻结/未结算），见 [WalletItem] 文档。若 `real_amount` 缺失（老版本兜底）
+     * 才回退到 `amount`，避免 UI 显示 0。
      */
     private fun parseAndUpdateBalance(dataObj: JsonObject) {
         val innerData = dataObj["data"]?.jsonObject ?: return
 
         val newBalances = mutableMapOf<String, Long>()
 
-        // 格式 1: wallets 数组 [{"symbol_id":1,"amount":20000}, ...]
+        // 格式 1: wallets 数组 [{"symbol_id":1,"amount":20000,"real_amount":19800}, ...]
         val walletsArray = innerData["wallets"]
         if (walletsArray != null) {
             runCatching {
@@ -332,7 +337,8 @@ class BalanceWsManager(
                     walletsArray
                 )
                 for (w in wallets) {
-                    newBalances[w.symbolId.toString()] = w.amount
+                    // 展示用的是 real_amount（可用余额）；real_amount 缺失才退回 amount 兜底。
+                    newBalances[w.symbolId.toString()] = w.realAmount ?: w.amount
                 }
             }
         }
@@ -458,9 +464,24 @@ private data class WsSimpleEvent(
     val eventId: Int
 )
 
+/**
+ * WS 钱包推送的单条 wallet。
+ *
+ * - [amount]：账面余额（冻结/未结算前的记账口径）。
+ * - [realAmount]：**可用余额**——UI 应展示这个字段。服务端在扣除冻结/预扣后算出的净值，
+ *   与 HTTP /user/balance 的口径一致，也是充值 / 消费实时生效后的"用户能看到的钱"。
+ *
+ * 为什么不直接用 amount：amount 会包含尚未落账的部分（例如异步到账中的充值、临时冻结的扣款），
+ * 不等于用户可用的数值；直接展示会出现"点下去没扣但数字已经变了"或"充完钱数字先涨后跌"的
+ * 视觉跳变。realAmount 保证所见即所得。
+ *
+ * 兼容：若服务端某条 wallet 未带 `real_amount`（老版本/降级场景），回退到 [amount] 避免显示 0。
+ */
 @Serializable
 private data class WalletItem(
     @SerialName("symbol_id")
     val symbolId: Int,
-    val amount: Long
+    val amount: Long = 0L,
+    @SerialName("real_amount")
+    val realAmount: Long? = null,
 )

@@ -85,15 +85,13 @@ import com.cephalon.lucyApp.components.ToastHost
 import com.cephalon.lucyApp.components.rememberToastState
 import com.cephalon.lucyApp.getPlatform
 import com.cephalon.lucyApp.payment.IAPManager
+import com.cephalon.lucyApp.payment.PurchaseOutcome
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
-import com.cephalon.lucyApp.api.TransferOrderStatus
-import com.cephalon.lucyApp.time.currentTimeMillis
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -1198,16 +1196,28 @@ private fun findGiftPercent(price: Double, rules: List<RechargeRuleItem>): Int {
 }
 
 /**
- * 充值卡片的点击编排（新流程，不再本地验单）：
- *  1. POST /orders/transfers        → 拿 orderId + productId
- *  2. Apple 拉起支付                 → 拿 transactionId
- *  3. 每 2s 轮询 GET /orders/transfers/{orderId}，直到 status != pending：
- *      - succeed  → toast 成功 + finishTransaction + refreshBalance
- *      - canceled → toast 失败 + finishTransaction（消化 Apple 侧 receipt，避免幽灵交易）
- *  4. 轮询总时长上限 [ORDER_POLL_TIMEOUT_MS]，超时提示"订单处理中，请稍后查看"。
+ * 充值卡片的点击编排：
+ *  1. POST /v1/orders/transfers             → 拿 orderId + productId
+ *  2. Apple 拉起支付                        → 拿 transactionId（仅 PurchaseOutcome.Success 进下一步）
+ *  3. POST /v1/orders/apple/verify          → 把 transactionId 交给服务端，服务端关联到
+ *                                             之前创建的 orderId，并同步完成签名校验与入账；
+ *                                             `verified=true` 即视为最终 succeed，直接
+ *                                             finishTransaction + 提示成功。
  *
- * 所有 productId 以后端 `/orders/transfers` 返回的 `data.productId` 为准；前端不再硬编码。
- * 返回 true 表示最终 succeed；false 表示失败/取消/超时。
+ * **为什么不再轮询 /orders/transfers/{orderId}**：
+ *  - 服务端 `/orders/apple/verify` 在 `verified=true` 时已经完成签名校验并把脑力值入账，
+ *    前端再去轮询订单状态只是空转一次网络往返；
+ *  - 轮询这一步删掉后，整个流程退化为 create → purchase → verify，UI 反馈更及时。
+ *
+ * **verify 失败路径**（都不 finishTransaction，保留 Apple 未完成交易给 handleUnfinishedTransactions 兜底）：
+ *  - `code != 20000` / `data == null`：网络 / 后端临时错误，透传 msg；
+ *  - `verified == false`：服务端判定这笔 Apple 交易不合法（签名错、金额错、orderId 不匹配、
+ *    已被消费等），把 `error` 字段透传给用户。
+ *  - 例外：`code=40003` "Apple transaction already bound to another order" 主动 finish，
+ *    否则 StoreKit 会把同一笔 transaction 在下次 purchase 时再丢回来死循环。
+ *
+ * 所有 productId 以后端 `/v1/orders/transfers` 返回的 `data.productId` 为准；前端不再硬编码。
+ * 返回 true 表示最终 succeed；false 表示失败/取消。
  */
 private suspend fun handleRechargePackageClick(
     pkg: FixedPackage,
@@ -1239,74 +1249,93 @@ private suspend fun handleRechargePackageClick(
     // ────────── Step 2: 拉起 Apple 支付 ──────────
     println("[IAP][UI] Step 2: 调用 Apple 购买, orderId=$orderId, productId=$productId")
     onStatus("正在拉起 Apple 支付…")
-    val transactionId = iapManager.initiatePurchase(productId)
-    println("[IAP][IAP] initiatePurchase 返回: transactionId=$transactionId")
-    if (transactionId.isNullOrBlank()) {
-        println("[IAP][UI] Step 2 失败: Apple 购买未返回有效 transactionId（用户取消 / 商品不可购 / 其它错误）")
-        onStatus("支付已取消或未完成")
-        return false
+    val outcome = iapManager.initiatePurchase(productId)
+    println("[IAP][IAP] initiatePurchase 返回: $outcome")
+    val transactionId: String = when (outcome) {
+        is PurchaseOutcome.Success -> outcome.transactionId
+        is PurchaseOutcome.Cancelled -> {
+            println("[IAP][UI] Step 2 结束: 用户主动取消 Apple 支付")
+            onStatus("已取消支付")
+            return false
+        }
+        is PurchaseOutcome.Pending -> {
+            // Apple 判定 pending（Ask to Buy 家长审批等）：Apple 侧交易还没完成，前端
+            // 不能开启轮询（那会长时间查到 pending 然后超时）；让用户稍后到订单记录里看结果。
+            // Apple 交易最终完成时，StoreKit 的 Transaction.updates 会在 AppleStoreKit2Manager
+            // 里触发，下次启动时 handleUnfinishedTransactions 会兜底补偿 finishTransaction。
+            println("[IAP][UI] Step 2 结束: Apple 返回 pending（家长审批 / 延迟支付），不进入订单轮询")
+            onStatus("支付审核中，请稍后在订单记录里查看结果")
+            return false
+        }
+        is PurchaseOutcome.Failure -> {
+            println("[IAP][UI] Step 2 失败: ${outcome.message}")
+            onStatus(outcome.message.ifBlank { "Apple 支付失败" })
+            return false
+        }
     }
 
-    // ────────── Step 3: 轮询订单状态 ──────────
-    // 每 ORDER_POLL_INTERVAL_MS (2s) 查一次，直到 status != pending 或累计超过 ORDER_POLL_TIMEOUT_MS。
-    println("[IAP][UI] Step 3: 开始轮询 GET /v1/orders/transfers/$orderId")
-    onStatus("订单确认中…")
-    val pollStartMs = currentTimeMillis()
-    var pollAttempt = 0
-    while (true) {
-        pollAttempt++
-        val elapsed = currentTimeMillis() - pollStartMs
-        if (elapsed >= ORDER_POLL_TIMEOUT_MS) {
-            println("[IAP][UI] Step 3 超时: 累计 ${elapsed}ms, attempt=$pollAttempt, 仍未返回终态")
-            onStatus("订单处理中，请稍后在订单记录里查看")
-            // 超时不动 Apple transaction；若最终 Apple 侧仍有未完成交易，下次启动会由
-            // handleUnfinishedTransactions 兜底补齐。
+    // ────────── Step 3: 把 Apple transactionId 报给服务端，并以 verify 的结果作为终态 ──────────
+    // Apple StoreKit 已经返回 verified transaction，但服务端此刻只知道 orderId，并不知道
+    // 这条 order 到底对应 Apple 哪一笔 transaction。必须调 POST /v1/orders/apple/verify 把
+    // transactionId 交给它；服务端在 `verified=true` 时已经完成签名校验并入账，前端据此
+    // 直接 finishTransaction + 提示成功，不再做订单状态轮询。
+    //
+    // 失败处理（都不 finishTransaction，保留 Apple 未完成交易给下次启动补偿）：
+    //  - `code != 20000` / `data == null`：网络或后端临时错误，透传 msg 给用户。
+    //  - `verified == false`：后端判定这笔 Apple 交易不合法（签名错、金额错、orderId 不匹配、
+    //    已被消费等），把 `error` 字段透传给用户，让他知道真实原因。
+    // Apple 侧的这笔交易保留为 unfinished，下次冷启动由 handleUnfinishedTransactions 兜底
+    // 补偿（重跑一遍 verify + finishTransaction），避免把"账已扣但服务端没入账"的幽灵交易
+    // 就此丢掉。
+    println("[IAP][UI] Step 3: POST /v1/orders/apple/verify, transactionId=$transactionId, orderId=$orderId")
+    onStatus("支付校验中…")
+    val verifyResponse = authRepository.verifyAppleIAPTransaction(
+        transactionId = transactionId,
+        orderId = orderId,
+    )
+    println("[IAP][API] verifyAppleIAPTransaction 响应: code=${verifyResponse.code}, msg=${verifyResponse.msg}, data=${verifyResponse.data}")
+    val verifyData = verifyResponse.data
+    if (verifyResponse.code != 20000 || verifyData == null) {
+        val msg = verifyResponse.msg.ifBlank { "校验 Apple 交易失败" }
+        println("[IAP][UI] Step 3 失败（code=${verifyResponse.code}）: $msg")
+
+        // 自愈分支：code=40003 "Apple transaction already bound to another order"
+        //   - 后端已明确告知：这笔 Apple transactionId 已经绑到了**之前**的某个 order，钱已入账。
+        //   - 但 Apple 侧本地没有走到 finishTransaction，StoreKit 会把它当成"上一次未完成购买"
+        //     在用户下次 product.purchase() 时直接再丢回来，同一个 transactionId 再被 verify
+        //     还是 40003，死循环。
+        //   - 这里主动 iapManager.finishTransaction 消化掉这笔 Apple 未完成交易，让下次点击
+        //     真正重新走一遍 StoreKit 购买。**安全前提**：后端已经认账（绑定到了 another
+        //     order），Apple 侧的钱并不会因为 finish 而丢失。
+        // 其它 verify 失败（网络错 code=-1、业务拒 40001/40002 等）都**不在此处 finish**，
+        // 保留 Apple 未完成交易，让下次冷启动的 handleUnfinishedTransactions 兜底补偿；
+        // 那条链路才是处理"钱扣了但不确定是否入账"场景的正确方式。
+        if (verifyResponse.code == 40003) {
+            println("[IAP][UI] Step 3 识别 40003：主动 finishTransaction=$transactionId 以释放 Apple 未完成交易")
+            runCatching { iapManager.finishTransaction(transactionId) }
+                .onFailure { println("[IAP][UI] Step 3 finishTransaction 失败: ${it.message}") }
+            onStatus("此笔支付已记入历史订单，若需再次充值请重新尝试")
             return false
         }
 
-        val statusResponse = authRepository.getTransferOrderStatus(orderId)
-        val data = statusResponse.data
-        println("[IAP][API] getTransferOrderStatus attempt=$pollAttempt, elapsed=${elapsed}ms, code=${statusResponse.code}, msg=${statusResponse.msg}, status=${data?.status}")
-
-        if (statusResponse.code != 20000 || data == null) {
-            // 服务端异常：不立即终止轮询，等下一轮——除非连续失败太多次。
-            println("[IAP][UI] Step 3 查询异常（attempt=$pollAttempt）: ${statusResponse.msg}")
-            delay(ORDER_POLL_INTERVAL_MS)
-            continue
-        }
-
-        when (data.status) {
-            TransferOrderStatus.SUCCEED -> {
-                println("[IAP][UI] Step 3 成功: orderId=$orderId, transactionId=$transactionId")
-                iapManager.finishTransaction(transactionId)
-                println("[IAP][UI] Step 4 完成: finishTransaction done, transactionId=$transactionId")
-                onStatus("充值成功")
-                return true
-            }
-            TransferOrderStatus.CANCELED -> {
-                println("[IAP][UI] Step 3 失败: orderId=$orderId 状态为 canceled, transactionId=$transactionId")
-                // 仍然 finishTransaction：Apple 侧 receipt 已落地，不消化会一直卡在未完成队列里。
-                iapManager.finishTransaction(transactionId)
-                onStatus("订单失败或已取消")
-                return false
-            }
-            TransferOrderStatus.PENDING -> {
-                // 仍在处理，等 2s 再查
-                delay(ORDER_POLL_INTERVAL_MS)
-            }
-            else -> {
-                // 后端给了我们未识别的状态，保守起见继续轮询等待
-                println("[IAP][UI] Step 3 未知状态: ${data.status}，按 pending 继续轮询")
-                delay(ORDER_POLL_INTERVAL_MS)
-            }
-        }
+        println("[IAP][UI] Step 3 失败（非 40003）: 不 finishTransaction，保留 Apple 未完成交易待下次启动补偿")
+        onStatus(msg)
+        return false
     }
-}
+    if (!verifyData.verified) {
+        val msg = verifyData.error?.takeIf { it.isNotBlank() } ?: "Apple 交易校验未通过"
+        println("[IAP][UI] Step 3 被拒（verified=false）: error=${verifyData.error}")
+        onStatus(msg)
+        return false
+    }
 
-// 轮询 /orders/transfers/{order_id} 的节奏与上限。
-private const val ORDER_POLL_INTERVAL_MS = 2_000L
-// 60s 仍未拿到终态就认为"订单处理中"，不再阻塞 UI；Apple 端未完成交易下次启动兜底。
-private const val ORDER_POLL_TIMEOUT_MS = 60_000L
+    // ────────── 成功：verify 通过即视为入账完成，直接 finishTransaction ──────────
+    println("[IAP][UI] Step 3 成功（verified=true）: orderId=$orderId, transactionId=$transactionId")
+    iapManager.finishTransaction(transactionId)
+    println("[IAP][UI] 流程完成: finishTransaction done, transactionId=$transactionId")
+    onStatus("充值成功")
+    return true
+}
 
 @Composable
 private fun RechargePackageContent() {
