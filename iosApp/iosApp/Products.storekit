@@ -15,7 +15,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.9.9",
+      "productID" : "cloud.cephalon.cep.9_9",
       "referenceName" : "CEP 9.9",
       "type" : "Consumable"
     },
@@ -30,7 +30,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.39.9",
+      "productID" : "cloud.cephalon.cep.39_9",
       "referenceName" : "CEP 39.9",
       "type" : "Consumable"
     },
@@ -45,7 +45,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.69.9",
+      "productID" : "cloud.cephalon.cep.69_9",
       "referenceName" : "CEP 69.9",
       "type" : "Consumable"
     },
@@ -60,7 +60,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.99",
+      "productID" : "cloud.cephalon.cep.99",
       "referenceName" : "CEP 99",
       "type" : "Consumable"
     },
@@ -75,7 +75,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.299",
+      "productID" : "cloud.cephalon.cep.299",
       "referenceName" : "CEP 299",
       "type" : "Consumable"
     },
@@ -90,7 +90,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.499",
+      "productID" : "cloud.cephalon.cep.499",
       "referenceName" : "CEP 499",
       "type" : "Consumable"
     },
@@ -105,7 +105,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.699",
+      "productID" : "cloud.cephalon.cep.699",
       "referenceName" : "CEP 699",
       "type" : "Consumable"
     },
@@ -120,7 +120,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.899",
+      "productID" : "cloud.cephalon.cep.899",
       "referenceName" : "CEP 899",
       "type" : "Consumable"
     },
@@ -135,7 +135,7 @@
           "locale" : "zh_CN"
         }
       ],
-      "productID" : "com.cephalon.lucyApp.999",
+      "productID" : "cloud.cephalon.cep.999",
       "referenceName" : "CEP 999",
       "type" : "Consumable"
     }
