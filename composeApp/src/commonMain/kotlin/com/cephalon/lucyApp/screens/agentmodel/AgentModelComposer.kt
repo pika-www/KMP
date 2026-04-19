@@ -52,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.ErrorOutline
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
@@ -74,6 +76,7 @@ internal fun AgentModelComposer(
     onToggleAttachments: () -> Unit,
     onSend: () -> Unit,
     onSuggestionClick: (String) -> Unit,
+    uploadStates: Map<String, AttachmentUploadState> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
@@ -116,6 +119,7 @@ internal fun AgentModelComposer(
                     onFileClick = onFileClick,
                     playingRecordingId = playingRecordingId,
                     onToggleRecordingPlayback = onToggleRecordingPlayback,
+                    uploadStates = uploadStates,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(ds.sh(8.dp)))
@@ -240,6 +244,7 @@ private fun DraftAttachmentPreviewRow(
     onFileClick: (DraftAttachment) -> Unit,
     playingRecordingId: String?,
     onToggleRecordingPlayback: (String) -> Unit,
+    uploadStates: Map<String, AttachmentUploadState> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
@@ -253,6 +258,15 @@ private fun DraftAttachmentPreviewRow(
             items = attachments,
             key = { index, attachment -> "${attachment.type}:${attachment.uri}:$index" }
         ) { _, attachment ->
+            val uploadState = if (attachment.nasFileId == null) uploadStates[attachment.uri] else null
+            val isFailed = uploadState is AttachmentUploadState.Failed
+            val isUploading = uploadState is AttachmentUploadState.Uploading
+            val borderColor = when {
+                isFailed -> Color(0xFFE53935)
+                isUploading -> Color(0xFFFF9800)
+                else -> Color(0xFFE7E7E7)
+            }
+
             Box {
                 when (attachment.type) {
                     DraftAttachmentType.Image -> {
@@ -271,19 +285,50 @@ private fun DraftAttachmentPreviewRow(
                                     }
                                 },
                             shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
+                            border = if (isFailed) BorderStroke(1.5.dp, Color(0xFFE53935)) else null,
                         ) {
-                            if (attachment.nasFileId != null) {
-                                BlobImage(
-                                    blobRef = attachment.uri,
-                                    contentDescription = attachment.displayName,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                PlatformImageThumbnail(
-                                    uri = attachment.uri,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                if (attachment.nasFileId != null) {
+                                    BlobImage(
+                                        blobRef = attachment.uri,
+                                        contentDescription = attachment.displayName,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    PlatformImageThumbnail(
+                                        uri = attachment.uri,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                // ── 上传中 / 失败覆盖层 ──
+                                if (isUploading || isFailed) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                if (isFailed) Color.Red.copy(alpha = 0.25f)
+                                                else Color.Black.copy(alpha = 0.35f),
+                                                RoundedCornerShape(12.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (isUploading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color.White,
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.ErrorOutline,
+                                                contentDescription = "Upload failed",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -296,32 +341,62 @@ private fun DraftAttachmentPreviewRow(
                                 .clickable { onFileClick(attachment) },
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFFF5F5F5),
-                            border = BorderStroke(1.dp, Color(0xFFE7E7E7))
+                            border = BorderStroke(1.dp, borderColor)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = Color(0xFF111111)
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = Color(0xFF111111)
+                                    ) {
+                                        Text(
+                                            text = attachment.fileExtensionLabel(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
                                     Text(
-                                        text = attachment.fileExtensionLabel(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        text = attachment.displayName(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF111111),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Text(
-                                    text = attachment.displayName(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF111111),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                // ── 上传中 / 失败覆盖层 ──
+                                if (isUploading || isFailed) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                if (isFailed) Color.Red.copy(alpha = 0.18f)
+                                                else Color.Black.copy(alpha = 0.25f),
+                                                RoundedCornerShape(12.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (isUploading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color.White,
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.ErrorOutline,
+                                                contentDescription = "Upload failed",
+                                                tint = Color(0xFFE53935),
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -333,55 +408,85 @@ private fun DraftAttachmentPreviewRow(
                                 .height(72.dp),
                             shape = RoundedCornerShape(12.dp),
                             color = Color(0xFFF5F5F5),
-                            border = BorderStroke(1.dp, Color(0xFFE7E7E7))
+                            border = BorderStroke(1.dp, borderColor)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = Color(0xFF111111),
-                                    modifier = Modifier.size(36.dp)
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = Color(0xFF111111),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clickable { onToggleRecordingPlayback(attachment.uri) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = if (playingRecordingId == attachment.uri) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                contentDescription = "Audio Preview",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = "语音",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF8A8A8A)
+                                        )
+                                        Text(
+                                            text = uriDisplayName(attachment.uri),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF111111),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    OutlinedButton(onClick = { onToggleRecordingPlayback(attachment.uri) }) {
+                                        Text(if (playingRecordingId == attachment.uri) "暂停" else "播放")
+                                    }
+                                }
+                                // ── 上传中 / 失败覆盖层 ──
+                                if (isUploading || isFailed) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .clickable { onToggleRecordingPlayback(attachment.uri) },
-                                        contentAlignment = Alignment.Center
+                                            .background(
+                                                if (isFailed) Color.Red.copy(alpha = 0.18f)
+                                                else Color.Black.copy(alpha = 0.25f),
+                                                RoundedCornerShape(12.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(
-                                            imageVector = if (playingRecordingId == attachment.uri) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = "Audio Preview",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                        if (isUploading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color.White,
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.ErrorOutline,
+                                                contentDescription = "Upload failed",
+                                                tint = Color(0xFFE53935),
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
                                     }
-                                }
-
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "语音",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF8A8A8A)
-                                    )
-                                    Text(
-                                        text = uriDisplayName(attachment.uri),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF111111),
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                OutlinedButton(onClick = { onToggleRecordingPlayback(attachment.uri) }) {
-                                    Text(if (playingRecordingId == attachment.uri) "暂停" else "播放")
                                 }
                             }
                         }

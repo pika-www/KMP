@@ -83,7 +83,7 @@ import com.cephalon.lucyApp.screens.agentmodel.ChatItem
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachment
 import com.cephalon.lucyApp.screens.agentmodel.DraftAttachmentType
 import com.cephalon.lucyApp.screens.agentmodel.ImagePreviewState
-import com.cephalon.lucyApp.screens.agentmodel.ImageUploadState
+import com.cephalon.lucyApp.screens.agentmodel.AttachmentUploadState
 import com.cephalon.lucyApp.sdk.MediaAttachment
 import com.cephalon.lucyApp.screens.agentmodel.uriDisplayName
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
@@ -105,20 +105,6 @@ import com.cephalon.lucyApp.sdk.SdkSessionManager
 import org.koin.compose.koinInject
 
 private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
-
-private fun inferImageContentType(fileName: String): String {
-    val ext = fileName.substringAfterLast('.', "").lowercase()
-    return when (ext) {
-        "jpg", "jpeg" -> "image/jpeg"
-        "png" -> "image/png"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "heic", "heif" -> "image/heic"
-        "bmp" -> "image/bmp"
-        "svg" -> "image/svg+xml"
-        else -> "image/jpeg"
-    }
-}
 
 private fun inferContentType(fileName: String): String {
     val ext = fileName.substringAfterLast('.', "").lowercase()
@@ -510,7 +496,7 @@ fun AgentModelScreen(
     var isVoiceBusy by remember { mutableStateOf(false) }
     var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
     val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
-    val imageUploadStates = remember { mutableStateMapOf<String, ImageUploadState>() }
+    val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
 
     // ── 轻提示 Toast ──
     var toastMessage by remember { mutableStateOf<String?>(null) }
@@ -573,33 +559,33 @@ fun AgentModelScreen(
         }
     }
 
-    fun startImageUpload(uri: String, displayName: String? = null) {
-        if (imageUploadStates[uri] is ImageUploadState.Success) return
-        imageUploadStates[uri] = ImageUploadState.Uploading
+    fun startAttachmentUpload(uri: String, displayName: String? = null) {
+        if (attachmentUploadStates[uri] is AttachmentUploadState.Success) return
+        attachmentUploadStates[uri] = AttachmentUploadState.Uploading
         coroutineScope.launch {
             val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
             if (connectResult.isFailure) {
-                imageUploadStates[uri] = ImageUploadState.Failed("连接失败")
+                attachmentUploadStates[uri] = AttachmentUploadState.Failed("连接失败")
                 return@launch
             }
-            val imageBytes = mediaAccessController.readUriToBytes(uri)
-            if (imageBytes == null) {
-                imageUploadStates[uri] = ImageUploadState.Failed("读取图片失败")
+            val fileBytes = mediaAccessController.readUriToBytes(uri)
+            if (fileBytes == null) {
+                attachmentUploadStates[uri] = AttachmentUploadState.Failed("读取文件失败")
                 return@launch
             }
             val fileName = displayName?.trim()?.takeIf { it.isNotBlank() }
-                ?: uriDisplayName(uri).ifBlank { "image.jpg" }
-            val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
+                ?: uriDisplayName(uri).ifBlank { "file" }
+            val uploadResult = sdkSessionManager.uploadImage(fileBytes, fileName)
             uploadResult.onSuccess { putResult ->
-                imageUploadStates[uri] = ImageUploadState.Success(
+                attachmentUploadStates[uri] = AttachmentUploadState.Success(
                     blobRef = putResult.blobRef,
-                    contentType = inferImageContentType(fileName),
-                    size = imageBytes.size.toLong(),
+                    contentType = inferContentType(fileName),
+                    size = fileBytes.size.toLong(),
                     fileName = fileName,
                 )
             }
             uploadResult.onFailure { error ->
-                imageUploadStates[uri] = ImageUploadState.Failed(error.message ?: "上传失败")
+                attachmentUploadStates[uri] = AttachmentUploadState.Failed(error.message ?: "上传失败")
             }
         }
     }
@@ -745,7 +731,7 @@ fun AgentModelScreen(
                         draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }
                     ) {
                         draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
-                        startImageUpload(uri)
+                        startAttachmentUpload(uri)
                     }
                 }
             if (size > lastPickedImagesSize) {
@@ -772,6 +758,7 @@ fun AgentModelScreen(
                                 displayName = pickedFile.displayName
                             )
                         )
+                        startAttachmentUpload(pickedFile.uri, pickedFile.displayName)
                     }
                 }
             if (size > lastPickedFilesSize) {
@@ -786,6 +773,23 @@ fun AgentModelScreen(
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
+            // ── 设备离线检查 ──
+            if (currentCdi == null || currentCdi !in onlineDeviceCdis) {
+                toastMessage = "设备不在线，请等待设备上线后重试"
+                return@Unit
+            }
+
+            // ── 发送前校验本地附件上传状态 ──
+            val localAttachments = attachments.filter { it.nasFileId == null }
+            if (localAttachments.any { attachmentUploadStates[it.uri] is AttachmentUploadState.Failed }) {
+                toastMessage = "文件上传失败请重新上传"
+                return@Unit
+            }
+            if (localAttachments.any { attachmentUploadStates[it.uri] is AttachmentUploadState.Uploading }) {
+                toastMessage = "文件上传中"
+                return@Unit
+            }
+
             val targetConversationId = selectedConversationId
             // 点击发送的瞬间捕获"归属设备"：用户点击后异步去连接/解析 targetCdi，期间如果
             // 切换了设备，后续的占位符清理、发送失败提示、成功后的 messageId 回填都必须
@@ -815,14 +819,14 @@ fun AgentModelScreen(
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
             }
 
-            val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image && it.nasFileId == null }
+            val localMediaAttachments = localAttachments
             val nasAttachments = attachments.filter { it.nasFileId != null }
-            val hasMediaAttachments = imageAttachments.isNotEmpty() || nasAttachments.isNotEmpty()
+            val hasMediaAttachments = localMediaAttachments.isNotEmpty() || nasAttachments.isNotEmpty()
             val outgoingText =
                 text.ifBlank {
                     if (hasMediaAttachments) "" else ""
                 }
-            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}, nasCount=${nasAttachments.size}, sendingCdi=$sendingCdi")
+            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, localCount=${localMediaAttachments.size}, nasCount=${nasAttachments.size}, sendingCdi=$sendingCdi")
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -894,69 +898,22 @@ fun AgentModelScreen(
                 }
                 println("[Chat] 解析到 targetCdi=$targetCdi")
 
-                val sendResult = if (imageAttachments.isNotEmpty() || nasAttachments.isNotEmpty()) {
+                val sendResult = if (localMediaAttachments.isNotEmpty() || nasAttachments.isNotEmpty()) {
                     // 收集所有附件的 MediaItem
                     val mediaItems = mutableListOf<SdkSessionManager.MediaItem>()
 
-                    // ── 处理本地图片附件（现有流程）──
-                    for (att in imageAttachments) {
-                        var uploadState = imageUploadStates[att.uri]
-                        while (uploadState is ImageUploadState.Uploading) {
-                            delay(100)
-                            uploadState = imageUploadStates[att.uri]
-                        }
-
-                        if (uploadState is ImageUploadState.Success) {
+                    // ── 处理本地附件（图片/文件/音频，已在选取时预上传）──
+                    for (att in localMediaAttachments) {
+                        val uploadState = attachmentUploadStates[att.uri]
+                        if (uploadState is AttachmentUploadState.Success) {
                             mediaItems.add(SdkSessionManager.MediaItem(
                                 blobRef = uploadState.blobRef,
                                 contentType = uploadState.contentType,
                                 size = uploadState.size,
                                 fileName = uploadState.fileName,
                             ))
-                        } else {
-                            val imageBytes = mediaAccessController.readUriToBytes(att.uri)
-                            if (imageBytes == null) {
-                                mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
-                                    val msgs = conv.messages.toMutableList()
-                                    val idx = msgs.indexOfLast {
-                                        it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
-                                    }
-                                    if (idx >= 0) msgs.removeAt(idx)
-                                    conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
-                                }
-                                appendMessageToConversationOnCdi(
-                                    targetConversationId,
-                                    targetCdi = sendingCdi,
-                                    message = ChatItem.System("读取图片失败，无法发送")
-                                )
-                                return@launch
-                            }
-                            val fileName = att.displayName()
-                            val uploadResult = sdkSessionManager.uploadImage(imageBytes, fileName)
-                            if (uploadResult.isFailure) {
-                                mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
-                                    val msgs = conv.messages.toMutableList()
-                                    val idx = msgs.indexOfLast {
-                                        it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
-                                    }
-                                    if (idx >= 0) msgs.removeAt(idx)
-                                    conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
-                                }
-                                appendMessageToConversationOnCdi(
-                                    targetConversationId,
-                                    targetCdi = sendingCdi,
-                                    message = ChatItem.System("图片上传失败：${uploadResult.exceptionOrNull()?.message ?: "unknown"}")
-                                )
-                                return@launch
-                            }
-                            val putResult = uploadResult.getOrThrow()
-                            mediaItems.add(SdkSessionManager.MediaItem(
-                                blobRef = putResult.blobRef,
-                                contentType = inferImageContentType(fileName),
-                                size = imageBytes.size.toLong(),
-                                fileName = fileName,
-                            ))
                         }
+                        // 发送前已校验过全部 Success，此处不应到达 else 分支
                     }
 
                     // ── 处理 NAS 附件（通过 getFileFromNas 获取 blobRef，无需重新上传）──
@@ -1077,8 +1034,8 @@ fun AgentModelScreen(
             inputText = TextFieldValue("")
             attachmentsExpanded = false
             attachments.forEach { att ->
-                if (att.type == DraftAttachmentType.Image) {
-                    imageUploadStates.remove(att.uri)
+                if (att.nasFileId == null) {
+                    attachmentUploadStates.remove(att.uri)
                 }
             }
         }
@@ -1263,8 +1220,8 @@ fun AgentModelScreen(
                         draftAttachments = draftAttachments,
                         onRemoveDraftAttachment = { att ->
                             draftAttachments.remove(att)
-                            if (att.type == DraftAttachmentType.Image) {
-                                imageUploadStates.remove(att.uri)
+                            if (att.nasFileId == null) {
+                                attachmentUploadStates.remove(att.uri)
                             }
                         },
                         onImageClick = { previewState = it },
@@ -1293,7 +1250,8 @@ fun AgentModelScreen(
                             if (attachmentsExpanded) focusManager.clearFocus()
                         },
                         onSend = sendMessage,
-                        onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) }
+                        onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) },
+                        uploadStates = attachmentUploadStates,
                     )
 
                 
@@ -1312,7 +1270,7 @@ fun AgentModelScreen(
                             uris.forEach { uri ->
                                 if (uri.isNotBlank() && draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }) {
                                     draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
-                                    startImageUpload(uri)
+                                    startAttachmentUpload(uri)
                                 }
                             }
                             attachmentsExpanded = false

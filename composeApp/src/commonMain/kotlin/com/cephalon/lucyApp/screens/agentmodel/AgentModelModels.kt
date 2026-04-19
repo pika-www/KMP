@@ -4,15 +4,15 @@ import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.sdk.MediaAttachment
 
-internal sealed class ImageUploadState {
-    data object Uploading : ImageUploadState()
+internal sealed class AttachmentUploadState {
+    data object Uploading : AttachmentUploadState()
     data class Success(
         val blobRef: String,
         val contentType: String,
         val size: Long,
         val fileName: String,
-    ) : ImageUploadState()
-    data class Failed(val error: String) : ImageUploadState()
+    ) : AttachmentUploadState()
+    data class Failed(val error: String) : AttachmentUploadState()
 }
 
 internal enum class DraftAttachmentType {
