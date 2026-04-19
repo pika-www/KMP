@@ -22,6 +22,7 @@ private data class SerializableChatItem(
     val messageId: String? = null,
     val attachmentUris: List<String>? = null,
     val attachmentNames: List<String>? = null,
+    val attachmentTypes: List<String>? = null,
     val recordingId: String? = null,
     val recordingName: String? = null,
     val recordingPath: String? = null,
@@ -62,6 +63,7 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
         messageId = messageId,
         attachmentUris = attachments.map { it.uri },
         attachmentNames = attachments.map { it.displayName ?: "" },
+        attachmentTypes = attachments.map { it.type.name },
     )
     is ChatItem.System -> SerializableChatItem(type = "system", text = text, messageId = messageId)
     is ChatItem.RecordingItem -> SerializableChatItem(
@@ -90,9 +92,15 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
     "user_attachments" -> {
         val uris = attachmentUris.orEmpty()
         val names = attachmentNames.orEmpty()
+        val types = attachmentTypes.orEmpty()
         val attachments = uris.mapIndexed { i, uri ->
+            val attType = when (types.getOrNull(i)) {
+                "File" -> DraftAttachmentType.File
+                "Audio" -> DraftAttachmentType.Audio
+                else -> DraftAttachmentType.Image
+            }
             DraftAttachment(
-                type = DraftAttachmentType.Image,
+                type = attType,
                 uri = uri,
                 displayName = names.getOrNull(i)?.ifBlank { null },
             )

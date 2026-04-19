@@ -926,7 +926,13 @@ class SdkSessionManager(
         val attachmentsArray = truncated.joinToString(",") { item ->
             val escapedBlobRef = item.blobRef.escapeForJson()
             val escapedFileName = item.fileName.escapeForJson()
-            """{"transport":"iroh-blob","blob_ref":"$escapedBlobRef","kind":"image","contentType":"${item.contentType}","size":${item.size},"fileName":"$escapedFileName"}"""
+            val attachmentKind = when {
+                item.contentType.startsWith("image/") -> "image"
+                item.contentType.startsWith("audio/") -> "audio"
+                item.contentType.startsWith("video/") -> "video"
+                else -> "file"
+            }
+            """{"transport":"iroh-blob","blob_ref":"$escapedBlobRef","kind":"$attachmentKind","contentType":"${item.contentType}","size":${item.size},"fileName":"$escapedFileName"}"""
         }
         val payload =
             """{"version":4,"kind":"${kind.escapeForJson()}","messageId":"$messageId","text":"$escapedText","attachments":[$attachmentsArray],"timestamp":${currentTimeMillis()}}"""

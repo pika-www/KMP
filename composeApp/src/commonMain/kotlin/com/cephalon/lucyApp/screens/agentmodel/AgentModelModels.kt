@@ -25,6 +25,7 @@ internal data class DraftAttachment(
     val type: DraftAttachmentType,
     val uri: String,
     val displayName: String? = null,
+    val nasFileId: Long? = null,
 )
 
 internal data class ImagePreviewState(

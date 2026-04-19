@@ -98,6 +98,8 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelProfileScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
+import com.cephalon.lucyApp.screens.nas.NasSendToChatStore
+import com.cephalon.lucyApp.screens.nas.NasSendFileType
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import org.koin.compose.koinInject
@@ -115,6 +117,37 @@ private fun inferImageContentType(fileName: String): String {
         "bmp" -> "image/bmp"
         "svg" -> "image/svg+xml"
         else -> "image/jpeg"
+    }
+}
+
+private fun inferContentType(fileName: String): String {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "heic", "heif" -> "image/heic"
+        "bmp" -> "image/bmp"
+        "svg" -> "image/svg+xml"
+        "mp3" -> "audio/mpeg"
+        "wav" -> "audio/wav"
+        "aac" -> "audio/aac"
+        "m4a" -> "audio/mp4"
+        "ogg" -> "audio/ogg"
+        "flac" -> "audio/flac"
+        "pdf" -> "application/pdf"
+        "doc" -> "application/msword"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "xls" -> "application/vnd.ms-excel"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "ppt" -> "application/vnd.ms-powerpoint"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "txt" -> "text/plain"
+        "zip" -> "application/zip"
+        "mp4" -> "video/mp4"
+        "mov" -> "video/quicktime"
+        else -> "application/octet-stream"
     }
 }
 
@@ -482,6 +515,36 @@ fun AgentModelScreen(
     // ── 轻提示 Toast ──
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
+    // ── 监听 NAS "发送脑花" ──
+    LaunchedEffect(Unit) {
+        snapshotFlow { NasSendToChatStore.pendingItems.size }
+            .collect { size ->
+                if (size > 0) {
+                    val items = NasSendToChatStore.consume()
+                    items.forEach { nasItem ->
+                        val attType = when (nasItem.fileType) {
+                            NasSendFileType.Image -> DraftAttachmentType.Image
+                            NasSendFileType.Audio -> DraftAttachmentType.File
+                            NasSendFileType.Document -> DraftAttachmentType.File
+                        }
+                        val uri = if (nasItem.fileType == NasSendFileType.Image) {
+                            nasItem.thumbnailBlobRef
+                        } else {
+                            "nas-file://${nasItem.fileId}"
+                        }
+                        draftAttachments.add(
+                            DraftAttachment(
+                                type = attType,
+                                uri = uri,
+                                displayName = nasItem.fileName,
+                                nasFileId = nasItem.fileId,
+                            )
+                        )
+                    }
+                }
+            }
+    }
+
     fun handleAttachmentDownload(attachment: MediaAttachment) {
         coroutineScope.launch {
             toastMessage = "正在下载…"
@@ -752,12 +815,14 @@ fun AgentModelScreen(
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
             }
 
-            val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
+            val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image && it.nasFileId == null }
+            val nasAttachments = attachments.filter { it.nasFileId != null }
+            val hasMediaAttachments = imageAttachments.isNotEmpty() || nasAttachments.isNotEmpty()
             val outgoingText =
                 text.ifBlank {
-                    if (imageAttachments.isNotEmpty()) "" else ""
+                    if (hasMediaAttachments) "" else ""
                 }
-            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}, sendingCdi=$sendingCdi")
+            println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, imageCount=${imageAttachments.size}, nasCount=${nasAttachments.size}, sendingCdi=$sendingCdi")
             appendMessageToConversation(
                 targetConversationId,
                 ChatItem.Assistant(STREAMING_PLACEHOLDER_TEXT)
@@ -829,11 +894,12 @@ fun AgentModelScreen(
                 }
                 println("[Chat] 解析到 targetCdi=$targetCdi")
 
-                val sendResult = if (imageAttachments.isNotEmpty()) {
-                    // 收集所有图片的 MediaItem
+                val sendResult = if (imageAttachments.isNotEmpty() || nasAttachments.isNotEmpty()) {
+                    // 收集所有附件的 MediaItem
                     val mediaItems = mutableListOf<SdkSessionManager.MediaItem>()
+
+                    // ── 处理本地图片附件（现有流程）──
                     for (att in imageAttachments) {
-                        // 等待预上传完成
                         var uploadState = imageUploadStates[att.uri]
                         while (uploadState is ImageUploadState.Uploading) {
                             delay(100)
@@ -848,7 +914,6 @@ fun AgentModelScreen(
                                 fileName = uploadState.fileName,
                             ))
                         } else {
-                            // 预上传失败或未开始，回退到发送时上传
                             val imageBytes = mediaAccessController.readUriToBytes(att.uri)
                             if (imageBytes == null) {
                                 mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
@@ -893,6 +958,45 @@ fun AgentModelScreen(
                             ))
                         }
                     }
+
+                    // ── 处理 NAS 附件（通过 getFileFromNas 获取 blobRef，无需重新上传）──
+                    for (att in nasAttachments) {
+                        val nasFileId = att.nasFileId ?: continue
+                        val getResult = sdkSessionManager.getFileFromNas(targetCdi, nasFileId)
+                        if (getResult.isFailure) {
+                            println("[Chat] NAS 文件获取失败 fileId=$nasFileId: ${getResult.exceptionOrNull()?.message}")
+                            mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
+                                val msgs = conv.messages.toMutableList()
+                                val idx = msgs.indexOfLast {
+                                    it is ChatItem.Assistant && it.text == STREAMING_PLACEHOLDER_TEXT
+                                }
+                                if (idx >= 0) msgs.removeAt(idx)
+                                conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                            }
+                            appendMessageToConversationOnCdi(
+                                targetConversationId,
+                                targetCdi = sendingCdi,
+                                message = ChatItem.System("NAS 文件获取失败：${getResult.exceptionOrNull()?.message ?: "unknown"}")
+                            )
+                            return@launch
+                        }
+                        val nasResponse = getResult.getOrThrow()
+                        val blobRef = nasResponse.item?.blobRef
+                        if (blobRef.isNullOrBlank()) {
+                            println("[Chat] NAS 文件缺少 blobRef fileId=$nasFileId")
+                            continue
+                        }
+                        val fileName = att.displayName ?: "file"
+                        val contentType = inferContentType(fileName)
+                        val size = (nasResponse.item?.size ?: 0L)
+                        mediaItems.add(SdkSessionManager.MediaItem(
+                            blobRef = blobRef,
+                            contentType = contentType,
+                            size = size,
+                            fileName = fileName,
+                        ))
+                    }
+
                     sdkSessionManager.publishTextWithAttachmentsToNpc(
                         cdi = targetCdi,
                         text = outgoingText,

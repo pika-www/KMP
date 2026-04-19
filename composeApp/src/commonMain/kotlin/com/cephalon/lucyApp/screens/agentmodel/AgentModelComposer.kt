@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import org.jetbrains.compose.resources.painterResource
@@ -272,10 +273,18 @@ private fun DraftAttachmentPreviewRow(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
                         ) {
-                            PlatformImageThumbnail(
-                                uri = attachment.uri,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (attachment.nasFileId != null) {
+                                BlobImage(
+                                    blobRef = attachment.uri,
+                                    contentDescription = attachment.displayName,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                PlatformImageThumbnail(
+                                    uri = attachment.uri,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
 

@@ -679,10 +679,18 @@ private fun ImageAttachmentCell(
             modifier = modifier
                 .clickable { onClick() }
         ) {
-            PlatformImageThumbnail(
-                uri = attachment.uri,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (attachment.nasFileId != null) {
+                BlobImage(
+                    blobRef = attachment.uri,
+                    contentDescription = attachment.displayName,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                PlatformImageThumbnail(
+                    uri = attachment.uri,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }

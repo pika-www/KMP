@@ -966,14 +966,51 @@ fun NasScreen(onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         NasGlassTextButton(
-                            text = "上传脑花",
+                            text = "发送脑花",
                             onClick = {
-                                val count = when (selectedCategory) {
-                                    NasCategory.Photos -> selectedPhotoIds.size
-                                    NasCategory.Recordings -> selectedAudioIds.size
-                                    NasCategory.Documents -> selectedDocumentIds.size
+                                val items = when (selectedCategory) {
+                                    NasCategory.Photos -> imageItems
+                                        .filter { it.id in selectedPhotoIds && it.fileId != null }
+                                        .map {
+                                            NasSendItem(
+                                                fileId = it.fileId!!,
+                                                fileName = it.name,
+                                                fileType = NasSendFileType.Image,
+                                                thumbnailBlobRef = it.path,
+                                                sizeKB = it.sizeKB,
+                                                format = it.format,
+                                            )
+                                        }
+                                    NasCategory.Recordings -> audioItems
+                                        .filter { it.id in selectedAudioIds && it.fileId != null }
+                                        .map {
+                                            NasSendItem(
+                                                fileId = it.fileId!!,
+                                                fileName = it.name,
+                                                fileType = NasSendFileType.Audio,
+                                                thumbnailBlobRef = it.path,
+                                                sizeKB = it.sizeKB,
+                                                format = it.format,
+                                            )
+                                        }
+                                    NasCategory.Documents -> documentItems
+                                        .filter { it.id in selectedDocumentIds && it.fileId != null }
+                                        .map {
+                                            NasSendItem(
+                                                fileId = it.fileId!!,
+                                                fileName = it.name,
+                                                fileType = NasSendFileType.Document,
+                                                thumbnailBlobRef = it.path,
+                                                sizeKB = it.sizeKB,
+                                                format = it.format,
+                                            )
+                                        }
                                 }
-                                println("发送朋友: ${count}项")
+                                if (items.isNotEmpty()) {
+                                    NasSendToChatStore.submit(items)
+                                    exitAllSelectionModes()
+                                    onBack()
+                                }
                             },
                             icon = Res.drawable.ic_share
                         )
@@ -1075,7 +1112,53 @@ fun NasScreen(onBack: () -> Unit) {
                         ) {
                             NasGlassTextButton(
                                 text = "发送脑花",
-                                onClick = { /* TODO: Implement send action */ },
+                                onClick = {
+                                    val items = when (selectedCategory) {
+                                        NasCategory.Photos -> imageItems
+                                            .filter { it.id in selectedPhotoIds && it.fileId != null }
+                                            .map {
+                                                NasSendItem(
+                                                    fileId = it.fileId!!,
+                                                    fileName = it.name,
+                                                    fileType = NasSendFileType.Image,
+                                                    thumbnailBlobRef = it.path,
+                                                    sizeKB = it.sizeKB,
+                                                    format = it.format,
+                                                )
+                                            }
+                                        NasCategory.Recordings -> audioItems
+                                            .filter { it.id in selectedAudioIds && it.fileId != null }
+                                            .map {
+                                                NasSendItem(
+                                                    fileId = it.fileId!!,
+                                                    fileName = it.name,
+                                                    fileType = NasSendFileType.Audio,
+                                                    thumbnailBlobRef = it.path,
+                                                    sizeKB = it.sizeKB,
+                                                    format = it.format,
+                                                )
+                                            }
+                                        NasCategory.Documents -> documentItems
+                                            .filter { it.id in selectedDocumentIds && it.fileId != null }
+                                            .map {
+                                                NasSendItem(
+                                                    fileId = it.fileId!!,
+                                                    fileName = it.name,
+                                                    fileType = NasSendFileType.Document,
+                                                    thumbnailBlobRef = it.path,
+                                                    sizeKB = it.sizeKB,
+                                                    format = it.format,
+                                                )
+                                            }
+                                    }
+                                    if (items.isNotEmpty()) {
+                                        NasSendToChatStore.submit(items)
+                                        exitAllSelectionModes()
+                                        isSearchSelectionMode = false
+                                        isSearchMode = false
+                                        onBack()
+                                    }
+                                },
                                 modifier = Modifier.width(140.dp)
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
