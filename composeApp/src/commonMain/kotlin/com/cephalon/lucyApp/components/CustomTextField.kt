@@ -47,6 +47,7 @@ fun CustomTextField(
     trailingIcon: @Composable (() -> Unit)? = null,
     isVerificationCode: Boolean = false,
     onSendCode: ((startTimer: () -> Unit) -> Unit)? = null,
+    canSend: Boolean = true,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
@@ -109,16 +110,21 @@ fun CustomTextField(
                     innerTextField()
                 }
                 if (isVerificationCode) {
+                    val codeClickable = !isCountingDown && enabled && canSend
                     Text(
                         text = when {
                             isCountingDown -> "${timeLeft}s"
                             hasSentOnce -> "重新发送"
                             else -> "获取验证码"
                         },
-                        color = if (isCountingDown) PlaceholderColor else CodeLinkColor,
+                        color = when {
+                            isCountingDown -> PlaceholderColor
+                            !canSend -> PlaceholderColor
+                            else -> CodeLinkColor
+                        },
                         fontSize = ds.sp(12f),
                         fontWeight = FontWeight.Normal,
-                        modifier = Modifier.noRippleClickable(enabled = !isCountingDown && enabled) {
+                        modifier = Modifier.noRippleClickable(enabled = codeClickable) {
                             onSendCode?.invoke {
                                 timeLeft = 60
                                 hasSentOnce = true
@@ -253,6 +259,7 @@ fun CodeInput(
     enabled: Boolean = true,
     imeAction: ImeAction = ImeAction.Next,
     onSendCode: ((startTimer: () -> Unit) -> Unit)? = null,
+    canSend: Boolean = true,
 ) {
     CustomTextField(
         value = value,
@@ -263,6 +270,7 @@ fun CodeInput(
         modifier = modifier,
         isVerificationCode = true,
         onSendCode = onSendCode,
+        canSend = canSend,
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Number,
             imeAction = imeAction
@@ -279,37 +287,72 @@ fun PasswordInput(
     label: String = "密码",
     imeAction: ImeAction = ImeAction.Next,
     onDone: (() -> Unit)? = null,
+    errorText: String? = null,
 ) {
     var visible by remember { mutableStateOf(false) }
+    val ds = LocalDesignScale.current
 
-    CustomTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = label,
-        leadingIcon = Icons.Default.Lock,
-        enabled = enabled,
-        modifier = modifier,
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            Icon(
-                imageVector = if (visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                contentDescription = null,
-                tint = PlaceholderColor,
-                modifier = Modifier
-                    .size(20.dp)
-                    .noRippleClickable { visible = !visible }
+    Column(modifier = modifier) {
+        CustomTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label,
+            leadingIcon = Icons.Default.Lock,
+            enabled = enabled,
+            visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                Icon(
+                    imageVector = if (visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    contentDescription = null,
+                    tint = PlaceholderColor,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .noRippleClickable { visible = !visible }
+                )
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = imeAction
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    onDone?.invoke()
+                }
             )
-        },
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Password,
-            imeAction = imeAction
-        ),
-        keyboardActions = KeyboardActions(
-            onDone = {
-                onDone?.invoke()
-            }
         )
-    )
+        if (!errorText.isNullOrBlank()) {
+            Text(
+                text = errorText,
+                color = Color(0xFFE53935),
+                fontSize = ds.sp(12f),
+                fontWeight = FontWeight.Normal,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 密码合法性校验。
+ * 规则：
+ * - 长度 >= 6
+ * - 只能包含 ASCII 数字 / 英文字母 / 英文符号（码位 0x21-0x7E，不含空格、中文等）
+ * - 上述三类字符中至少包含两种
+ * @return null 表示合法；非 null 为错误提示文案。空字符串返回 null（由调用方决定是否提示"请输入密码"）。
+ */
+fun validatePasswordRule(pwd: String): String? {
+    if (pwd.isEmpty()) return null
+    if (pwd.length < 6) return "密码长度至少 6 位"
+    val allowed = 0x21..0x7E
+    if (pwd.any { it.code !in allowed }) return "密码只能包含数字、英文字母或英文符号"
+    val hasDigit = pwd.any { it in '0'..'9' }
+    val hasLetter = pwd.any { it in 'a'..'z' || it in 'A'..'Z' }
+    val hasSymbol = pwd.any { c ->
+        c.code in allowed && c !in '0'..'9' && c !in 'a'..'z' && c !in 'A'..'Z'
+    }
+    val types = listOf(hasDigit, hasLetter, hasSymbol).count { it }
+    if (types < 2) return "至少包含 数字 / 字母 / 符号 中的两种"
+    return null
 }
 
 @Composable

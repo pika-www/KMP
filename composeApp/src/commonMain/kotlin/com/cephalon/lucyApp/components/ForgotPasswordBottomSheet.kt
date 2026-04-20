@@ -55,14 +55,15 @@ fun ForgotPasswordForm(
     var isLoading by remember { mutableStateOf(false) }
     val showError: (String) -> Unit = { msg -> onShowToast?.invoke(msg) }
 
-    val canSubmit = account.isNotBlank() && code.isNotBlank() && pwd.isNotBlank() && confirmPwd.isNotBlank() && !isLoading
+    // 实时计算密码规则 & 两次一致性错误（用于输入框下方红字提示 + 提交按钮置灰）
+    val pwdErr = validatePasswordRule(pwd)
+    val confirmPwdErr = if (confirmPwd.isNotEmpty() && pwd != confirmPwd) "两次输入的密码不一致" else null
+
+    val canSubmit = account.isNotBlank() && code.isNotBlank() && pwd.isNotBlank() && confirmPwd.isNotBlank() && !isLoading &&
+        pwdErr == null && confirmPwdErr == null
 
     val performReset: () -> Unit = performReset@{
         if (!canSubmit) return@performReset
-        if (pwd != confirmPwd) {
-            showError("两次输入的密码不一致")
-            return@performReset
-        }
         isLoading = true
         val input = account.trim()
         val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
@@ -199,7 +200,8 @@ fun ForgotPasswordForm(
                 onValueChange = { pwd = it },
                 enabled = !isLoading,
                 label = "设置密码",
-                imeAction = ImeAction.Next
+                imeAction = ImeAction.Next,
+                errorText = pwdErr,
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -210,7 +212,8 @@ fun ForgotPasswordForm(
                 enabled = !isLoading,
                 label = "再次输入密码",
                 imeAction = ImeAction.Done,
-                onDone = { performReset() }
+                onDone = { performReset() },
+                errorText = confirmPwdErr,
             )
         }
 

@@ -1421,6 +1421,7 @@ private suspend fun handleRechargePackageClick(
         return false
     }
     val orderId = orderResponse.data.orderId
+
     val productId = orderResponse.data.productId
     if (orderId.isBlank() || productId.isBlank()) {
         println("[IAP][UI] Step 1 异常: 后端未返回 orderId/productId, data=${orderResponse.data}")

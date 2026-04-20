@@ -97,8 +97,16 @@ fun LoginSheetContent(
     isRegisterPage: Boolean = false,
     registerPhone: String = "",
     onRegisterPhoneChange: (String) -> Unit = {},
+    canSendCode: Boolean = true,
+    isAccountRegistered: Boolean = false,
+    onGotoLoginFromRegister: () -> Unit = {},
 ) {
     var hadFocus by remember { mutableStateOf(false) }
+
+    // 密码设置模式（验证码登录未注册 / 密码登录未注册 / 注册页）下，实时计算密码规则 & 两次一致性错误
+    val isSettingPassword = needsRegister || isRegisterPage
+    val passwordErr = if (isSettingPassword) validatePasswordRule(password) else null
+    val confirmPwdErr = if (isSettingPassword && confirmPassword.isNotEmpty() && password != confirmPassword) "两次输入的密码不一致" else null
 
     SheetPageContainer {
         Column(
@@ -114,12 +122,37 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(52.dp)))
 
-            Text(
-                text = sheetTitle,
-                color = TitleColor,
-                fontSize = ds.sp(28f),
-                fontWeight = FontWeight.SemiBold,
-            )
+            if (isRegisterPage && isAccountRegistered) {
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = TitleColor)) {
+                            append("该账号已注册请")
+                        }
+                        withStyle(
+                            SpanStyle(
+                                color = LinkColor,
+                                textDecoration = TextDecoration.Underline,
+                            )
+                        ) {
+                            append("前往登录")
+                        }
+                    },
+                    fontSize = ds.sp(28f),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onGotoLoginFromRegister
+                    ),
+                )
+            } else {
+                Text(
+                    text = sheetTitle,
+                    color = TitleColor,
+                    fontSize = ds.sp(28f),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
@@ -144,6 +177,7 @@ fun LoginSheetContent(
                     onValueChange = onVerifyCodeChange,
                     enabled = !isLoading,
                     onSendCode = onSendCode,
+                    canSend = canSendCode,
                 )
 
                 // 验证码登录 — 未注册时动画弹出密码+确认密码
@@ -159,6 +193,7 @@ fun LoginSheetContent(
                             onValueChange = onPasswordChange,
                             enabled = !isLoading,
                             label = "设置密码",
+                            errorText = passwordErr,
                         )
                         Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                         PasswordInput(
@@ -166,6 +201,7 @@ fun LoginSheetContent(
                             onValueChange = onConfirmPasswordChange,
                             enabled = !isLoading,
                             label = "再次输入密码",
+                            errorText = confirmPwdErr,
                         )
                     }
                 }
@@ -208,6 +244,7 @@ fun LoginSheetContent(
                     onValueChange = onVerifyCodeChange,
                     enabled = !isLoading,
                     onSendCode = onSendCode,
+                    canSend = canSendCode,
                 )
                 Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                 PasswordInput(
@@ -215,6 +252,7 @@ fun LoginSheetContent(
                     onValueChange = onPasswordChange,
                     enabled = !isLoading,
                     label = "设置密码",
+                    errorText = passwordErr,
                 )
                 Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                 PasswordInput(
@@ -222,6 +260,7 @@ fun LoginSheetContent(
                     onValueChange = onConfirmPasswordChange,
                     enabled = !isLoading,
                     label = "再次输入密码",
+                    errorText = confirmPwdErr,
                 )
             } else {
                 // ===== 密码登录模式 =====
@@ -269,6 +308,7 @@ fun LoginSheetContent(
                             onValueChange = onVerifyCodeChange,
                             enabled = !isLoading,
                             onSendCode = onSendCode,
+                            canSend = canSendCode,
                         )
                     }
                 }
@@ -280,6 +320,7 @@ fun LoginSheetContent(
                     onValueChange = onPasswordChange,
                     enabled = !isLoading,
                     label = if (needsRegister) "设置密码" else "请输入密码",
+                    errorText = passwordErr,
                 )
 
                 // 忘记密码（右对齐）
@@ -315,6 +356,7 @@ fun LoginSheetContent(
                             onValueChange = onConfirmPasswordChange,
                             enabled = !isLoading,
                             label = "再次输入密码",
+                            errorText = confirmPwdErr,
                         )
                     }
                 }

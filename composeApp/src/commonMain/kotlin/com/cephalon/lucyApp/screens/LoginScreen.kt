@@ -38,6 +38,7 @@ import com.cephalon.lucyApp.api.AuthInput
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LoginRequest
 import com.cephalon.lucyApp.components.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
@@ -76,6 +77,11 @@ fun LoginScreen(
     var isAccountEmail by remember { mutableStateOf(false) }
     var normalizedAccount by remember { mutableStateOf("") }
     var sheetTitle by remember { mutableStateOf("Welcome to Lucy") }
+    // 注册页：账号已注册命中时显示「前往登录」链接
+    var accountRegistered by remember { mutableStateOf(false) }
+    // 是否已完成「是否已注册」校验；输入变化时重置为 false，校验成功返回后置为 true。
+    // 用于门控「获取验证码」按钮——必须校验通过且条件满足后才亮起。
+    var accountCheckPassed by remember { mutableStateOf(false) }
 
 
     // 3. 登录逻辑封装
@@ -248,6 +254,8 @@ fun LoginScreen(
         isAccountEmail = false
         normalizedAccount = ""
         sheetTitle = "Welcome to Lucy"
+        accountRegistered = false
+        accountCheckPassed = false
     }
 
     // 从当前 username 实时归一化为 (account, isEmail)；非法/空则返回 null。
@@ -268,39 +276,45 @@ fun LoginScreen(
         account to isEmail
     }
 
+    // 失焦时只做"格式错误"提示；真正的「是否已注册」检查由下方的防抖 LaunchedEffect 负责。
     val validateAccount: () -> Unit = {
         val input = username.trim()
-        if (input.isNotBlank()) {
-            val normalized = normalizeCurrentAccount()
-            if (normalized == null) {
-                toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
+        if (input.isNotBlank() && normalizeCurrentAccount() == null) {
+            toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
+        }
+    }
+
+    // 输入框变更后防抖 500ms 自动校验账号是否已注册；输入继续变化会自动取消旧的 delay。
+    // 不切换 isLoading（避免自动校验期间锁住输入），仅静默更新 needsRegister / accountRegistered。
+    LaunchedEffect(username, sheetPage, loginSheetVisible) {
+        if (!loginSheetVisible || sheetPage == SheetPage.Forgot) return@LaunchedEffect
+        val normalized = normalizeCurrentAccount() ?: return@LaunchedEffect
+        delay(500)
+        val (account, isEmail) = normalized
+        val response = if (isEmail) {
+            authRepository.isEmailExist(account)
+        } else {
+            authRepository.isPhoneExist(account)
+        }
+        if (response.code == 20000) {
+            val exists = response.data?.isExist ?: false
+            normalizedAccount = account
+            isAccountEmail = isEmail
+            if (sheetPage == SheetPage.Register) {
+                // 注册页：命中已注册 → 展示「前往登录」链接
+                accountRegistered = exists
             } else {
-                val (account, isEmail) = normalized
-                isAccountEmail = isEmail
-                normalizedAccount = account
-                scope.launch {
-                    isLoading = true
-                    val response = if (isEmail) {
-                        authRepository.isEmailExist(account)
-                    } else {
-                        authRepository.isPhoneExist(account)
-                    }
-                    isLoading = false
-                    if (response.code == 20000) {
-                        val exists = response.data?.isExist ?: false
-                        if (exists) {
-                            needsRegister = false
-                            sheetTitle = "Welcome to Lucy"
-                        } else {
-                            needsRegister = true
-                            val typeLabel = if (isEmail) "邮箱" else "手机号"
-                            sheetTitle = "此${typeLabel}还未注册"
-                        }
-                    } else {
-                        toastState.show(response.msg)
-                    }
+                accountRegistered = false
+                if (exists) {
+                    needsRegister = false
+                    sheetTitle = "Welcome to Lucy"
+                } else {
+                    needsRegister = true
+                    val typeLabel = if (isEmail) "邮箱" else "手机号"
+                    sheetTitle = "此${typeLabel}还未注册"
                 }
             }
+            accountCheckPassed = true
         }
     }
 
@@ -483,19 +497,43 @@ fun LoginScreen(
                 label = "LoginSheetPage"
             ) { page ->
                 val ds = LocalDesignScale.current
+                // 获取验证码按钮的可点击条件：格式合法 + 账号校验接口已返回（+ 注册页要求未被占用）
+                val canSendCode = when {
+                    // 验证码登录：11位手机号 + 校验通过
+                    !preferEmailLogin && page == SheetPage.Login ->
+                        Regex("^1\\d{10}$").matches(username.trim()) && accountCheckPassed
+                    // 注册页：格式合法 + 账号未被占用 + 校验通过
+                    page == SheetPage.Register ->
+                        normalizeCurrentAccount() != null && !accountRegistered && accountCheckPassed
+                    // 密码登录：手机号或邮箱格式合法 + 校验通过
+                    else -> normalizeCurrentAccount() != null && accountCheckPassed
+                }
+
+                // 是否处于"设置密码"模式（验证码登录未注册 / 密码登录未注册 / 注册页）
+                val isSettingPassword = page == SheetPage.Register ||
+                    (page == SheetPage.Login && needsRegister)
+                // 设置密码模式下密码必须满足规则且两次一致
+                val passwordRuleOk = !isSettingPassword ||
+                    (validatePasswordRule(password) == null && password.isNotEmpty() && password == confirmPassword)
+
                 val canSubmit = when {
                     // 验证码登录：手机号 + 验证码 (+未注册时需密码)
                     !preferEmailLogin && page == SheetPage.Login ->
                         username.isNotBlank() && verifyCode.isNotBlank() && !isLoading &&
-                        (!needsRegister || (password.isNotBlank() && confirmPassword.isNotBlank()))
+                        (!needsRegister || (password.isNotBlank() && confirmPassword.isNotBlank())) &&
+                        passwordRuleOk
                     // 注册页：账号 + 验证码 + 密码 + 确认密码 (+邮箱时需手机号)
+                    // 若账号已注册则禁用提交（用户需点击「前往登录」跳转）
                     page == SheetPage.Register ->
+                        !accountRegistered &&
                         username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() &&
-                        verifyCode.isNotBlank() && (!isAccountEmail || registerPhone.isNotBlank()) && !isLoading
+                        verifyCode.isNotBlank() && (!isAccountEmail || registerPhone.isNotBlank()) && !isLoading &&
+                        passwordRuleOk
                     // 密码登录：账号 + 密码 (+未注册时需确认密码和验证码)
                     else ->
                         username.isNotBlank() && password.isNotBlank() && !isLoading &&
-                        (!needsRegister || (confirmPassword.isNotBlank() && verifyCode.isNotBlank()))
+                        (!needsRegister || (confirmPassword.isNotBlank() && verifyCode.isNotBlank())) &&
+                        passwordRuleOk
                 }
 
                 when (page) {
@@ -506,7 +544,7 @@ fun LoginScreen(
                             preferEmailLogin = preferEmailLogin,
                             needsRegister = needsRegister,
                             username = username,
-                            onUsernameChange = { username = it; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } },
+                            onUsernameChange = { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } },
                             password = password,
                             onPasswordChange = { password = it },
                             confirmPassword = confirmPassword,
@@ -563,6 +601,7 @@ fun LoginScreen(
                             toastState = toastState,
                             registerPhone = registerPhone,
                             onRegisterPhoneChange = { registerPhone = it },
+                            canSendCode = canSendCode,
                         )
                     }
 
@@ -593,7 +632,7 @@ fun LoginScreen(
                             needsRegister = true,
                             isRegisterPage = true,
                             username = username,
-                            onUsernameChange = { username = it },
+                            onUsernameChange = { username = it; accountRegistered = false; accountCheckPassed = false },
                             password = password,
                             onPasswordChange = { password = it },
                             confirmPassword = confirmPassword,
@@ -601,8 +640,7 @@ fun LoginScreen(
                             verifyCode = verifyCode,
                             onVerifyCodeChange = { verifyCode = it },
                             isLoading = isLoading,
-                            canSubmit = username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() &&
-                                verifyCode.isNotBlank() && (!isAccountEmail || registerPhone.isNotBlank()) && !isLoading,
+                            canSubmit = canSubmit,
                             normalizedAccount = normalizedAccount,
                             isAccountEmail = isAccountEmail,
                             onBackClick = { loginSheetVisible = false },
@@ -634,7 +672,15 @@ fun LoginScreen(
                                     if (response.code == 20000) startTimer() else toastState.show(response.msg)
                                 }
                             },
-                            toastState = toastState
+                            toastState = toastState,
+                            canSendCode = canSendCode,
+                            isAccountRegistered = accountRegistered,
+                            onGotoLoginFromRegister = {
+                                // 关闭注册页 → 打开验证码登录模态
+                                resetSheetState()
+                                preferEmailLogin = false
+                                sheetPage = SheetPage.Login
+                            },
                         )
                     }
                 }
