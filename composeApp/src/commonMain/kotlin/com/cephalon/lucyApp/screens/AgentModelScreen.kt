@@ -355,6 +355,7 @@ fun AgentModelScreen(
         messageId: String,
         text: String,
         attachments: List<MediaAttachment> = emptyList(),
+        timestamp: Long? = null,
     ) {
         // 用 messageId 反查这条流式消息属于哪台设备：
         // - 找得到、且是当前设备 → 内存路径，snapshotFlow 顺手保存；
@@ -363,10 +364,13 @@ fun AgentModelScreen(
         val targetCdi = messageIdToCdi[messageId]
         mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
             val updatedMessages = conversation.messages.toMutableList()
+            // ── 查找流式消息的目标位置（三级优先） ──
+            // 1. messageId 匹配 + timestamp==null → 正在流式输出的消息
+            //    （media event 插入的消息一定有 timestamp，不会被误命中）
             var targetIndex = updatedMessages.indexOfLast {
-                it is ChatItem.Assistant && it.messageId == messageId
+                it is ChatItem.Assistant && it.messageId == messageId && it.timestamp == null
             }
-            // Fallback: 如果找不到已绑定 messageId 的消息，尝试替换孤立占位符
+            // 2. 尚未绑定 messageId 的原始占位符
             if (targetIndex < 0) {
                 targetIndex = updatedMessages.indexOfLast {
                     it is ChatItem.Assistant &&
@@ -375,6 +379,15 @@ fun AgentModelScreen(
                 }
                 if (targetIndex >= 0) {
                     println("[Streaming] upsert fallback: 用孤立占位符 idx=$targetIndex 替代")
+                }
+            }
+            // 3. 兜底：messageId 匹配（含已有 timestamp 的消息）
+            if (targetIndex < 0) {
+                targetIndex = updatedMessages.indexOfLast {
+                    it is ChatItem.Assistant && it.messageId == messageId
+                }
+                if (targetIndex >= 0) {
+                    println("[Streaming] upsert fallback: 按 messageId 兜底 idx=$targetIndex")
                 }
             }
             println("[Streaming] upsert convId=$conversationId msgId=$messageId targetCdi=$targetCdi targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
@@ -387,10 +400,11 @@ fun AgentModelScreen(
                 val existingRefs = existingAtts.map { it.blobRef }.toSet()
                 existingAtts + attachments.filter { it.blobRef !in existingRefs }
             }
+            val mergedTimestamp = timestamp ?: existing?.timestamp
             if (targetIndex >= 0) {
-                updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId, mergedAttachments)
+                updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId, mergedAttachments, mergedTimestamp)
             } else {
-                updatedMessages.add(ChatItem.Assistant(text, messageId, mergedAttachments))
+                updatedMessages.add(ChatItem.Assistant(text, messageId, mergedAttachments, mergedTimestamp))
             }
             conversation.copy(
                 messages = updatedMessages,
@@ -640,51 +654,87 @@ fun AgentModelScreen(
         sdkSessionManager.connectIfTokenValid()
     }
 
-    // 监听异步文件/媒体推送（无 source_message_id 或已完成请求的后续 final），追加到当前对话底部
+    // 监听异步文件/媒体推送（无 source_message_id 或已完成请求的后续 final），
+    // 按 (sourceMessageId, timestamp) 去重，按 timestamp 插入正确位置。
     LaunchedEffect(Unit) {
         sdkSessionManager.incomingMediaEvents.collect { event ->
-            println("[MediaEvent] 收到异步媒体推送: type=${event.eventType}, text=${event.text?.take(50)}, attachments=${event.attachments.size}")
+            println("[MediaEvent] 收到异步媒体推送: type=${event.eventType}, text=${event.text?.take(50)}, attachments=${event.attachments.size}, sourceMessageId=${event.sourceMessageId}, timestamp=${event.timestamp}")
             val targetConvId = selectedConversationId
             val chatText = event.text ?: ""
             val chatAttachments = event.attachments
             if (chatAttachments.isEmpty() && chatText.isBlank()) return@collect
 
-            // 去重：检查当前对话最后一条 assistant 消息是否文本完全相同
-            val conv = conversations.firstOrNull { it.id == targetConvId }
-            val lastAssistant = conv?.messages?.lastOrNull { it is ChatItem.Assistant } as? ChatItem.Assistant
-            val isDuplicateText = chatText.isNotBlank() && lastAssistant?.text == chatText
+            val srcMsgId = event.sourceMessageId
+            val ts = event.timestamp
 
-            if (isDuplicateText && chatAttachments.isEmpty()) {
-                // 纯文本重复，跳过
-                println("[MediaEvent] 跳过重复文本: ${chatText.take(50)}")
+            val conv = conversations.firstOrNull { it.id == targetConvId }
+            val existingMessages = conv?.messages.orEmpty()
+            val existingAssistants = existingMessages.filterIsInstance<ChatItem.Assistant>()
+
+            // ── 去重：(sourceMessageId, timestamp) 为唯一标识 ──
+            // 1. 有 sourceMessageId → (sourceMessageId, timestamp) 精确匹配，或 (sourceMessageId + text) 兜底
+            // 2. 无 sourceMessageId → text 完全匹配
+            val duplicate: ChatItem.Assistant? = if (srcMsgId != null) {
+                existingAssistants.firstOrNull { it.messageId == srcMsgId && ts != null && it.timestamp == ts }
+                    ?: (if (chatText.isNotBlank()) existingAssistants.firstOrNull { it.messageId == srcMsgId && it.text == chatText } else null)
+            } else {
+                if (chatText.isNotBlank()) {
+                    existingAssistants.firstOrNull { it.text == chatText }
+                } else null
+            }
+
+            if (duplicate != null) {
+                // 重复消息：仅当有新附件时合并，否则跳过
+                if (chatAttachments.isNotEmpty()) {
+                    val existingRefs = duplicate.attachments.map { it.blobRef }.toSet()
+                    val newAtts = chatAttachments.filter { it.blobRef !in existingRefs }
+                    if (newAtts.isNotEmpty()) {
+                        println("[MediaEvent] 去重命中，合并 ${newAtts.size} 个新附件")
+                        updateConversation(targetConvId) { conversation ->
+                            val msgs = conversation.messages.toMutableList()
+                            val idx = msgs.indexOf(duplicate)
+                            if (idx >= 0) {
+                                msgs[idx] = duplicate.copy(attachments = duplicate.attachments + newAtts)
+                            }
+                            conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                        }
+                    } else {
+                        println("[MediaEvent] 去重命中，无新附件，跳过")
+                    }
+                } else {
+                    println("[MediaEvent] 去重命中，跳过: text=${chatText.take(50)}")
+                }
                 return@collect
             }
 
-            if (isDuplicateText && chatAttachments.isNotEmpty()) {
-                // 文本重复但带新附件 → 合并附件到已有消息，不重复文本
-                println("[MediaEvent] 文本重复，合并 ${chatAttachments.size} 个附件到已有消息")
-                updateConversation(targetConvId) { conversation ->
-                    val msgs = conversation.messages.toMutableList()
-                    val lastIdx = msgs.indexOfLast { it is ChatItem.Assistant }
-                    if (lastIdx >= 0) {
-                        val existing = msgs[lastIdx] as ChatItem.Assistant
-                        val existingRefs = existing.attachments.map { it.blobRef }.toSet()
-                        val newAtts = chatAttachments.filter { it.blobRef !in existingRefs }
-                        if (newAtts.isNotEmpty()) {
-                            msgs[lastIdx] = existing.copy(attachments = existing.attachments + newAtts)
-                        }
+            // ── 新消息：按 timestamp 全局排序插入 ──
+            // 把没有 timestamp 的 Assistant（含流式占位符）视为 Long.MAX_VALUE，
+            // 确保有 timestamp 的异步消息总是插到占位符/流式消息之前。
+            val newMsg = ChatItem.Assistant(
+                text = chatText,
+                messageId = srcMsgId,
+                attachments = chatAttachments,
+                timestamp = ts,
+            )
+            updateConversation(targetConvId) { conversation ->
+                val msgs = conversation.messages.toMutableList()
+                if (ts != null) {
+                    val insertBeforeIdx = msgs.indexOfFirst { m ->
+                        m is ChatItem.Assistant && (m.timestamp ?: Long.MAX_VALUE) > ts
                     }
-                    conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                    if (insertBeforeIdx >= 0) {
+                        println("[MediaEvent] 按 timestamp 插入到 idx=$insertBeforeIdx")
+                        msgs.add(insertBeforeIdx, newMsg)
+                    } else {
+                        println("[MediaEvent] 追加到末尾")
+                        msgs.add(newMsg)
+                    }
+                } else {
+                    // 无 timestamp → 追加到末尾
+                    println("[MediaEvent] 无 timestamp，追加到末尾")
+                    msgs.add(newMsg)
                 }
-            } else {
-                // 新内容 → 追加为新消息
-                appendMessageToConversation(
-                    targetConvId,
-                    ChatItem.Assistant(
-                        text = chatText,
-                        attachments = chatAttachments,
-                    )
-                )
+                conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
             }
         }
     }
@@ -715,7 +765,7 @@ fun AgentModelScreen(
                     // 直接渲染 SDK 返回的文本，不做打字机效果
                     if (text.isNotBlank() && text != lastText) {
                         lastText = text
-                        upsertStreamingAssistantMessageInConversation(convId, msgId, text)
+                        upsertStreamingAssistantMessageInConversation(convId, msgId, text, timestamp = state?.timestamp)
                     }
 
                     // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本 或 有错误 或 已有附件）
@@ -724,7 +774,7 @@ fun AgentModelScreen(
                     val finished = !streaming && (streamingStarted || text.isNotBlank() || errorText != null || finalAttachments.isNotEmpty())
                     if (finished) {
                         if ((text.isNotBlank() && lastText != text) || finalAttachments.isNotEmpty()) {
-                            upsertStreamingAssistantMessageInConversation(convId, msgId, text, finalAttachments)
+                            upsertStreamingAssistantMessageInConversation(convId, msgId, text, finalAttachments, timestamp = state?.timestamp)
                         }
                         // 如果有错误，追加错误提示到对话中
                         if (errorText != null) {

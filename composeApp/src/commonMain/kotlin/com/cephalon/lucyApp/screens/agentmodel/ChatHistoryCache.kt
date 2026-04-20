@@ -29,6 +29,7 @@ private data class SerializableChatItem(
     val mediaBlobRefs: List<String>? = null,
     val mediaContentTypes: List<String?>? = null,
     val mediaFileNames: List<String?>? = null,
+    val timestamp: Long? = null,
 )
 
 @Serializable
@@ -55,6 +56,7 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
         mediaBlobRefs = attachments.map { it.blobRef }.ifEmpty { null },
         mediaContentTypes = attachments.map { it.contentType }.ifEmpty { null },
         mediaFileNames = attachments.map { it.fileName }.ifEmpty { null },
+        timestamp = timestamp,
     )
     is ChatItem.User -> SerializableChatItem(type = "user", text = text, messageId = messageId)
     is ChatItem.UserAttachments -> SerializableChatItem(
@@ -86,7 +88,7 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
                 fileName = mediaFileNames?.getOrNull(i),
             )
         } ?: emptyList()
-        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments)
+        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments, timestamp = timestamp)
     }
     "user" -> ChatItem.User(text = text ?: "", messageId = messageId)
     "user_attachments" -> {

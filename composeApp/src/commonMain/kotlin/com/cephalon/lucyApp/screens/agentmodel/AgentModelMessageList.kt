@@ -123,7 +123,11 @@ internal fun AgentModelMessageList(
 
         itemsIndexed(items = messages, key = { index, item ->
             when (item) {
-                is ChatItem.Assistant -> "assistant_${item.messageId ?: index}"
+                is ChatItem.Assistant -> if (item.messageId != null && item.timestamp != null) {
+                    "assistant_${item.messageId}_${item.timestamp}"
+                } else {
+                    "assistant_${item.messageId ?: "anon_$index"}"
+                }
                 is ChatItem.User -> "user_$index"
                 is ChatItem.UserAttachments -> "attachments_$index"
                 is ChatItem.System -> "system_$index"
