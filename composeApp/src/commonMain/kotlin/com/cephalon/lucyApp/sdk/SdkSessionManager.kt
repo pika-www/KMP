@@ -930,7 +930,7 @@ class SdkSessionManager(
                 item.contentType.startsWith("image/") -> "image"
                 item.contentType.startsWith("audio/") -> "audio"
                 item.contentType.startsWith("video/") -> "video"
-                else -> "file"
+                else -> "document"
             }
             """{"transport":"iroh-blob","blob_ref":"$escapedBlobRef","kind":"$attachmentKind","contentType":"${item.contentType}","size":${item.size},"fileName":"$escapedFileName"}"""
         }
@@ -1127,6 +1127,8 @@ class SdkSessionManager(
                                     text = machineEvent.text,
                                     attachments = machineEvent.attachments,
                                     eventType = machineEvent.type,
+                                    sourceMessageId = incomingSourceMessageId,
+                                    timestamp = machineEvent.timestamp,
                                 )
                             )
                         } else {
@@ -1151,6 +1153,8 @@ class SdkSessionManager(
                                     text = machineEvent.text,
                                     attachments = machineEvent.attachments,
                                     eventType = machineEvent.type,
+                                    sourceMessageId = machineEvent.sourceMessageId,
+                                    timestamp = machineEvent.timestamp,
                                 )
                             )
                             appLogD(TAG, "[Consumer] 已发射 IncomingMediaEvent type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
@@ -1665,6 +1669,7 @@ class SdkSessionManager(
                         streaming = false,
                         streamingStatusText = null,
                         attachments = mergedAttachments,
+                        timestamp = event.timestamp ?: state.timestamp,
                     )
                 }
                 if (isLatest) {
@@ -1804,7 +1809,11 @@ class SdkSessionManager(
             }
         }
 
-        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments)
+        val timestamp = runCatching {
+            root["timestamp"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+        }.getOrNull()
+
+        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments, timestamp = timestamp)
     }
 
     private fun extractTextFromEventObject(root: JsonObject): String? {
@@ -2220,6 +2229,8 @@ data class IncomingMediaEvent(
     val text: String?,
     val attachments: List<MediaAttachment>,
     val eventType: String,
+    val sourceMessageId: String? = null,
+    val timestamp: Long? = null,
 )
 
 private data class NpcMachineEvent(
@@ -2228,6 +2239,7 @@ private data class NpcMachineEvent(
     val sourceMessageId: String?,
     val toolName: String? = null,
     val attachments: List<MediaAttachment> = emptyList(),
+    val timestamp: Long? = null,
 )
 
 data class ReplyState(
@@ -2237,6 +2249,7 @@ data class ReplyState(
     val streamingStatusText: String? = null,
     val attachments: List<MediaAttachment> = emptyList(),
     val errorText: String? = null,
+    val timestamp: Long? = null,
 )
 
 enum class SdkConnectionState {

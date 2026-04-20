@@ -52,6 +52,7 @@ internal sealed class ChatItem {
         val text: String,
         override val messageId: String? = null,
         val attachments: List<MediaAttachment> = emptyList(),
+        val timestamp: Long? = null,
     ) : ChatItem()
     data class User(
         val text: String,
