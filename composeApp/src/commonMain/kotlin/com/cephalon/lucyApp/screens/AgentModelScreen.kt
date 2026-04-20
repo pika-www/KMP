@@ -137,6 +137,40 @@ private fun inferContentType(fileName: String): String {
     }
 }
 
+private fun inferContentTypeFromBytes(bytes: ByteArray): String? {
+    if (bytes.size < 4) return null
+    return when {
+        bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte() -> "image/jpeg"
+        bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
+        bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() && bytes[2] == 0x46.toByte() && bytes[3] == 0x38.toByte() -> "image/gif"
+        bytes[0] == 0x42.toByte() && bytes[1] == 0x4D.toByte() -> "image/bmp"
+        bytes.size >= 12 && bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() && bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
+            bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() && bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte() -> "image/webp"
+        bytes.size >= 12 && bytes[4] == 0x66.toByte() && bytes[5] == 0x74.toByte() && bytes[6] == 0x79.toByte() && bytes[7] == 0x70.toByte() -> {
+            val brand = bytes.sliceArray(8..11).decodeToString()
+            when {
+                brand.startsWith("heic") || brand.startsWith("heix") || brand.startsWith("mif1") -> "image/heic"
+                brand.startsWith("avif") -> "image/avif"
+                else -> null
+            }
+        }
+        bytes[0] == 0x25.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte() -> "application/pdf"
+        else -> null
+    }
+}
+
+private fun extensionForContentType(contentType: String): String? = when (contentType) {
+    "image/jpeg" -> "jpg"
+    "image/png" -> "png"
+    "image/gif" -> "gif"
+    "image/webp" -> "webp"
+    "image/heic" -> "heic"
+    "image/avif" -> "avif"
+    "image/bmp" -> "bmp"
+    "application/pdf" -> "pdf"
+    else -> null
+}
+
 private fun isBrainBoxCapabilityQuery(text: String): Boolean {
     val normalized = text.trim()
     if (normalized.isEmpty()) return false
@@ -573,13 +607,25 @@ fun AgentModelScreen(
                 attachmentUploadStates[uri] = AttachmentUploadState.Failed("读取文件失败")
                 return@launch
             }
-            val fileName = displayName?.trim()?.takeIf { it.isNotBlank() }
+            var fileName = displayName?.trim()?.takeIf { it.isNotBlank() }
                 ?: uriDisplayName(uri).ifBlank { "file" }
+            var contentType = inferContentType(fileName)
+            if (contentType == "application/octet-stream") {
+                val detected = inferContentTypeFromBytes(fileBytes)
+                if (detected != null) {
+                    contentType = detected
+                    val hasExt = fileName.contains('.')
+                    if (!hasExt) {
+                        val ext = extensionForContentType(detected)
+                        if (ext != null) fileName = "$fileName.$ext"
+                    }
+                }
+            }
             val uploadResult = sdkSessionManager.uploadImage(fileBytes, fileName)
             uploadResult.onSuccess { putResult ->
                 attachmentUploadStates[uri] = AttachmentUploadState.Success(
                     blobRef = putResult.blobRef,
-                    contentType = inferContentType(fileName),
+                    contentType = contentType,
                     size = fileBytes.size.toLong(),
                     fileName = fileName,
                 )

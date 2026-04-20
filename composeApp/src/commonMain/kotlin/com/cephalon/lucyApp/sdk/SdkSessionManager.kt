@@ -1139,6 +1139,11 @@ class SdkSessionManager(
                 if (!hasSourceId) {
                     // 没有 source_message_id → 可能是异步文件/媒体推送
                     appLogD(TAG, "[Consumer] 收到无 source_message_id 消息 subject=$subject, type=${machineEvent?.type}, attachments=${machineEvent?.attachments?.size ?: 0}")
+                    // error 类型事件没有 source_message_id 时静默丢弃，不作为媒体推送显示
+                    if (machineEvent?.type == "error") {
+                        appLogD(TAG, "[Consumer] 丢弃无 source_message_id 的 error 事件: ${machineEvent.text?.take(100)}")
+                        return@startUserChannelConsumer
+                    }
                     if (machineEvent != null && (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())) {
                         _incomingMediaEvents.tryEmit(
                             IncomingMediaEvent(
