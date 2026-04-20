@@ -504,7 +504,7 @@ private fun DraftAttachmentPreviewRow(
                         .size(20.dp)
                         .clickable { onRemoveAttachment(attachment) },
                     shape = RoundedCornerShape(999.dp),
-                    color = Color.White.copy(alpha = 0.40f)
+                    color = Color.Black.copy(alpha = 0.60f)
                 ) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(

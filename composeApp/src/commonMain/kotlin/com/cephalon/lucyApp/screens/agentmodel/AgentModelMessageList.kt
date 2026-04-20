@@ -72,6 +72,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
@@ -147,7 +148,7 @@ internal fun AgentModelMessageList(
         }) { index, item ->
             when (item) {
                 is ChatItem.Assistant -> {
-                    Column {
+                    Column(modifier = Modifier.fillMaxWidth(0.8f)) {
                         // ── 可折叠思考状态气泡 ──
                         if (item.isStreaming || item.streamEvents.isNotEmpty()) {
                             ThinkingBubble(
@@ -197,14 +198,16 @@ internal fun AgentModelMessageList(
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
-                            Text(
-                                text = item.text,
-                                color = Color(0xFF1F2535),
-                                fontSize = ds.sp(14f),
-                                fontWeight = FontWeight.Normal,
-                                lineHeight = ds.sp(20f),
-                                modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(8.dp))
-                            )
+                            SelectionContainer {
+                                Text(
+                                    text = item.text,
+                                    color = Color(0xFF1F2535),
+                                    fontSize = ds.sp(14f),
+                                    fontWeight = FontWeight.Normal,
+                                    lineHeight = ds.sp(20f),
+                                    modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(8.dp))
+                                )
+                            }
                         }
                     }
                 }
