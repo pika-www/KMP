@@ -334,7 +334,7 @@ fun ScanBindChannelScreen(
             containerShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
             containerColor = Color(0xFFF5F5F7),
             topPadding = 0.dp,
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)
+            contentPadding = null
         ) {
             Spacer(modifier = Modifier.height(18.dp))
 

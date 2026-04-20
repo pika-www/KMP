@@ -44,6 +44,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.cephalon.lucyApp.components.LocalDesignScale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -59,9 +60,13 @@ fun HalfModalBottomSheet(
     containerShape: Shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
     containerColor: Color = Color(0xFFF5F5F7),
     topPadding: Dp = 60.dp,
-    contentPadding: PaddingValues = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
+    contentPadding: PaddingValues? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val ds = LocalDesignScale.current
+    val resolvedPadding = contentPadding ?: PaddingValues(
+        start = ds.sw(20.dp), end = ds.sw(20.dp), bottom = ds.sh(20.dp)
+    )
     val latestOnDismissed = rememberUpdatedState(onDismissed)
     val latestOnDismissRequest = rememberUpdatedState(onDismissRequest)
 
@@ -190,18 +195,18 @@ fun HalfModalBottomSheet(
                     Box(modifier = Modifier.fillMaxWidth()) {
                         if (showTopBar) {
                             Column(modifier = Modifier.fillMaxWidth()) {
-                                Spacer(modifier = Modifier.height(20.dp))
+                                Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 20.dp),
+                                        .padding(horizontal = ds.sw(20.dp)),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     if (showBackButton) {
                                         IconButton(
                                             onClick = { onBack?.invoke() ?: latestOnDismissRequest.value() },
                                             modifier = Modifier
-                                                .size(40.dp)
+                                                .size(ds.sm(40.dp))
                                                 .clip(CircleShape)
                                                 .background(Color(0xFFE6E6E6))
                                         ) {
@@ -209,11 +214,11 @@ fun HalfModalBottomSheet(
                                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                                 contentDescription = "Back",
                                                 tint = Color(0xFF2D2D2D),
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(ds.sm(24.dp))
                                             )
                                         }
                                     } else {
-                                        Spacer(modifier = Modifier.size(40.dp))
+                                        Spacer(modifier = Modifier.size(ds.sm(40.dp)))
                                     }
 
                                     Spacer(modifier = Modifier.weight(1f))
@@ -222,7 +227,7 @@ fun HalfModalBottomSheet(
                                         IconButton(
                                             onClick = { latestOnDismissRequest.value() },
                                             modifier = Modifier
-                                                .size(40.dp)
+                                                .size(ds.sm(40.dp))
                                                 .clip(CircleShape)
                                                 .background(Color(0xFFE6E6E6))
                                         ) {
@@ -230,14 +235,14 @@ fun HalfModalBottomSheet(
                                                 imageVector = Icons.Default.Close,
                                                 contentDescription = "Close",
                                                 tint = Color(0xFF2D2D2D),
-                                                modifier = Modifier.size(22.dp)
+                                                modifier = Modifier.size(ds.sm(22.dp))
                                             )
                                         }
                                     } else {
-                                        Spacer(modifier = Modifier.size(40.dp))
+                                        Spacer(modifier = Modifier.size(ds.sm(40.dp)))
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(20.dp))
+                                Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                             }
                         }
                     }
@@ -246,7 +251,7 @@ fun HalfModalBottomSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .padding(contentPadding)
+                            .padding(resolvedPadding)
                     ) {
                         content()
                     }

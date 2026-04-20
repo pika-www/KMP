@@ -45,7 +45,7 @@ internal fun WifiConfigSheet(
         containerShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
         containerColor = Color(0xFFF5F5F7),
         topPadding = 120.dp,
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)
+        contentPadding = null
     ) {
         if (device == null) return@HalfModalBottomSheet
 

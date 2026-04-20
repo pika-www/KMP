@@ -35,6 +35,7 @@ import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
 import com.cephalon.lucyApp.brainbox.PhoneWifiState
 import com.cephalon.lucyApp.brainbox.WifiCredentialCache
 import com.cephalon.lucyApp.brainbox.rememberBrainBoxProvisionController
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.components.ToastHost
 import com.cephalon.lucyApp.components.ToastState
@@ -57,11 +58,11 @@ private enum class BrainBoxStep(
         subtitle = "发现附近的脑花设备，确保蓝牙已开启且设备通电",
     ),
     Wifi(
-        title = "连接Wi‑Fi",
+        title = "配置 Wi‑Fi",
         subtitle = "为选中的设备完成当前网络配置",
     ),
     Bind(
-        title = "绑定Channel",
+        title = "绑定 Channel",
         subtitle = "将此设备绑定到你的脑花账号",
     ),
 }
@@ -617,40 +618,50 @@ fun BrainBoxLoginSheet(
             provisionManager.stopScan()
         },
         showTopBar = true,
-        showBackButton = currentStep != BrainBoxStep.Scan,
-        showCloseButton = true,
-        onBack = { goPrevious() },
+        showBackButton = true,
+        showCloseButton = false,
+        onBack = {
+            if (currentStep == BrainBoxStep.Scan) {
+                provisionManager.stopScan()
+                scope.launch { provisionManager.cancel() }
+                onDismiss()
+            } else {
+                goPrevious()
+            }
+        },
     ) {
+        val ds = LocalDesignScale.current
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 20.dp)
             ) {
-                BrainBoxStepIndicator(currentIndex = currentSheetStepIndex)
+                BrainBoxStepIndicator(
+                    currentIndex = currentSheetStepIndex,
+                    horizontalPadding = ds.sw(28.dp),
+                )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
                 Text(
                     text = currentStep.title,
-                    fontSize = 20.sp,
+                    fontSize = ds.sp(24f),
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF12192B),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
                 Text(
                     text = currentStep.subtitle,
-                    fontSize = 14.sp,
+                    fontSize = ds.sp(14f),
                     fontWeight = FontWeight.Normal,
                     color = Color(0xFF595E6B),
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
                 when (currentStep) {
                     BrainBoxStep.Scan -> {
@@ -709,21 +720,13 @@ fun BrainBoxLoginSheet(
                     }
                     BrainBoxStep.Wifi -> {
                         BrainBoxWifiStep(
-                            wifiMode = wifiMode,
-                            wifiPermissionGranted = true,
                             selectedDevice = selectedBleDevice,
-                            wifiNetworks = wifiNetworks,
-                            isWifiLoading = isWifiLoading,
-                            selectedWifiSsid = selectedWifiSsid,
-                            onSelectWifi = { selectedWifiSsid = it },
-                            manualSsid = manualSsid,
-                            onManualSsidChange = { manualSsid = it },
+                            phoneSsid = selectedWifiSsid.takeIf { it.isNotBlank() } ?: currentSsid,
+                            deviceIp = provisionState.networkStatus?.ip?.takeIf { it.isNotBlank() },
                             wifiPassword = wifiPassword,
                             onWifiPasswordChange = { wifiPassword = it },
                             isConnectingWifi = isConnectingWifi,
-                            onRefreshWifi = ::refreshWifiAgain,
                             onConnectWifi = ::connectWifi,
-                            currentSsid = currentSsid,
                             isSelectedCurrent = isSelectedCurrent,
                         )
                     }

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.api.LucyDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
+import com.cephalon.lucyApp.components.LocalDesignScale
 
 @Composable
 internal fun BrainBoxActionCard(
@@ -39,36 +40,37 @@ internal fun BrainBoxActionCard(
     enabled: Boolean = true,
     showLoading: Boolean = false,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(ds.sm(20.dp)),
         color = Color(0xFFEDEDED),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column(modifier = Modifier.padding(ds.sm(18.dp))) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = Color(0xFF111111),
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(ds.sh(10.dp)))
             Text(
                 text = body,
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFF666666),
             )
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(ds.sh(18.dp)))
             Button(
                 onClick = onPrimary,
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(ds.sm(16.dp)),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F2535)),
             ) {
                 if (showLoading) {
                     CircularProgressIndicator(
                         color = Color.White,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(ds.sm(18.dp)),
                     )
                 } else {
                     Text(text = primaryText)
@@ -88,12 +90,13 @@ internal fun BrainBoxInfoCard(
     body: String,
     showLoading: Boolean = false,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(ds.sm(20.dp)),
         color = Color(0xFFEDEDED),
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
+        Column(modifier = Modifier.padding(ds.sm(18.dp))) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -107,11 +110,11 @@ internal fun BrainBoxInfoCard(
                     CircularProgressIndicator(
                         color = Color(0xFF1F2535),
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(ds.sm(18.dp)),
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(ds.sh(10.dp)))
             Text(
                 text = body,
                 style = MaterialTheme.typography.bodyMedium,
@@ -127,28 +130,29 @@ internal fun BrainBoxBleDeviceCard(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(ds.sm(22.dp)),
         color = if (selected) Color(0xFF1F2535) else Color(0xFFEDEDED),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(ds.sm(18.dp)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(ds.sm(54.dp))
                     .background(
                         color = if (selected) Color.White.copy(alpha = 0.16f) else Color.White,
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
                     )
             )
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(ds.sw(14.dp)))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = device.name,
@@ -157,7 +161,7 @@ internal fun BrainBoxBleDeviceCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(ds.sh(6.dp)))
                 Text(
                     text = device.subtitle,
                     style = MaterialTheme.typography.bodyMedium,
@@ -166,7 +170,7 @@ internal fun BrainBoxBleDeviceCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(ds.sw(10.dp)))
             Text(
                 text = device.rssi?.let { "${it}dBm" } ?: "--",
                 style = MaterialTheme.typography.bodyMedium,
@@ -178,23 +182,24 @@ internal fun BrainBoxBleDeviceCard(
 
 @Composable
 internal fun BrainBoxSelectedDevice(device: BrainBoxBleDevice) {
+    val ds = LocalDesignScale.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(ds.sm(20.dp)),
         color = Color(0xFFEDEDED),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(ds.sm(16.dp)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(Color.White, RoundedCornerShape(12.dp))
+                    .size(ds.sm(44.dp))
+                    .background(Color.White, RoundedCornerShape(ds.sm(12.dp)))
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(ds.sw(12.dp)))
             Column {
                 Text(
                     text = device.name,
@@ -217,17 +222,18 @@ internal fun BrainBoxWifiCard(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(ds.sm(18.dp)),
         color = if (selected) Color(0xFF1F2535) else Color(0xFFEDEDED),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -242,31 +248,31 @@ internal fun BrainBoxWifiCard(
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     if (network.isCurrent) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(ds.sm(8.dp)),
                             color = if (selected) Color.White.copy(alpha = 0.18f) else Color(0xFF1F2535),
                         ) {
                             Text(
                                 text = "已连接",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = Color.White,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp)),
                             )
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
                 Text(
                     text = buildString {
                         append(if (network.isSecure) "已加密网络" else "开放网络")
-                        if (network.isCurrent) append(" · 设备当前使用")
+                        if (network.isCurrent) append(" \u00b7 设备当前使用")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = if (selected) Color.White.copy(alpha = 0.74f) else Color(0xFF777777),
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(ds.sw(12.dp)))
             Text(
                 text = "${network.strengthLevel}/4",
                 style = MaterialTheme.typography.bodySmall,
@@ -282,23 +288,24 @@ internal fun BrainBoxBindDeviceCard(
     serverDevice: LucyDevice?,
     connectedWifi: String?,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(ds.sm(24.dp)),
         color = Color(0xFFE9E9E9),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(ds.sm(18.dp)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(60.dp)
-                    .background(Color.White, RoundedCornerShape(16.dp))
+                    .size(ds.sm(60.dp))
+                    .background(Color.White, RoundedCornerShape(ds.sm(16.dp)))
             )
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(ds.sw(14.dp)))
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -315,18 +322,18 @@ internal fun BrainBoxBindDeviceCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(ds.sm(10.dp)),
                         color = Color.White,
                     ) {
                         Text(
                             text = if (connectedWifi.isNullOrBlank()) "待联网" else "已联网",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = Color(0xFF1F2535),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(6.dp)),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
                 Text(
                     text = connectedWifi ?: serverDevice?.serialNumber?.ifBlank { selectedDevice?.subtitle.orEmpty() }.orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
@@ -334,7 +341,7 @@ internal fun BrainBoxBindDeviceCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

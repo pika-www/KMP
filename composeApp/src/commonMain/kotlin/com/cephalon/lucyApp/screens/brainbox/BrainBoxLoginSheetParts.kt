@@ -1,14 +1,9 @@
 package com.cephalon.lucyApp.screens.brainbox
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,23 +24,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.material3.Icon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -54,11 +42,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
 import com.cephalon.lucyApp.api.LucyDevice
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxProvisionController
-import com.cephalon.lucyApp.brainbox.BrainBoxWifiMode
-import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
 
 /* ═══════════════ Color tokens ═══════════════ */
 private val TextDefault = Color(0xFF12192B)
@@ -66,119 +54,84 @@ private val TextLinkGrey = Color(0xFF595E6B)
 private val TextDisabledGrey = Color(0xFFA6ABB5)
 private val BlueLink = Color(0xFF1A73E9)
 private val StopRed = Color(0xFFE84026)
-private val StepActiveColor = Color(0xFF12192B)
-private val StepInactiveColor = Color(0xFFCCCCCC)
-private val StepLineActive = Color(0xFF12192B)
-private val StepLineInactive = Color(0xFFE0E0E0)
 
 /* ═══════════════ Step Indicator with Icons ═══════════════ */
 
 @Composable
-internal fun BrainBoxStepIndicator(currentIndex: Int) {
+internal fun BrainBoxStepIndicator(
+    currentIndex: Int,
+    horizontalPadding: Dp = 28.dp,
+) {
+    val ds = LocalDesignScale.current
     val labels = listOf("扫描", "配网", "绑定")
+    val iconFrameSize = ds.sm(36.dp)
+    val iconSize = ds.sm(18.dp)
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = horizontalPadding),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.Center,
     ) {
         labels.forEachIndexed { index, label ->
-            val isActive = index <= currentIndex
+            val isCurrent = index == currentIndex
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // icon outer frame: 36×36, rounded circle, border + background
                 Box(
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier
+                        .size(iconFrameSize)
+                        .clip(CircleShape)
+                        .background(
+                            if (isCurrent) Color(0xFF1E2434)
+                            else Color.White.copy(alpha = 0.10f)
+                        )
+                        .border(
+                            width = 0.75.dp,
+                            color = Color.White.copy(alpha = 0.06f),
+                            shape = CircleShape,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Canvas(modifier = Modifier.size(18.dp)) {
-                        val color = if (isActive) StepActiveColor else StepInactiveColor
-                        when (index) {
-                            0 -> drawScanIcon(color)
-                            1 -> drawWifiIcon(color)
-                            2 -> drawBindIcon(color)
-                        }
+                    val iconColor = if (isCurrent) Color.White else Color(0xFF1F2535)
+                    val icon = when (index) {
+                        0 -> ScanStepIcon
+                        1 -> WifiStepIcon
+                        else -> BindStepIcon
                     }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(iconSize),
+                        tint = iconColor,
+                    )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
                 Text(
                     text = label,
-                    fontSize = 12.sp,
+                    fontSize = ds.sp(12f),
                     fontWeight = FontWeight.Light,
                     color = TextLinkGrey,
                 )
             }
             if (index != labels.lastIndex) {
+                // connector line: 12dp gap from icon, 0.5dp height, rounded, rgba(18,25,43,0.10)
+                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
                 Box(
                     modifier = Modifier
-                        .padding(top = 16.dp)
+                        .padding(top = iconFrameSize / 2)
                         .weight(1f)
-                        .height(1.dp)
-                        .background(if (index < currentIndex) StepLineActive else StepLineInactive)
+                        .height(0.5.dp)
+                        .clip(RoundedCornerShape(ds.sm(10.dp)))
+                        .background(Color(0xFF12192B).copy(alpha = 0.10f))
                 )
+                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
             }
         }
     }
 }
 
-private fun DrawScope.drawScanIcon(color: Color) {
-    val cx = size.width / 2f
-    val cy = size.height / 2f
-    val r = size.minDimension / 2f
-    // center dot
-    drawCircle(color = color, radius = r * 0.15f, center = Offset(cx, cy))
-    // arcs (simplified signal waves)
-    val stroke = Stroke(width = r * 0.12f, cap = StrokeCap.Round)
-    drawArc(color = color, startAngle = -60f, sweepAngle = 120f, useCenter = false,
-        topLeft = Offset(cx - r * 0.45f, cy - r * 0.45f),
-        size = androidx.compose.ui.geometry.Size(r * 0.9f, r * 0.9f), style = stroke)
-    drawArc(color = color, startAngle = 120f, sweepAngle = 120f, useCenter = false,
-        topLeft = Offset(cx - r * 0.45f, cy - r * 0.45f),
-        size = androidx.compose.ui.geometry.Size(r * 0.9f, r * 0.9f), style = stroke)
-    drawArc(color = color, startAngle = -60f, sweepAngle = 120f, useCenter = false,
-        topLeft = Offset(cx - r * 0.75f, cy - r * 0.75f),
-        size = androidx.compose.ui.geometry.Size(r * 1.5f, r * 1.5f), style = stroke)
-    drawArc(color = color, startAngle = 120f, sweepAngle = 120f, useCenter = false,
-        topLeft = Offset(cx - r * 0.75f, cy - r * 0.75f),
-        size = androidx.compose.ui.geometry.Size(r * 1.5f, r * 1.5f), style = stroke)
-}
-
-private fun DrawScope.drawWifiIcon(color: Color) {
-    val cx = size.width / 2f
-    val bottom = size.height * 0.85f
-    // bottom dot
-    drawCircle(color = color, radius = size.minDimension * 0.08f, center = Offset(cx, bottom))
-    // arcs
-    val stroke = Stroke(width = size.minDimension * 0.1f, cap = StrokeCap.Round)
-    val radii = listOf(0.25f, 0.45f, 0.65f)
-    for (r in radii) {
-        val arcR = size.minDimension * r
-        drawArc(color = color, startAngle = -145f, sweepAngle = 110f, useCenter = false,
-            topLeft = Offset(cx - arcR, bottom - arcR),
-            size = androidx.compose.ui.geometry.Size(arcR * 2, arcR * 2), style = stroke)
-    }
-}
-
-private fun DrawScope.drawBindIcon(color: Color) {
-    val w = size.width
-    val h = size.height
-    val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round)
-    // top-right chain link
-    val path1 = Path().apply {
-        moveTo(w * 0.45f, h * 0.35f)
-        lineTo(w * 0.7f, h * 0.15f)
-        lineTo(w * 0.85f, h * 0.35f)
-        lineTo(w * 0.6f, h * 0.55f)
-    }
-    drawPath(path1, color = color, style = stroke)
-    // bottom-left chain link
-    val path2 = Path().apply {
-        moveTo(w * 0.55f, h * 0.65f)
-        lineTo(w * 0.3f, h * 0.85f)
-        lineTo(w * 0.15f, h * 0.65f)
-        lineTo(w * 0.4f, h * 0.45f)
-    }
-    drawPath(path2, color = color, style = stroke)
-}
 
 /* ═══════════════ Bluetooth Status Bar ═══════════════ */
 
@@ -188,52 +141,68 @@ internal fun BluetoothStatusBar(
     onStopScan: () -> Unit,
     onStartScan: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFF2F3F5),
+    val ds = LocalDesignScale.current
+    val pillShape = RoundedCornerShape(ds.sm(99.dp))
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(pillShape)
+            .border(
+                width = 1.dp,
+                color = Color.White,
+                shape = pillShape,
+            )
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0.10f),
+                    )
+                )
+            ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(12.dp)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // bluetooth icon box
+            val btBoxBg = if (isBleScanning) Color(0xFF1F2535) else Color(0xFF1F2535).copy(alpha = 0.08f)
+            val btIconColor = if (isBleScanning) Color.White else Color(0xFF1F2535)
             Box(
                 modifier = Modifier
-                    .size(20.dp)
-                    .background(Color.Black, RoundedCornerShape(6.dp)),
+                    .size(ds.sm(20.dp))
+                    .background(btBoxBg, RoundedCornerShape(ds.sm(6.dp))),
                 contentAlignment = Alignment.Center,
             ) {
-                if (isBleScanning) {
-                    SpinningBluetoothIcon(size = 13.dp)
-                } else {
-                    Canvas(modifier = Modifier.size(10.dp)) {
-                        drawBluetoothRune(Color.White)
-                    }
-                }
+                Icon(
+                    imageVector = BtIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(ds.sm(10.dp)),
+                    tint = btIconColor,
+                )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
 
             Text(
                 text = if (isBleScanning) "正在蓝牙扫描设备" else "蓝牙扫描已停止",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = TextDefault,
                 modifier = Modifier.weight(1f),
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
 
             Text(
                 text = if (isBleScanning) "停止扫描" else "开始扫描",
-                fontSize = 12.sp,
+                fontSize = ds.sp(12f),
                 fontWeight = FontWeight.Normal,
                 color = if (isBleScanning) StopRed else BlueLink,
                 textAlign = TextAlign.End,
-                lineHeight = 16.sp,
+                lineHeight = ds.sp(16f),
                 modifier = Modifier.clickable {
                     if (isBleScanning) onStopScan() else onStartScan()
                 },
@@ -242,58 +211,6 @@ internal fun BluetoothStatusBar(
     }
 }
 
-@Composable
-private fun SpinningBluetoothIcon(size: Dp) {
-    val infiniteTransition = rememberInfiniteTransition()
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-    )
-    Canvas(
-        modifier = Modifier
-            .size(size)
-            .rotate(rotation),
-    ) {
-        drawLoadingSpinner()
-    }
-}
-
-private fun DrawScope.drawLoadingSpinner() {
-    val cx = size.width / 2f
-    val cy = size.height / 2f
-    val r = size.minDimension / 2f
-    val stroke = Stroke(width = r * 0.25f, cap = StrokeCap.Round)
-    // draw partial arc as spinner
-    drawArc(
-        brush = Brush.sweepGradient(listOf(Color.Transparent, Color.White)),
-        startAngle = 0f,
-        sweepAngle = 270f,
-        useCenter = false,
-        topLeft = Offset(cx - r * 0.7f, cy - r * 0.7f),
-        size = androidx.compose.ui.geometry.Size(r * 1.4f, r * 1.4f),
-        style = stroke,
-    )
-}
-
-private fun DrawScope.drawBluetoothRune(color: Color) {
-    val w = size.width
-    val h = size.height
-    val path = Path().apply {
-        moveTo(w * 0.3f, h * 0.2f)
-        lineTo(w * 0.7f, h * 0.5f)
-        lineTo(w * 0.3f, h * 0.8f)
-        moveTo(w * 0.5f, h * 0f)
-        lineTo(w * 0.5f, h * 1f)
-        moveTo(w * 0.7f, h * 0.2f)
-        lineTo(w * 0.3f, h * 0.5f)
-        lineTo(w * 0.7f, h * 0.8f)
-    }
-    drawPath(path, color = color, style = Stroke(width = w * 0.12f, cap = StrokeCap.Round))
-}
 
 /* ═══════════════ Scan Step (redesigned) ═══════════════ */
 
@@ -310,16 +227,17 @@ internal fun BrainBoxScanStep(
     connectingDeviceId: String? = null,
     onStopScan: () -> Unit = {},
 ) {
+    val ds = LocalDesignScale.current
     Column(modifier = Modifier.fillMaxSize()) {
         if (!controller.bluetoothPermissionGranted || !controller.bluetoothEnabled) {
             // permission / bluetooth off
             Text(
                 text = "蓝牙状态",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = TextLinkGrey,
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
             BrainBoxActionCard(
                 title = if (!controller.bluetoothPermissionGranted) "需要蓝牙权限" else "蓝牙未开启",
                 body = if (!controller.bluetoothPermissionGranted) {
@@ -336,43 +254,43 @@ internal fun BrainBoxScanStep(
             // bluetooth status
             Text(
                 text = "蓝牙状态",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = TextLinkGrey,
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
             BluetoothStatusBar(
                 isBleScanning = isBleScanning,
                 onStopScan = onStopScan,
                 onStartScan = onRequestPermission,
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
             // discovered devices
             Text(
                 text = "已发现的设备",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = TextLinkGrey,
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
             if (devices.isEmpty()) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(ds.sm(16.dp)),
                     color = Color.White.copy(alpha = 0.3f),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 40.dp),
+                            .padding(vertical = ds.sh(40.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = if (isBleScanning) "正在搜索附近设备…" else "暂未发现设备",
-                            fontSize = 14.sp,
+                            fontSize = ds.sp(14f),
                             color = TextLinkGrey,
                         )
                     }
@@ -381,7 +299,7 @@ internal fun BrainBoxScanStep(
                 // glassmorphism device list card
                 Surface(
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(ds.sm(16.dp)),
                     color = Color.White.copy(alpha = 0.15f),
                     shadowElevation = 0.dp,
                     tonalElevation = 0.dp,
@@ -389,7 +307,7 @@ internal fun BrainBoxScanStep(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 20.dp),
+                            .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(20.dp)),
                         verticalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
                         items(devices, key = { it.id }) { device ->
@@ -424,25 +342,26 @@ private fun BrainBoxBleDeviceRow(
     val isOccupied = probeState is DeviceProbeState.Occupied
     val nameColor = if (isOccupied) TextDisabledGrey else TextDefault
     val metaColor = if (isOccupied) TextDisabledGrey else TextLinkGrey
+    val ds = LocalDesignScale.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(vertical = ds.sh(12.dp)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = device.name,
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Medium,
                 color = nameColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
             Text(
                 text = "RSSI${device.rssi ?: "--"}",
-                fontSize = 12.sp,
+                fontSize = ds.sp(12f),
                 fontWeight = FontWeight.Normal,
                 color = metaColor,
             )
@@ -451,37 +370,37 @@ private fun BrainBoxBleDeviceRow(
             isConnecting -> CircularProgressIndicator(
                 color = BlueLink,
                 strokeWidth = 1.5.dp,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(ds.sm(16.dp)),
             )
             isProbing -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(
                     color = TextLinkGrey,
                     strokeWidth = 1.2.dp,
-                    modifier = Modifier.size(12.dp),
+                    modifier = Modifier.size(ds.sm(12.dp)),
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(ds.sw(6.dp)))
                 Text(
-                    text = "检测中…",
-                    fontSize = 12.sp,
+                    text = "\u68c0\u6d4b\u4e2d\u2026",
+                    fontSize = ds.sp(12f),
                     fontWeight = FontWeight.Normal,
                     color = TextLinkGrey,
-                    lineHeight = 16.sp,
+                    lineHeight = ds.sp(16f),
                 )
             }
             isOccupied -> Text(
-                text = "已占用",
-                fontSize = 12.sp,
+                text = "\u5df2\u5360\u7528",
+                fontSize = ds.sp(12f),
                 fontWeight = FontWeight.Normal,
                 color = TextDisabledGrey,
-                lineHeight = 16.sp,
+                lineHeight = ds.sp(16f),
                 textAlign = TextAlign.End,
             )
             else -> Text(
-                text = "连接",
-                fontSize = 12.sp,
+                text = "\u8fde\u63a5",
+                fontSize = ds.sp(12f),
                 fontWeight = FontWeight.Normal,
                 color = BlueLink,
-                lineHeight = 16.sp,
+                lineHeight = ds.sp(16f),
                 textAlign = TextAlign.End,
                 modifier = Modifier.clickable(onClick = onConnect),
             )
@@ -489,147 +408,188 @@ private fun BrainBoxBleDeviceRow(
     }
 }
 
-/* ═══════════════ WiFi Step (kept mostly same, refined) ═══════════════ */
+/* ═══════════════ WiFi Step (redesigned) ═══════════════ */
 
 @Composable
 internal fun BrainBoxWifiStep(
-    wifiMode: BrainBoxWifiMode,
-    wifiPermissionGranted: Boolean,
     selectedDevice: BrainBoxBleDevice?,
-    wifiNetworks: List<BrainBoxWifiNetwork>,
-    isWifiLoading: Boolean,
-    selectedWifiSsid: String,
-    onSelectWifi: (String) -> Unit,
-    manualSsid: String,
-    onManualSsidChange: (String) -> Unit,
+    phoneSsid: String?,
+    deviceIp: String?,
     wifiPassword: String,
     onWifiPasswordChange: (String) -> Unit,
     isConnectingWifi: Boolean,
-    onRefreshWifi: () -> Unit,
     onConnectWifi: () -> Unit,
-    currentSsid: String? = null,
     isSelectedCurrent: Boolean = false,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        selectedDevice?.let {
-            BrainBoxSelectedDevice(device = it)
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        if (!currentSsid.isNullOrBlank()) {
-            BrainBoxInfoCard(
-                title = "设备已连接到 $currentSsid",
-                body = "可继续沿用当前 Wi‑Fi 进入绑定，也可在下方选择其他网络切换。",
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-
-        if (wifiMode == BrainBoxWifiMode.NearbyScan) {
-            if (!wifiPermissionGranted) {
-                BrainBoxActionCard(
-                    title = "需要 Wi‑Fi 与定位权限",
-                    body = "授权后才能查询附近 Wi‑Fi 并发起连接。",
-                    primaryText = "授权并刷新",
-                    onPrimary = onRefreshWifi,
-                )
-            } else {
+    val ds = LocalDesignScale.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // ── 设备卡片 ──
+        selectedDevice?.let { device ->
+            GlassCard {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(ds.sm(16.dp)),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "附近 Wi‑Fi",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFF111111),
-                    )
-                    TextButton(onClick = onRefreshWifi) {
-                        Text(text = if (isWifiLoading) "刷新中" else "刷新")
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                if (wifiNetworks.isEmpty()) {
-                    BrainBoxInfoCard(
-                        title = if (isWifiLoading) "正在查询附近 Wi‑Fi" else "暂未获取到 Wi‑Fi 列表",
-                        body = if (isWifiLoading) {
-                            "请稍候，正在读取脑花盒子扫描到的 Wi‑Fi…"
-                        } else {
-                            "请确认脑花盒子处于 2.4GHz Wi‑Fi 覆盖范围内，然后点击右上角「刷新」重试。"
-                        },
-                        showLoading = isWifiLoading,
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    // icon box
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(54.dp))
+                            .background(Color(0xFF1F2535), RoundedCornerShape(ds.sm(16.dp))),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        items(wifiNetworks, key = { it.ssid }) { network ->
-                            BrainBoxWifiCard(
-                                network = network,
-                                selected = selectedWifiSsid == network.ssid,
-                                onClick = { onSelectWifi(network.ssid) },
-                            )
-                        }
+                        Icon(
+                            imageVector = DeviceBoxIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(26.dp), ds.sm(21.dp)),
+                            tint = Color.White,
+                        )
                     }
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = device.name,
+                            fontSize = ds.sp(18f),
+                            fontWeight = FontWeight.Medium,
+                            color = TextDefault,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                        Text(
+                            text = "RSSI ${device.rssi ?: "--"}",
+                            fontSize = ds.sp(14f),
+                            fontWeight = FontWeight.Normal,
+                            color = TextLinkGrey,
+                        )
+                    }
+                    Text(
+                        text = "已配对",
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                        color = BlueLink,
+                        textAlign = TextAlign.End,
+                        lineHeight = ds.sp(16f),
+                    )
                 }
             }
-        } else {
-            Column(
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+        }
+
+        // ── Wi‑Fi 卡片 ──
+        GlassCard {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .fillMaxWidth()
+                    .padding(ds.sm(16.dp)),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "iOS 无法直接读取附近 Wi‑Fi，输入网络信息后会跳到系统设置完成连接。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF666666),
-                )
-                OutlinedTextField(
-                    value = manualSsid,
-                    onValueChange = onManualSsidChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Wi‑Fi 名称") },
-                    singleLine = true,
-                )
+                // wifi icon box
+                Box(
+                    modifier = Modifier
+                        .size(ds.sm(54.dp))
+                        .background(Color(0xFF1F2535), RoundedCornerShape(ds.sm(16.dp))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = WifiStepIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(ds.sm(18.dp)),
+                        tint = Color.White,
+                    )
+                }
+                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = phoneSsid ?: "未知网络",
+                        fontSize = ds.sp(18f),
+                        fontWeight = FontWeight.Medium,
+                        color = TextDefault,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                    Text(
+                        text = deviceIp ?: "--",
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Normal,
+                        color = TextLinkGrey,
+                    )
+                }
             }
         }
 
-        // 选中"当前已连接"的网络时不需要重新下发 wifi_config，隐藏密码框避免误导用户。
         if (!isSelectedCurrent) {
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(ds.sh(14.dp)))
             OutlinedTextField(
                 value = wifiPassword,
                 onValueChange = onWifiPasswordChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Wi‑Fi 密码") },
+                label = { Text("密码") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
         Button(
             onClick = onConnectWifi,
             enabled = !isConnectingWifi,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(18.dp),
+                .height(ds.sh(52.dp)),
+            shape = RoundedCornerShape(ds.sm(18.dp)),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F2535)),
         ) {
             if (isConnectingWifi) {
                 CircularProgressIndicator(
                     color = Color.White,
                     strokeWidth = 2.dp,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(ds.sm(18.dp)),
                 )
             } else {
-                Text(text = if (isSelectedCurrent) "使用当前 Wi‑Fi 并继续" else "连接 Wi‑Fi 并继续")
+                Text(text = if (isSelectedCurrent) "使用当前 Wi‑Fi 并继续" else "配置Wi-Fi")
             }
         }
+    }
+}
+
+/**
+ * 玻璃态卡片：padding 16, radius 16, 1px white border,
+ * layered gradient + overlay background, inner/outer shadows.
+ */
+@Composable
+private fun GlassCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(ds.sm(16.dp)))
+            .border(
+                width = 1.dp,
+                color = Color.White,
+                shape = RoundedCornerShape(ds.sm(16.dp)),
+            )
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0.10f),
+                    )
+                )
+            ),
+    ) {
+        content()
     }
 }
 
@@ -644,6 +604,7 @@ internal fun BrainBoxBindStep(
     isBinding: Boolean,
     onBind: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Column(modifier = Modifier.fillMaxSize()) {
         if (isLoadingDevices) {
             BrainBoxActionCard(
@@ -669,15 +630,15 @@ internal fun BrainBoxBindStep(
             enabled = connectedWifi != null && !isBinding && !isLoadingDevices,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(18.dp),
+                .height(ds.sh(52.dp)),
+            shape = RoundedCornerShape(ds.sm(18.dp)),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F2535)),
         ) {
             if (isBinding) {
                 CircularProgressIndicator(
                     color = Color.White,
                     strokeWidth = 2.dp,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(ds.sm(18.dp)),
                 )
             } else {
                 Text(text = "绑定并进入")
