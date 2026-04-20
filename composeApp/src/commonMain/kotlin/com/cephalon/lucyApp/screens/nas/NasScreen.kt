@@ -384,8 +384,11 @@ fun NasScreen(onBack: () -> Unit) {
 
             preparedTasks.forEachIndexed { index, task ->
                 val uri = items[index].first
+                println("[NasUpload] 开始读取文件 uri=$uri taskId=${task.id}")
                 val bytes = mediaController.readUriToBytes(uri)
+                println("[NasUpload] 读取结果 uri=$uri bytes=${bytes?.size ?: "null"}")
                 if (bytes == null || bytes.isEmpty()) {
+                    println("[NasUpload] 文件读取失败(null或空), 标记为 Failed, uri=$uri")
                     replaceUploadTask(task.id) {
                         it.copy(status = NasUploadTaskStatus.Failed, progress = 0f)
                     }
@@ -512,7 +515,9 @@ fun NasScreen(onBack: () -> Unit) {
                             }
                         }
                 }
-                .onFailure {
+                .onFailure { error ->
+                    println("[NasUpload] sendFilesToDevice 失败: ${error.message}")
+                    error.printStackTrace()
                     uploadPayloads.forEach { item ->
                         replaceUploadTask(item.entryId) { current ->
                             current.copy(status = NasUploadTaskStatus.Failed)
@@ -527,7 +532,7 @@ fun NasScreen(onBack: () -> Unit) {
         if (size > lastPickedImagesSize && lastPickerCategory == NasCategory.Photos) {
             delay(300)
             val latestSize = mediaController.pickedImages.size
-            val newUris = mediaController.pickedImages.takeLast(latestSize - lastPickedImagesSize)
+            val newUris = mediaController.pickedImages.take(latestSize - lastPickedImagesSize)
             val items =
                 newUris
                     .filter { it.isNotBlank() }
@@ -549,7 +554,7 @@ fun NasScreen(onBack: () -> Unit) {
         if (size > lastPickedFilesSize && pickerCategory != null && pickerCategory != NasCategory.Photos) {
             delay(300)
             val latestSize = mediaController.pickedFiles.size
-            val newFiles = mediaController.pickedFiles.takeLast(latestSize - lastPickedFilesSize)
+            val newFiles = mediaController.pickedFiles.take(latestSize - lastPickedFilesSize)
             val items =
                 newFiles
                     .filter { it.uri.isNotBlank() }

@@ -65,8 +65,17 @@ import androidx.compose.foundation.layout.width
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.sdk.MediaAttachment
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.rememberScrollState
 
-private const val STREAMING_PLACEHOLDER_TEXT = "思考中..."
 
 /** 根据文件扩展名推断 MIME content type，用于 contentType 为 null 时的兜底分类 */
 private fun inferContentTypeFromFileName(fileName: String?): String? {
@@ -138,31 +147,39 @@ internal fun AgentModelMessageList(
         }) { index, item ->
             when (item) {
                 is ChatItem.Assistant -> {
-                    val isThinkingPlaceholder = item.text == STREAMING_PLACEHOLDER_TEXT
-                    val displayText =
-                        if (isThinkingPlaceholder) {
-                            streamingStatusText ?: rememberThinkingStatusText()
-                        } else {
-                            item.text
-                        }
                     Column {
-                        if (displayText.isNotBlank()) {
+                        // ── 可折叠思考状态气泡 ──
+                        if (item.isStreaming || item.streamEvents.isNotEmpty()) {
+                            ThinkingBubble(
+                                events = item.streamEvents,
+                                isStreaming = item.isStreaming,
+                                reasoningText = item.reasoningText,
+                                streamingStatusText = streamingStatusText,
+                                ds = ds,
+                            )
+                            Spacer(modifier = Modifier.height(ds.sh(6.dp)))
+                        }
+
+                        // ── 附件卡片 ──
+                        if (item.attachments.isNotEmpty()) {
+                            AssistantAttachments(
+                                attachments = item.attachments,
+                                onAttachmentClick = onAttachmentClick,
+                            )
+                            Spacer(modifier = Modifier.height(ds.sh(6.dp)))
+                        }
+
+                        // ── 文本内容 ──
+                        if (item.text.isNotBlank()) {
                             Bubble(
-                                text = displayText,
+                                text = item.text,
                                 background = Color.Transparent,
                                 textColor = Color(0xFF111111),
                                 alignEnd = false,
                                 border = null,
-                                isMarkdown = !isThinkingPlaceholder,
+                                isMarkdown = true,
                                 onClick = onTapMessageArea,
                                 onCopySuccess = onCopySuccess,
-                            )
-                        }
-                        if (item.attachments.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(ds.sh(6.dp)))
-                            AssistantAttachments(
-                                attachments = item.attachments,
-                                onAttachmentClick = onAttachmentClick,
                             )
                         }
                     }
@@ -195,6 +212,7 @@ internal fun AgentModelMessageList(
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         val imageCellSize = ((bubbleMaxWidth - 28.dp - 8.dp) / 2).coerceAtMost(132.dp)
+                        val fileCellWidth = (bubbleMaxWidth - 28.dp - 8.dp) / 2
                         Surface(
                             // 右侧用户附件气泡同样 22dp，和文字气泡视觉一致
                             shape = RoundedCornerShape(ds.sm(22.dp)),
@@ -265,87 +283,52 @@ internal fun AgentModelMessageList(
                                     }
                                 }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
-                                    files.forEach { attachment ->
-                                        Surface(
-                                            shape = RoundedCornerShape(ds.sm(12.dp)),
-                                            color = Color(0xFFF5F5F5),
-                                            border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
-                                            modifier = Modifier.clickable { onFileClick(attachment.asPickedFile()) }
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
-                                                verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
-                                            ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(999.dp),
-                                                    color = Color(0xFF111111)
-                                                ) {
-                                                    Text(
-                                                        text = attachment.fileExtensionLabel(),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = Color.White,
-                                                        modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
-                                                    )
-                                                }
-                                                Text(
-                                                    text = attachment.displayName(),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = Color(0xFF111111),
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    audios.forEach { attachment ->
-                                        val recording = attachment.asAudioRecording()
-                                        Surface(
-                                            shape = RoundedCornerShape(ds.sm(12.dp)),
-                                            color = Color(0xFFF5F5F5),
-                                            border = BorderStroke(1.dp, Color(0xFFE7E7E7))
-                                        ) {
+                                val allFiles = files + audios
+                                if (allFiles.isNotEmpty()) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+                                        allFiles.chunked(2).forEach { rowFiles ->
                                             Row(
-                                                modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
+                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
                                             ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(999.dp),
-                                                    color = Color(0xFF111111),
-                                                    modifier = Modifier.size(ds.sm(32.dp))
-                                                ) {
-                                                    Box(
+                                                rowFiles.forEach { attachment ->
+                                                    Surface(
+                                                        shape = RoundedCornerShape(ds.sm(12.dp)),
+                                                        color = Color(0xFFF5F5F5),
+                                                        border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
                                                         modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .clickable { onToggleRecordingPlayback(recording) },
-                                                        contentAlignment = Alignment.Center
+                                                            .width(fileCellWidth)
+                                                            .height(ds.sh(72.dp))
+                                                            .clickable { onFileClick(attachment.asPickedFile()) }
                                                     ) {
-                                                        androidx.compose.material3.Icon(
-                                                            imageVector = if (playingRecordingId == recording.id) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                            contentDescription = null,
-                                                            tint = Color.White,
-                                                            modifier = Modifier.size(18.dp)
-                                                        )
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
+                                                            verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
+                                                        ) {
+                                                            Surface(
+                                                                shape = RoundedCornerShape(999.dp),
+                                                                color = Color(0xFF111111)
+                                                            ) {
+                                                                Text(
+                                                                    text = attachment.fileExtensionLabel(),
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    color = Color.White,
+                                                                    modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
+                                                                )
+                                                            }
+                                                            Text(
+                                                                text = attachment.displayName(),
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = Color(0xFF111111),
+                                                                maxLines = 2,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
                                                     }
                                                 }
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = "语音",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = Color(0xFF8A8A8A)
-                                                    )
-                                                    Text(
-                                                        text = recording.name,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = Color(0xFF111111),
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                                OutlinedButton(onClick = { onToggleRecordingPlayback(recording) }) {
-                                                    Text(if (playingRecordingId == recording.id) "暂停" else "播放")
+                                                if (rowFiles.size == 1) {
+                                                    Spacer(modifier = Modifier.width(fileCellWidth))
                                                 }
                                             }
                                         }
@@ -564,61 +547,75 @@ private fun AssistantAttachments(
         ct == null || (!ct.startsWith("image") && !ct.startsWith("audio"))
     }
 
-    // ── 图片附件：缩略图 + 点击下载 ──
-    if (imageAttachments.isNotEmpty()) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(ds.sw(6.dp)),
+    Surface(
+        shape = RoundedCornerShape(ds.sm(22.dp)),
+        color = Color.White,
+        border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp)),
+            verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
         ) {
-            imageAttachments.forEach { att ->
-                Box(
-                    modifier = Modifier
-                        .size(ds.sw(120.dp))
-                        .clip(RoundedCornerShape(ds.sm(8.dp))),
+            // ── 图片附件：缩略图 + 点击下载 ──
+            if (imageAttachments.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(ds.sw(6.dp)),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                 ) {
-                    BlobImage(
-                        blobRef = att.blobRef,
-                        contentDescription = att.fileName,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    // 仅下载图标可点击
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(ds.sm(6.dp))
-                            .size(ds.sm(24.dp))
-                            .clip(RoundedCornerShape(ds.sm(12.dp)))
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .clickable { onAttachmentClick(att) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_download),
-                            contentDescription = "下载",
-                            modifier = Modifier.size(ds.sm(14.dp)),
-                            tint = Color.White,
-                        )
+                    imageAttachments.forEach { att ->
+                        Box(
+                            modifier = Modifier
+                                .size(ds.sw(120.dp))
+                                .clip(RoundedCornerShape(ds.sm(8.dp))),
+                        ) {
+                            BlobImage(
+                                blobRef = att.blobRef,
+                                contentDescription = att.fileName,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            // 仅下载图标可点击
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(ds.sm(6.dp))
+                                    .size(ds.sm(24.dp))
+                                    .clip(RoundedCornerShape(ds.sm(12.dp)))
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                                    .clickable { onAttachmentClick(att) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = painterResource(Res.drawable.ic_download),
+                                    contentDescription = "下载",
+                                    modifier = Modifier.size(ds.sm(14.dp)),
+                                    tint = Color.White,
+                                )
+                            }
+                        }
                     }
                 }
             }
+
+            // ── 音频附件：文件卡片 ──
+            audioAttachments.forEach { att ->
+                AttachmentFileCard(
+                    icon = Res.drawable.ic_audio,
+                    fileName = att.fileName ?: "音频文件",
+                    onDownloadClick = { onAttachmentClick(att) },
+                )
+            }
+
+            // ── 文档附件：文件卡片 ──
+            docAttachments.forEach { att ->
+                AttachmentFileCard(
+                    icon = Res.drawable.ic_doc,
+                    fileName = att.fileName ?: "文件",
+                    onDownloadClick = { onAttachmentClick(att) },
+                )
+            }
         }
-    }
-
-    // ── 音频附件：文件卡片 ──
-    audioAttachments.forEach { att ->
-        AttachmentFileCard(
-            icon = Res.drawable.ic_audio,
-            fileName = att.fileName ?: "音频文件",
-            onDownloadClick = { onAttachmentClick(att) },
-        )
-    }
-
-    // ── 文档附件：文件卡片 ──
-    docAttachments.forEach { att ->
-        AttachmentFileCard(
-            icon = Res.drawable.ic_doc,
-            fileName = att.fileName ?: "文件",
-            onDownloadClick = { onAttachmentClick(att) },
-        )
     }
 }
 
@@ -668,6 +665,416 @@ private fun AttachmentFileCard(
             )
         }
     }
+}
+
+// ─────────────── 可折叠思考气泡 ───────────────
+
+@Composable
+private fun ThinkingBubble(
+    events: List<StreamEvent>,
+    isStreaming: Boolean,
+    reasoningText: String?,
+    streamingStatusText: String?,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    var expanded by remember { mutableStateOf(true) }
+
+    // 对话结束后自动折叠
+    LaunchedEffect(isStreaming) {
+        if (!isStreaming && events.isNotEmpty()) {
+            expanded = false
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(ds.sm(12.dp)),
+        color = Color(0xFFF8F9FA),
+        border = BorderStroke(0.5.dp, Color(0xFFE8E8E8)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .animateContentSize()
+                .padding(ds.sm(12.dp))
+        ) {
+            // ── 标题行：状态指示 + 折叠切换 ──
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { expanded = !expanded },
+            ) {
+                if (isStreaming) {
+                    ThinkingPulsingDot(ds = ds)
+                    Spacer(Modifier.width(ds.sw(8.dp)))
+                    ThinkingWaveText(
+                        text = "Thinking",
+                        fontSize = ds.sp(13f),
+                        color = Color(0xFF555555),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(8.dp))
+                            .background(Color(0xFF4CAF50), shape = androidx.compose.foundation.shape.CircleShape),
+                    )
+                    Spacer(Modifier.width(ds.sw(8.dp)))
+                    Text(
+                        text = "Done",
+                        fontSize = ds.sp(13f),
+                        color = Color(0xFF4CAF50),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Spacer(Modifier.width(ds.sw(6.dp)))
+                Text(
+                    text = if (expanded) "▾" else "▸",
+                    fontSize = ds.sp(11f),
+                    color = Color(0xFFAAAAAA),
+                )
+            }
+
+            // ── 折叠态：显示最后一条事件摘要 ──
+            if (!expanded) {
+                val lastEvent = events.lastOrNull { it.isActive } ?: events.lastOrNull()
+                if (lastEvent != null) {
+                    Spacer(Modifier.height(ds.sh(4.dp)))
+                    val summary = when (lastEvent.type) {
+                        "delivered" -> "已送达"
+                        "typing" -> "正在输入"
+                        "reasoning" -> "思考中"
+                        "tool" -> "🔧 ${lastEvent.label}"
+                        "finish" -> "✓ ${lastEvent.label}"
+                        else -> lastEvent.label
+                    }
+                    Text(
+                        text = summary,
+                        fontSize = ds.sp(11f),
+                        color = Color(0xFF999999),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            // ── 展开态：完整事件时间线 ──
+            if (expanded) {
+                Spacer(Modifier.height(ds.sh(6.dp)))
+                if (events.isNotEmpty()) {
+                    EventTimeline(events = events, reasoningText = reasoningText, ds = ds)
+                } else if (isStreaming) {
+                    // 无事件时的等待状态
+                    val fallback = streamingStatusText ?: "等待响应"
+                    Text(
+                        text = fallback,
+                        fontSize = ds.sp(12f),
+                        color = Color(0xFF999999),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThinkingWaveText(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2.0 * kotlin.math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+    )
+
+    Row(modifier = modifier, verticalAlignment = Alignment.Bottom) {
+        text.forEachIndexed { index, char ->
+            val offsetY = kotlin.math.sin((phase - index * 0.4f).toDouble()).toFloat() * 2.5f
+            Text(
+                text = char.toString(),
+                fontSize = fontSize,
+                color = color,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.offset(y = offsetY.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThinkingPulsingDot(
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800),
+            repeatMode = RepeatMode.Reverse,
+        ),
+    )
+    Box(
+        modifier = Modifier
+            .size(ds.sm(8.dp))
+            .background(
+                Color(0xFF4CAF50).copy(alpha = alpha),
+                shape = androidx.compose.foundation.shape.CircleShape,
+            ),
+    )
+}
+
+// ─────────────── 事件时间线 ───────────────
+
+@Composable
+private fun EventTimeline(
+    events: List<StreamEvent>,
+    reasoningText: String?,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(ds.sh(2.dp)),
+        modifier = Modifier.padding(horizontal = ds.sw(4.dp)),
+    ) {
+        events.forEach { event ->
+            when (event.type) {
+                "tool" -> ToolEventRow(event = event, ds = ds)
+                "reasoning" -> {
+                    ReasoningEventRow(event = event, reasoningText = reasoningText, ds = ds)
+                }
+                "finish" -> FinishEventRow(event = event, ds = ds)
+                else -> StatusEventRow(event = event, ds = ds)
+            }
+        }
+    }
+}
+
+// ── ○ / ✓ 状态行 ──
+
+@Composable
+private fun StatusEventRow(
+    event: StreamEvent,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = ds.sh(2.dp)),
+    ) {
+        EventCheckIcon(isActive = event.isActive, ds = ds)
+        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        val dots = if (event.isActive) rememberAnimatedDots() else ""
+        Text(
+            text = "${event.label}$dots",
+            fontSize = ds.sp(13f),
+            color = if (event.isActive) Color(0xFF999999) else Color(0xFF666666),
+            fontWeight = FontWeight.Normal,
+        )
+    }
+}
+
+// ── 工具调用 pill ──
+
+@Composable
+private fun ToolEventRow(
+    event: StreamEvent,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    val label = event.label
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = ds.sh(2.dp)),
+    ) {
+        EventCheckIcon(isActive = event.isActive, ds = ds)
+        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        Surface(
+            shape = RoundedCornerShape(ds.sm(16.dp)),
+            color = Color(0xFFF5F5F5),
+            border = BorderStroke(0.5.dp, Color(0xFFE0E0E0)),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(4.dp)),
+            ) {
+                Text(text = "🔧", fontSize = ds.sp(12f))
+                Spacer(modifier = Modifier.width(ds.sw(4.dp)))
+                val dots = if (event.isActive) rememberAnimatedDots() else ""
+                Text(
+                    text = "工具调用：$label$dots",
+                    fontSize = ds.sp(12f),
+                    color = if (event.isActive) Color(0xFF999999) else Color(0xFF555555),
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// ── 思考事件：可折叠 + 完整思考内容 ──
+
+@Composable
+private fun ReasoningEventRow(
+    event: StreamEvent,
+    reasoningText: String?,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    var expanded by remember { mutableStateOf(event.isActive) }
+    // 流式期间自动展开
+    LaunchedEffect(event.isActive) { if (event.isActive) expanded = true }
+
+    Column {
+        // 标题行：○/✓ + "Thinks" + 展开/收起
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clickable { expanded = !expanded }
+                .padding(vertical = ds.sh(2.dp)),
+        ) {
+            EventCheckIcon(isActive = event.isActive, ds = ds)
+            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+            val dots = if (event.isActive) rememberAnimatedDots() else ""
+            Text(
+                text = "${event.label}$dots",
+                fontSize = ds.sp(13f),
+                color = if (event.isActive) Color(0xFF999999) else Color(0xFF666666),
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(modifier = Modifier.width(ds.sw(6.dp)))
+            Text(
+                text = if (expanded) "▾" else "▸",
+                fontSize = ds.sp(12f),
+                color = Color(0xFFAAAAAA),
+            )
+        }
+        // 思考内容
+        if (expanded && !reasoningText.isNullOrBlank()) {
+            Surface(
+                shape = RoundedCornerShape(ds.sm(8.dp)),
+                color = Color(0xFFF9F9F9),
+                border = BorderStroke(0.5.dp, Color(0xFFE8E8E8)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = ds.sw(24.dp), top = ds.sh(2.dp), bottom = ds.sh(4.dp)),
+            ) {
+                Text(
+                    text = reasoningText,
+                    fontSize = ds.sp(12f),
+                    color = Color(0xFF888888),
+                    modifier = Modifier.padding(ds.sm(10.dp)),
+                    lineHeight = ds.sp(18f),
+                )
+            }
+        }
+    }
+}
+
+// ── Finish 标记 ──
+
+@Composable
+private fun FinishEventRow(
+    event: StreamEvent,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = ds.sh(2.dp)),
+    ) {
+        EventCheckIcon(isActive = false, ds = ds)
+        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        Text(
+            text = event.label,
+            fontSize = ds.sp(13f),
+            color = Color(0xFF4CAF50),
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+// ── ○ / ✓ 圆圈勾选图标（Canvas 绘制，确保居中）──
+
+@Composable
+private fun EventCheckIcon(
+    isActive: Boolean,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    val iconSize = ds.sm(16.dp)
+    val strokeColor = Color(0xFFCCCCCC)
+    val fillColor = Color(0xFF4CAF50)
+    val checkColor = Color.White
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.size(iconSize)) {
+        val r = size.minDimension / 2f
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        if (isActive) {
+            // 未完成：空心圆
+            drawCircle(
+                color = strokeColor,
+                radius = r - 1.dp.toPx(),
+                center = androidx.compose.ui.geometry.Offset(cx, cy),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+            )
+        } else {
+            // 完成：绿色实心圆
+            drawCircle(
+                color = fillColor,
+                radius = r,
+                center = androidx.compose.ui.geometry.Offset(cx, cy),
+            )
+            // 居中绘制 ✓
+            val path = androidx.compose.ui.graphics.Path().apply {
+                val s = r * 0.45f
+                moveTo(cx - s * 0.8f, cy)
+                lineTo(cx - s * 0.15f, cy + s * 0.55f)
+                lineTo(cx + s * 0.85f, cy - s * 0.5f)
+            }
+            drawPath(
+                path = path,
+                color = checkColor,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 1.5.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StreamingStatusRow(
+    text: String,
+    ds: com.cephalon.lucyApp.components.DesignScale,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = ds.sw(4.dp), vertical = ds.sh(4.dp)),
+    ) {
+        val dots = rememberAnimatedDots()
+        Text(
+            text = "$text$dots",
+            fontSize = ds.sp(14f),
+            color = Color(0xFF999999),
+            fontWeight = FontWeight.Normal,
+        )
+    }
+}
+
+@Composable
+private fun rememberAnimatedDots(): String {
+    var dotCount by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            dotCount = (dotCount + 1) % 4
+        }
+    }
+    return ".".repeat(dotCount)
 }
 
 @Composable

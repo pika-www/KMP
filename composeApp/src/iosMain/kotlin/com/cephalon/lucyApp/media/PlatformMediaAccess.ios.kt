@@ -993,13 +993,26 @@ private class DocumentPickerDelegate(
 
 @OptIn(ExperimentalForeignApi::class)
 private fun readFileUriToBytes(uri: String): ByteArray? {
+    println("[readFileUriToBytes] uri=$uri")
     val nsUrl = when {
         uri.startsWith("file://") -> NSURL.URLWithString(uri)
         uri.startsWith("/") -> NSURL.fileURLWithPath(uri)
         uri.contains("://") -> NSURL.URLWithString(uri)
         else -> NSURL.fileURLWithPath(uri)
-    } ?: return null
-    val data = NSData.dataWithContentsOfURL(nsUrl) ?: return null
+    }
+    if (nsUrl == null) {
+        println("[readFileUriToBytes] NSURL 创建失败, uri=$uri")
+        return null
+    }
+    println("[readFileUriToBytes] nsUrl=${nsUrl.absoluteString}, path=${nsUrl.path}")
+    val exists = nsUrl.path?.let { NSFileManager.defaultManager.fileExistsAtPath(it) } ?: false
+    println("[readFileUriToBytes] fileExists=$exists")
+    val data = NSData.dataWithContentsOfURL(nsUrl)
+    if (data == null) {
+        println("[readFileUriToBytes] NSData.dataWithContentsOfURL 返回 null")
+        return null
+    }
+    println("[readFileUriToBytes] 读取成功, size=${data.length}")
     return nsDataToByteArray(data)
 }
 

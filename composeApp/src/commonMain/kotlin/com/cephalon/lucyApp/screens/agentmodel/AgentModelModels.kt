@@ -33,6 +33,12 @@ internal data class ImagePreviewState(
     val selectedIndex: Int,
 )
 
+internal data class StreamEvent(
+    val type: String,
+    val label: String,
+    val isActive: Boolean = false,
+)
+
 internal sealed class ChatItem {
     /**
      * 聊天消息在当前会话里的业务 id（由 SDK 的 generateMessageId19() 产出的 19 位字符串，
@@ -53,6 +59,9 @@ internal sealed class ChatItem {
         override val messageId: String? = null,
         val attachments: List<MediaAttachment> = emptyList(),
         val timestamp: Long? = null,
+        val streamEvents: List<StreamEvent> = emptyList(),
+        val isStreaming: Boolean = false,
+        val reasoningText: String? = null,
     ) : ChatItem()
     data class User(
         val text: String,

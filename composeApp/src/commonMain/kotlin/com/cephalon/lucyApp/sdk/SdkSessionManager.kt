@@ -303,8 +303,8 @@ class SdkSessionManager(
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
-    private val _incomingMediaEvents = MutableSharedFlow<IncomingMediaEvent>(extraBufferCapacity = 32)
-    val incomingMediaEvents: SharedFlow<IncomingMediaEvent> = _incomingMediaEvents.asSharedFlow()
+    private val _npcReplyEvents = MutableSharedFlow<NpcReplyEvent>(extraBufferCapacity = 64)
+    val npcReplyEvents: SharedFlow<NpcReplyEvent> = _npcReplyEvents.asSharedFlow()
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
@@ -1115,24 +1115,19 @@ class SdkSessionManager(
                     val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
 
                     if (hasSourceId && !sourceMatched) {
-                        // 有 source_message_id 但匹配不上活跃请求
-                        // 仅 assistant.final 转发（服务器可能对同一请求分批发送多个 final）
-                        // 其他类型（partial/start/reasoning 等中间事件）直接丢弃，避免重复渲染
-                        if (machineEvent?.type == "assistant.final" &&
-                            (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())
-                        ) {
-                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，assistant.final 转为异步媒体推送")
-                            _incomingMediaEvents.tryEmit(
-                                IncomingMediaEvent(
-                                    text = machineEvent.text,
-                                    attachments = machineEvent.attachments,
-                                    eventType = machineEvent.type,
-                                    sourceMessageId = incomingSourceMessageId,
-                                    timestamp = machineEvent.timestamp,
-                                )
-                            )
+                        // 不在活跃列表 → 发射到 npcReplyEvents 供 UI 直接处理（不过滤内容，允许 tool.start 等状态事件通过）
+                        if (machineEvent != null) {
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，转发到 npcReplyEvents type=${machineEvent.type}")
+                            _npcReplyEvents.tryEmit(NpcReplyEvent(
+                                messageId = incomingSourceMessageId ?: "",
+                                type = machineEvent.type,
+                                text = machineEvent.text,
+                                toolName = machineEvent.toolName,
+                                attachments = machineEvent.attachments,
+                                timestamp = machineEvent.timestamp,
+                            ))
                         } else {
-                            appLogD(TAG, "[Consumer] 过滤掉非 final 事件: source_message_id=$incomingSourceMessageId, type=${machineEvent?.type}")
+                            appLogD(TAG, "[Consumer] 过滤掉无法解析的事件: source_message_id=$incomingSourceMessageId")
                         }
                         return@startUserChannelConsumer
                     }
@@ -1142,22 +1137,20 @@ class SdkSessionManager(
                     if (!hasSourceId) {
                         // 没有 source_message_id → 可能是异步文件/媒体推送
                         appLogD(TAG, "[Consumer] 收到无 source_message_id 消息 subject=$subject, type=${machineEvent?.type}, attachments=${machineEvent?.attachments?.size ?: 0}")
-                        // error 类型事件没有 source_message_id 时静默丢弃，不作为媒体推送显示
                         if (machineEvent?.type == "error") {
                             appLogD(TAG, "[Consumer] 丢弃无 source_message_id 的 error 事件: ${machineEvent.text?.take(100)}")
                             return@startUserChannelConsumer
                         }
                         if (machineEvent != null && (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())) {
-                            _incomingMediaEvents.tryEmit(
-                                IncomingMediaEvent(
-                                    text = machineEvent.text,
-                                    attachments = machineEvent.attachments,
-                                    eventType = machineEvent.type,
-                                    sourceMessageId = machineEvent.sourceMessageId,
-                                    timestamp = machineEvent.timestamp,
-                                )
-                            )
-                            appLogD(TAG, "[Consumer] 已发射 IncomingMediaEvent type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
+                            _npcReplyEvents.tryEmit(NpcReplyEvent(
+                                messageId = "",
+                                type = machineEvent.type,
+                                text = machineEvent.text,
+                                toolName = machineEvent.toolName,
+                                attachments = machineEvent.attachments,
+                                timestamp = machineEvent.timestamp,
+                            ))
+                            appLogD(TAG, "[Consumer] 已发射 NpcReplyEvent (无sourceMessageId) type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
                         }
                         return@startUserChannelConsumer
                     }
@@ -1539,41 +1532,33 @@ class SdkSessionManager(
         val msgId = sourceMessageId ?: return
         val isLatest = msgId == _latestRequestId
         appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
+
+        // ── 统一发射事件到 UI ──
+        _npcReplyEvents.tryEmit(NpcReplyEvent(
+            messageId = msgId,
+            type = event.type,
+            text = event.text,
+            toolName = event.toolName,
+            attachments = event.attachments,
+            timestamp = event.timestamp,
+        ))
+
         when (event.type) {
             "inbound.accepted" -> {
                 updateReplyState(msgId) { it.copy(streaming = true) }
-                if (isLatest) {
-                    _assistantReplyStreaming.value = true
-                }
-                appLogD(TAG, "[Event] inbound.accepted → 已送达 msgId=$msgId")
+                if (isLatest) _assistantReplyStreaming.value = true
             }
 
             "assistant.start" -> {
-                updateReplyState(msgId) { state ->
-                    state.copy(
-                        text = if (state.text.isNotEmpty()) state.text else "",
-                        streaming = true,
-                        reasoningText = "",
-                        streamingStatusText = "正在生成回复...",
-                    )
-                }
+                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "正在生成回复...") }
                 if (isLatest) {
-                    if (_assistantReplyText.value.isEmpty()) _assistantReplyText.value = ""
-                    _reasoningText.value = ""
                     _streamingStatusText.value = "正在生成回复..."
                     _assistantReplyStreaming.value = true
                 }
-                appLogD(TAG, "[Event] assistant.start → streaming=true msgId=$msgId")
             }
 
             "reasoning.partial" -> {
-                updateReplyState(msgId) { state ->
-                    state.copy(
-                        reasoningText = event.text ?: state.reasoningText,
-                        streaming = true,
-                        streamingStatusText = "正在思考...",
-                    )
-                }
+                updateReplyState(msgId) { it.copy(reasoningText = event.text ?: it.reasoningText, streaming = true, streamingStatusText = "正在思考...") }
                 if (isLatest) {
                     if (event.text != null) _reasoningText.value = event.text
                     _streamingStatusText.value = "正在思考..."
@@ -1582,13 +1567,7 @@ class SdkSessionManager(
             }
 
             "reasoning.final" -> {
-                updateReplyState(msgId) { state ->
-                    state.copy(
-                        reasoningText = event.text ?: state.reasoningText,
-                        streaming = true,
-                        streamingStatusText = "思考完成，正在组织回复...",
-                    )
-                }
+                updateReplyState(msgId) { it.copy(reasoningText = event.text ?: it.reasoningText, streaming = true, streamingStatusText = "思考完成，正在组织回复...") }
                 if (isLatest) {
                     if (event.text != null) _reasoningText.value = event.text
                     _streamingStatusText.value = "思考完成，正在组织回复..."
@@ -1603,85 +1582,44 @@ class SdkSessionManager(
                     _streamingStatusText.value = "正在使用 $toolLabel..."
                     _assistantReplyStreaming.value = true
                 }
-                appLogD(TAG, "[Event] tool.start → 使用工具: $toolLabel msgId=$msgId")
             }
 
             "tool.end" -> {
-                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "工具调用完成，正在生成回复...") }
+                updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = null) }
                 if (isLatest) {
-                    _streamingStatusText.value = "工具调用完成，正在生成回复..."
-                    _assistantReplyStreaming.value = true
-                }
-                appLogD(TAG, "[Event] tool.end → 工具调用完成 msgId=$msgId")
-            }
-
-            "assistant.partial" -> {
-                updateReplyState(msgId) { state ->
-                    // 只接受更长的文本，防止 reasoning 结束后文本回退覆盖已有内容
-                    if (event.text != null && event.text.length >= state.text.length) {
-                        state.copy(text = event.text, streaming = true, streamingStatusText = null)
-                    } else {
-                        if (event.text != null) {
-                            appLogD(TAG, "[Event] assistant.partial → 忽略较短文本 new=${event.text.length} < current=${state.text.length} msgId=$msgId")
-                        }
-                        state.copy(streaming = true, streamingStatusText = null)
-                    }
-                }
-                if (isLatest) {
-                    if (event.text != null) {
-                        val currentLen = _assistantReplyText.value.length
-                        if (event.text.length >= currentLen) {
-                            _assistantReplyText.value = event.text
-                        }
-                    }
                     _streamingStatusText.value = null
                     _assistantReplyStreaming.value = true
                 }
-                if (event.text != null) {
-                    appLogD(TAG, "[Event] assistant.partial → text更新 len=${event.text.length} msgId=$msgId")
-                } else {
-                    appLogD(TAG, "[Event] assistant.partial → text为null，未更新! msgId=$msgId")
+            }
+
+            "assistant.partial" -> {
+                // 直接设置文本，不做长度保护
+                updateReplyState(msgId) { it.copy(text = event.text ?: it.text, streaming = true, streamingStatusText = null) }
+                if (isLatest) {
+                    if (event.text != null) _assistantReplyText.value = event.text
+                    _streamingStatusText.value = null
+                    _assistantReplyStreaming.value = true
                 }
             }
 
             "assistant.final" -> {
                 val finalText = event.text
+                // 仅附件的 final 不结束请求，后续还有更多事件
+                val isMediaOnlyFinal = event.attachments.isNotEmpty() && finalText.isNullOrBlank()
+
                 updateReplyState(msgId) { state ->
-                    // 保护：如果 final 文本比累积的 partial 文本短，保留累积文本防止缩减
-                    val resolvedText = when {
-                        finalText == null -> state.text
-                        finalText.length >= state.text.length -> finalText
-                        state.text.isNotEmpty() -> {
-                            appLogD(TAG, "[Event] assistant.final → 保留累积文本(final较短 finalLen=${finalText.length} < accumulatedLen=${state.text.length}) msgId=$msgId")
-                            state.text
-                        }
-                        else -> finalText
-                    }
-                    // 合并而非替换：新附件追加到已有列表，按 blobRef 去重，避免分批到达时丢失
-                    val mergedAttachments = if (event.attachments.isEmpty()) {
-                        state.attachments
-                    } else {
-                        val existingRefs = state.attachments.map { it.blobRef }.toSet()
-                        state.attachments + event.attachments.filter { it.blobRef !in existingRefs }
-                    }
                     state.copy(
-                        text = resolvedText,
-                        streaming = false,
+                        text = finalText ?: state.text,
+                        streaming = isMediaOnlyFinal,
                         streamingStatusText = null,
-                        attachments = mergedAttachments,
+                        attachments = event.attachments.ifEmpty { state.attachments },
                         timestamp = event.timestamp ?: state.timestamp,
                     )
                 }
-                if (isLatest) {
-                    val currentAccumulated = _assistantReplyText.value
-                    val resolved = when {
-                        finalText == null -> currentAccumulated
-                        finalText.length >= currentAccumulated.length -> finalText
-                        else -> currentAccumulated
-                    }
-                    _assistantReplyText.value = resolved
+                if (!isMediaOnlyFinal) {
+                    if (isLatest) _assistantReplyText.value = finalText ?: _assistantReplyText.value
+                    completeRequest(msgId, isLatest, "对话结束")
                 }
-                completeRequest(msgId, isLatest, "对话结束")
             }
 
             "error" -> {
@@ -2225,11 +2163,16 @@ data class MediaAttachment(
     val fileName: String? = null,
 )
 
-data class IncomingMediaEvent(
-    val text: String?,
-    val attachments: List<MediaAttachment>,
-    val eventType: String,
-    val sourceMessageId: String? = null,
+/**
+ * 统一的 NPC 回复事件，每收到一条服务端推送就发射一条到 UI。
+ * UI 根据 [type] 决定如何渲染/更新对话列表。
+ */
+data class NpcReplyEvent(
+    val messageId: String,
+    val type: String,
+    val text: String? = null,
+    val toolName: String? = null,
+    val attachments: List<MediaAttachment> = emptyList(),
     val timestamp: Long? = null,
 )
 

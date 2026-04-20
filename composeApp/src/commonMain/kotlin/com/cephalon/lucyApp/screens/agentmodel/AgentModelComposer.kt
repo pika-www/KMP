@@ -75,6 +75,7 @@ internal fun AgentModelComposer(
     attachmentsExpanded: Boolean,
     onToggleAttachments: () -> Unit,
     onSend: () -> Unit,
+    isSendDisabled: Boolean = false,
     onSuggestionClick: (String) -> Unit,
     uploadStates: Map<String, AttachmentUploadState> = emptyMap(),
     modifier: Modifier = Modifier,
@@ -144,7 +145,8 @@ internal fun AgentModelComposer(
                     Box {
                         if (inputText.text.isEmpty()) {
                             Text(
-                                text = if (isRecording) "录音中..."
+                                text = if (isSendDisabled) "回复中..."
+                                else if (isRecording) "录音中..."
                                 else if (isVoiceBusy) "正在转写语音..."
                                 else "Ask Anything",
                                 color = Color(0xFF9A9A9A),
@@ -211,15 +213,17 @@ internal fun AgentModelComposer(
                 }
 
                 // 右侧：发送按钮
+                val sendBtnColor = if (isSendDisabled) Color(0xFF1F2535).copy(alpha = 0.35f) else Color(0xFF1F2535)
                 Box(
                     modifier = Modifier
                         .size(ds.sm(30.dp))
-                        .border(0.5.dp, Color(0xFF1F2535), actionBtnShape)
+                        .border(0.5.dp, sendBtnColor, actionBtnShape)
                         .clip(actionBtnShape)
-                        .background(Color(0xFF1F2535))
+                        .background(sendBtnColor)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
-                            indication = null
+                            indication = null,
+                            enabled = !isSendDisabled,
                         ) { onSend() }
                         .padding(start = ds.sw(6.dp), end = ds.sw(6.dp), top = ds.sh(7.dp), bottom = ds.sh(5.dp)),
                     contentAlignment = Alignment.Center
