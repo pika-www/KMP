@@ -55,6 +55,7 @@ import platform.PhotosUI.PHPickerResult
 import platform.PhotosUI.PHPickerViewController
 import platform.PhotosUI.PHPickerViewControllerDelegateProtocol
 import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationOpenSettingsURLString
 import platform.UIKit.UIDocumentPickerDelegateProtocol
 import platform.UIKit.UIDocumentPickerMode
 import platform.UIKit.UIDocumentPickerViewController
@@ -394,11 +395,13 @@ actual fun rememberPlatformMediaAccessController(
                         }
 
                         AVAuthorizationStatusDenied -> {
-                            currentOnEvent.value("相机权限被拒绝，请到系统设置中开启后重试。")
+                            currentOnEvent.value("相机权限被拒绝，正在打开系统设置，请手动开启。")
+                            openAppSettings()
                         }
 
                         else -> {
-                            currentOnEvent.value("当前设备无法使用相机权限。")
+                            currentOnEvent.value("当前设备无法使用相机权限，正在打开系统设置。")
+                            openAppSettings()
                         }
                     }
                 }
@@ -436,7 +439,8 @@ actual fun rememberPlatformMediaAccessController(
                         }
 
                         else -> {
-                            currentOnEvent.value("相册权限被拒绝，请到系统设置中开启后重试。")
+                            currentOnEvent.value("相册权限被拒绝，正在打开系统设置，请手动开启。")
+                            openAppSettings()
                         }
                     }
                 }
@@ -475,13 +479,15 @@ actual fun rememberPlatformMediaAccessController(
                 session.requestRecordPermission { granted ->
                     dispatch_async(dispatch_get_main_queue()) {
                         if (!granted) {
-                            currentOnEvent.value("麦克风权限被拒绝，无法开始语音输入。")
+                            currentOnEvent.value("麦克风权限被拒绝，正在打开系统设置，请手动开启。")
+                            openAppSettings()
                             return@dispatch_async
                         }
 
                         requestSpeechAuthorization { speechGranted ->
                             if (!speechGranted) {
-                                currentOnEvent.value("语音识别权限被拒绝，无法进行语音转文字。")
+                                currentOnEvent.value("语音识别权限被拒绝，正在打开系统设置，请手动开启。")
+                                openAppSettings()
                                 return@requestSpeechAuthorization
                             }
 
@@ -624,13 +630,18 @@ actual fun rememberPlatformMediaAccessController(
                     }
 
                     else -> {
-                        currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
-                        recentImages.clear()
+                        currentOnEvent.value("相册权限被拒绝，正在打开系统设置，请手动开启。")
+                        openAppSettings()
                     }
                 }
             }
         )
     }
+}
+
+private fun openAppSettings() {
+    val url = NSURL.URLWithString(UIApplicationOpenSettingsURLString) ?: return
+    UIApplication.sharedApplication.openURL(url, options = emptyMap<Any?, Any?>(), completionHandler = null)
 }
 
 private fun photoLibraryAuthorizationStatus(): Long {

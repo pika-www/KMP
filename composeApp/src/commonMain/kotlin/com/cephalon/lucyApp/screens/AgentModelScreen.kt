@@ -670,6 +670,11 @@ fun AgentModelScreen(
 
             println("[Event] 收到事件 type=${event.type}, msgId=$msgId, convId=$convId, textLen=${event.text?.length ?: 0}, attachments=${event.attachments.size}")
 
+            // 过滤不需要渲染的事件类型
+            if (event.type in setOf("config.updated", "config.error", "restart.scheduled", "restart.completed")) {
+                return@collect
+            }
+
             // 无 sourceMessageId 的事件 → 独立消息，去重后追加
             if (msgId.isBlank()) {
                 if (event.attachments.isEmpty() && event.text.isNullOrBlank()) return@collect

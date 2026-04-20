@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.ContextWrapper
+import android.provider.Settings
 import android.graphics.Bitmap
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -556,6 +557,16 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
+    val openAppSettings = remember(context) {
+        {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
+    }
+
     fun loadRecentImages() {
         try {
             val resolver = context.contentResolver
@@ -615,7 +626,19 @@ actual fun rememberPlatformMediaAccessController(
                 currentOnEvent.value("相册部分授权，正在加载可访问的照片。")
                 loadRecentImages()
             } else {
-                currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
+                val activity = context.findActivity()
+                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_IMAGES
+                } else {
+                    @Suppress("DEPRECATION")
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                }
+                if (activity != null && !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)) {
+                    currentOnEvent.value("相册权限被永久拒绝，正在打开系统设置，请手动开启。")
+                    openAppSettings()
+                } else {
+                    currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
+                }
                 recentImages.clear()
             }
         }
@@ -644,7 +667,13 @@ actual fun rememberPlatformMediaAccessController(
             currentOnEvent.value("相机权限已授权，正在打开相机。")
             takePicturePreviewLauncher.launch(null)
         } else {
-            currentOnEvent.value("相机权限被拒绝，无法打开相机。")
+            val activity = context.findActivity()
+            if (activity != null && !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)) {
+                currentOnEvent.value("相机权限被永久拒绝，正在打开系统设置，请手动开启。")
+                openAppSettings()
+            } else {
+                currentOnEvent.value("相机权限被拒绝，无法打开相机。")
+            }
         }
     }
 
@@ -660,7 +689,13 @@ actual fun rememberPlatformMediaAccessController(
                 currentOnEvent.value("开始语音输入失败: ${error.message.orEmpty()}")
             }
         } else {
-            currentOnEvent.value("麦克风权限被拒绝，无法开始语音输入。")
+            val activity = context.findActivity()
+            if (activity != null && !androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.RECORD_AUDIO)) {
+                currentOnEvent.value("麦克风权限被永久拒绝，正在打开系统设置，请手动开启。")
+                openAppSettings()
+            } else {
+                currentOnEvent.value("麦克风权限被拒绝，无法开始语音输入。")
+            }
         }
     }
 

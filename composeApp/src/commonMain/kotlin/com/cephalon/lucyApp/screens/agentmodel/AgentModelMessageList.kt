@@ -133,11 +133,7 @@ internal fun AgentModelMessageList(
 
         itemsIndexed(items = messages, key = { index, item ->
             when (item) {
-                is ChatItem.Assistant -> if (item.messageId != null && item.timestamp != null) {
-                    "assistant_${item.messageId}_${item.timestamp}"
-                } else {
-                    "assistant_${item.messageId ?: "anon_$index"}"
-                }
+                is ChatItem.Assistant -> "assistant_${item.messageId ?: "anon_$index"}"
                 is ChatItem.User -> "user_$index"
                 is ChatItem.UserAttachments -> "attachments_$index"
                 is ChatItem.System -> "system_$index"
@@ -872,7 +868,7 @@ private fun StatusEventRow(
         val dots = if (event.isActive) rememberAnimatedDots() else ""
         Text(
             text = "${event.label}$dots",
-            fontSize = ds.sp(13f),
+            fontSize = ds.sp(11f),
             color = if (event.isActive) Color(0xFF999999) else Color(0xFF666666),
             fontWeight = FontWeight.Normal,
         )
@@ -902,12 +898,12 @@ private fun ToolEventRow(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(4.dp)),
             ) {
-                Text(text = "🔧", fontSize = ds.sp(12f))
+                Text(text = "🔧", fontSize = ds.sp(10f))
                 Spacer(modifier = Modifier.width(ds.sw(4.dp)))
                 val dots = if (event.isActive) rememberAnimatedDots() else ""
                 Text(
                     text = "工具调用：$label$dots",
-                    fontSize = ds.sp(12f),
+                    fontSize = ds.sp(11f),
                     color = if (event.isActive) Color(0xFF999999) else Color(0xFF555555),
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -943,7 +939,7 @@ private fun ReasoningEventRow(
             val dots = if (event.isActive) rememberAnimatedDots() else ""
             Text(
                 text = "${event.label}$dots",
-                fontSize = ds.sp(13f),
+                fontSize = ds.sp(11f),
                 color = if (event.isActive) Color(0xFF999999) else Color(0xFF666666),
                 fontWeight = FontWeight.Medium,
             )
@@ -991,7 +987,7 @@ private fun FinishEventRow(
         Spacer(modifier = Modifier.width(ds.sw(8.dp)))
         Text(
             text = event.label,
-            fontSize = ds.sp(13f),
+            fontSize = ds.sp(11f),
             color = Color(0xFF4CAF50),
             fontWeight = FontWeight.SemiBold,
         )

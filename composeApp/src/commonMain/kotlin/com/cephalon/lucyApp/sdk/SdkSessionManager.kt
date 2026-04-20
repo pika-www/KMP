@@ -1527,9 +1527,15 @@ class SdkSessionManager(
         return false
     }
 
+    private val ignoredEventTypes = setOf("config.updated", "config.error", "restart.scheduled", "restart.completed")
+
     private fun handleMachineEvent(event: NpcMachineEvent?, sourceMessageId: String?) {
         event ?: return
         val msgId = sourceMessageId ?: return
+        if (event.type in ignoredEventTypes) {
+            appLogD(TAG, "[Event] 忽略事件 type=${event.type}, msgId=$msgId")
+            return
+        }
         val isLatest = msgId == _latestRequestId
         appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
 
