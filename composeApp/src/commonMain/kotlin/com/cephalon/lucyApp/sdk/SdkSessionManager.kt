@@ -1101,81 +1101,85 @@ class SdkSessionManager(
 
         consumerJob =
             newSession.startUserChannelConsumer(scope) { subject, messagePayload ->
-                val messageText =
-                    runCatching { messagePayload.decodeToString() }.getOrDefault(
-                        "<binary payload ${messagePayload.size} bytes>",
-                    )
-                val machineEvent = parseMachineEvent(messageText)
-                appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject messageText=${messageText} machineEvent=${machineEvent}")
-
-                val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
-                val activeIds = _activeRequestIds.value
-                val hasSourceId = !incomingSourceMessageId.isNullOrBlank()
-                val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
-
-                if (hasSourceId && !sourceMatched) {
-                    // 有 source_message_id 但匹配不上活跃请求
-                    // 仅 assistant.final 转发（服务器可能对同一请求分批发送多个 final）
-                    // 其他类型（partial/start/reasoning 等中间事件）直接丢弃，避免重复渲染
-                    if (machineEvent?.type == "assistant.final" &&
-                        (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())
-                    ) {
-                        appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，assistant.final 转为异步媒体推送")
-                        _incomingMediaEvents.tryEmit(
-                            IncomingMediaEvent(
-                                text = machineEvent.text,
-                                attachments = machineEvent.attachments,
-                                eventType = machineEvent.type,
-                            )
+                try {
+                    val messageText =
+                        runCatching { messagePayload.decodeToString() }.getOrDefault(
+                            "<binary payload ${messagePayload.size} bytes>",
                         )
-                    } else {
-                        appLogD(TAG, "[Consumer] 过滤掉非 final 事件: source_message_id=$incomingSourceMessageId, type=${machineEvent?.type}")
-                    }
-                    return@startUserChannelConsumer
-                }
+                    val machineEvent = parseMachineEvent(messageText)
+                    appLogD(TAG, "[Consumer] 收到原始消息 subject=$subject messageText=${messageText} machineEvent=${machineEvent}")
 
-                recordReceivedMessage(subject, messageText)
+                    val incomingSourceMessageId = machineEvent?.sourceMessageId ?: extractSourceMessageId(messageText)
+                    val activeIds = _activeRequestIds.value
+                    val hasSourceId = !incomingSourceMessageId.isNullOrBlank()
+                    val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
 
-                if (!hasSourceId) {
-                    // 没有 source_message_id → 可能是异步文件/媒体推送
-                    appLogD(TAG, "[Consumer] 收到无 source_message_id 消息 subject=$subject, type=${machineEvent?.type}, attachments=${machineEvent?.attachments?.size ?: 0}")
-                    // error 类型事件没有 source_message_id 时静默丢弃，不作为媒体推送显示
-                    if (machineEvent?.type == "error") {
-                        appLogD(TAG, "[Consumer] 丢弃无 source_message_id 的 error 事件: ${machineEvent.text?.take(100)}")
+                    if (hasSourceId && !sourceMatched) {
+                        // 有 source_message_id 但匹配不上活跃请求
+                        // 仅 assistant.final 转发（服务器可能对同一请求分批发送多个 final）
+                        // 其他类型（partial/start/reasoning 等中间事件）直接丢弃，避免重复渲染
+                        if (machineEvent?.type == "assistant.final" &&
+                            (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())
+                        ) {
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，assistant.final 转为异步媒体推送")
+                            _incomingMediaEvents.tryEmit(
+                                IncomingMediaEvent(
+                                    text = machineEvent.text,
+                                    attachments = machineEvent.attachments,
+                                    eventType = machineEvent.type,
+                                )
+                            )
+                        } else {
+                            appLogD(TAG, "[Consumer] 过滤掉非 final 事件: source_message_id=$incomingSourceMessageId, type=${machineEvent?.type}")
+                        }
                         return@startUserChannelConsumer
                     }
-                    if (machineEvent != null && (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())) {
-                        _incomingMediaEvents.tryEmit(
-                            IncomingMediaEvent(
-                                text = machineEvent.text,
-                                attachments = machineEvent.attachments,
-                                eventType = machineEvent.type,
-                            )
-                        )
-                        appLogD(TAG, "[Consumer] 已发射 IncomingMediaEvent type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
-                    }
-                    return@startUserChannelConsumer
-                }
 
-                appLogD(TAG, "[Consumer] 接受消息 subject=$subject incomingSourceMessageId=$incomingSourceMessageId msg=${messageText}")
-                handleMachineEvent(machineEvent, incomingSourceMessageId)
-                _lastReplyMessageId.value = incomingSourceMessageId
+                    recordReceivedMessage(subject, messageText)
+
+                    if (!hasSourceId) {
+                        // 没有 source_message_id → 可能是异步文件/媒体推送
+                        appLogD(TAG, "[Consumer] 收到无 source_message_id 消息 subject=$subject, type=${machineEvent?.type}, attachments=${machineEvent?.attachments?.size ?: 0}")
+                        // error 类型事件没有 source_message_id 时静默丢弃，不作为媒体推送显示
+                        if (machineEvent?.type == "error") {
+                            appLogD(TAG, "[Consumer] 丢弃无 source_message_id 的 error 事件: ${machineEvent.text?.take(100)}")
+                            return@startUserChannelConsumer
+                        }
+                        if (machineEvent != null && (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())) {
+                            _incomingMediaEvents.tryEmit(
+                                IncomingMediaEvent(
+                                    text = machineEvent.text,
+                                    attachments = machineEvent.attachments,
+                                    eventType = machineEvent.type,
+                                )
+                            )
+                            appLogD(TAG, "[Consumer] 已发射 IncomingMediaEvent type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
+                        }
+                        return@startUserChannelConsumer
+                    }
+
+                    appLogD(TAG, "[Consumer] 接受消息 subject=$subject incomingSourceMessageId=$incomingSourceMessageId msg=${messageText}")
+                    handleMachineEvent(machineEvent, incomingSourceMessageId)
+                    _lastReplyMessageId.value = incomingSourceMessageId
+                } catch (e: Throwable) {
+                    appLogD(TAG, "[Consumer] 处理消息异常(已忽略): ${e::class.simpleName} ${e.message} subject=$subject")
+                }
             }
 
         try {
             nasConsumerJob =
                 newSession.startNasUserChannelConsumer(scope) { subject, messagePayload ->
-                    val messageText =
-                        runCatching { messagePayload.decodeToString() }.getOrDefault(
-                            "<binary payload ${messagePayload.size} bytes>",
-                        )
-                    appLogD(TAG, "[NasConsumer] 收到 NAS 消息 subject=$subject payload=$messageText")
                     try {
+                        val messageText =
+                            runCatching { messagePayload.decodeToString() }.getOrDefault(
+                                "<binary payload ${messagePayload.size} bytes>",
+                            )
+                        appLogD(TAG, "[NasConsumer] 收到 NAS 消息 subject=$subject payload=$messageText")
                         if (!handleNasResponse(subject, messageText)) {
                             appLogD(TAG, "[NasConsumer] 收到未识别消息 subject=$subject msg=${messageText.take(500)}")
                         }
                     } catch (e: Throwable) {
-                        appLogD(TAG, "[NasConsumer] 解析消息异常(已忽略): ${e::class.simpleName} ${e.message} subject=$subject msg=${messageText.take(300)}")
+                        appLogD(TAG, "[NasConsumer] 处理消息异常(已忽略): ${e::class.simpleName} ${e.message} subject=$subject")
                     }
                 }
             appLogD(TAG, "[NasConsumer] NAS consumer 启动成功")

@@ -819,6 +819,12 @@ fun AgentModelScreen(
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
+            // ── 上一条消息仍在回复中，禁止连续发送 ──
+            if (activeStreamingRequests.isNotEmpty()) {
+                toastMessage = "上一条消息正在回复中，请稍候"
+                return@Unit
+            }
+
             // ── 设备离线检查 ──
             if (currentCdi == null || currentCdi !in onlineDeviceCdis) {
                 toastMessage = "设备不在线，请等待设备上线后重试"
