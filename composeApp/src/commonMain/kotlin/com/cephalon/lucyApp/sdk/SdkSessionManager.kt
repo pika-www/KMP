@@ -300,6 +300,10 @@ class SdkSessionManager(
     private val _activeRequestIds = MutableStateFlow<Set<String>>(emptySet())
     val activeRequestIds: StateFlow<Set<String>> = _activeRequestIds.asStateFlow()
 
+    // 已完成的 requestId 集合，用于过滤服务端重复推送
+    private val _completedRequestIds = mutableSetOf<String>()
+    private val COMPLETED_IDS_MAX_SIZE = 200
+
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
@@ -1115,7 +1119,12 @@ class SdkSessionManager(
                     val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
 
                     if (hasSourceId && !sourceMatched) {
-                        // 不在活跃列表 → 发射到 npcReplyEvents 供 UI 直接处理（不过滤内容，允许 tool.start 等状态事件通过）
+                        // 已完成的请求 → 直接丢弃，不转发不渲染
+                        if (incomingSourceMessageId in _completedRequestIds) {
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成，丢弃重复推送 type=${machineEvent?.type}")
+                            return@startUserChannelConsumer
+                        }
+                        // 不在活跃列表也不在已完成列表 → 发射到 npcReplyEvents 供 UI 直接处理（不过滤内容，允许 tool.start 等状态事件通过）
                         if (machineEvent != null) {
                             appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，转发到 npcReplyEvents type=${machineEvent.type}")
                             _npcReplyEvents.tryEmit(NpcReplyEvent(
@@ -1657,6 +1666,11 @@ class SdkSessionManager(
 
     private fun completeRequest(msgId: String, isLatest: Boolean, logLabel: String) {
         _activeRequestIds.update { it - msgId }
+        // 记录已完成的 requestId，后续重复推送直接丢弃
+        _completedRequestIds.add(msgId)
+        if (_completedRequestIds.size > COMPLETED_IDS_MAX_SIZE) {
+            _completedRequestIds.remove(_completedRequestIds.first())
+        }
         if (isLatest) {
             _streamingStatusText.value = null
             _assistantReplyStreaming.value = false

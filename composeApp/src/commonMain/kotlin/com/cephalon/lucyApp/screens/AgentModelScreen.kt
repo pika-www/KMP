@@ -537,12 +537,38 @@ fun AgentModelScreen(
     val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
     var isSendLocked by remember { mutableStateOf(false) }
 
-    // ── SDK 层 "对话结束" 信号解锁发送 ──
-    val sdkActiveIds by sdkSessionManager.activeRequestIds.collectAsState()
-    LaunchedEffect(sdkActiveIds) {
-        if (sdkActiveIds.isEmpty() && isSendLocked) {
-            println("[Lock] SDK activeRequestIds 已清空（收到 assistant.final / error），解锁发送")
-            isSendLocked = false
+    // ── SDK 层 "对话结束" 信号解锁发送 + 兜底同步 ChatItem 状态 ──
+    // handleMachineEvent 使用 tryEmit 往 npcReplyEvents 发事件，缓冲区满时会静默丢弃。
+    // 这里监听 activeRequestIds 的实际变化：当某个 msgId 被移除时，
+    // 强制把对应 ChatItem.isStreaming 置为 false，确保 UI 状态不会卡在"正在输入"。
+    LaunchedEffect(Unit) {
+        var prevIds = sdkSessionManager.activeRequestIds.value
+        sdkSessionManager.activeRequestIds.collect { currentIds ->
+            // 解锁发送
+            if (currentIds.isEmpty() && isSendLocked) {
+                println("[Lock] SDK activeRequestIds 已清空（收到 assistant.final / error），解锁发送")
+                isSendLocked = false
+            }
+            // 兜底：把新移除的 msgId 对应的 assistant 消息标记为完成
+            val removedIds = prevIds - currentIds
+            for (msgId in removedIds) {
+                val convId = activeStreamingRequests[msgId] ?: selectedConversationId ?: continue
+                val replyState = sdkSessionManager.replyStateMap.value[msgId]
+                updateAssistantMessage(convId, msgId) { a ->
+                    if (a.isStreaming) {
+                        println("[Fallback] 兜底同步 msgId=$msgId isStreaming→false, textLen=${replyState?.text?.length ?: 0}")
+                        a.copy(
+                            text = replyState?.text?.takeIf { it.isNotBlank() } ?: a.text,
+                            isStreaming = false,
+                            streamEvents = a.streamEvents.markAllInactive()
+                                .addOrUpdate(StreamEvent("finish", "Finish")),
+                        )
+                    } else a
+                }
+                activeStreamingRequests.remove(msgId)
+                messageIdToCdi.remove(msgId)
+            }
+            prevIds = currentIds
         }
     }
 
