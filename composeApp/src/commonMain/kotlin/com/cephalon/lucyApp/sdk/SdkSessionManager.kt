@@ -187,6 +187,8 @@ class SdkSessionManager(
     private var tokenExpiryJob: Job? = null
     private var authReconnectAttempts = 0
     private var observerRestartAttempts = 0
+    /** 冷启动标记：每个进程首次连接时重置 clientId，避免 Attach 到旧 consumer 的 stale deliverSubject */
+    private var _clientIdResetForProcess = false
 
     private val _connectionState = MutableStateFlow(SdkConnectionState.DISCONNECTED)
     val connectionState: StateFlow<SdkConnectionState> = _connectionState.asStateFlow()
@@ -456,6 +458,14 @@ class SdkSessionManager(
                 _connectionLog.value = "连接失败：未找到有效登录 token"
                 appLogD(TAG, _connectionLog.value)
                 return Result.failure(IllegalStateException("未找到有效登录 token"))
+            }
+
+            // 冷启动（进程首次连接）：重置 clientId，强制创建全新 push consumer，
+            // 避免 Attach 到上一个进程遗留的 stale deliverSubject 导致收不到 NPC 回复
+            if (!_clientIdResetForProcess) {
+                _clientIdResetForProcess = true
+                sdkClient.resetClientId()
+                appLogD(TAG, "冷启动首次连接，已重置 clientId（将创建新 push consumer）")
             }
 
             _connectionState.value = SdkConnectionState.CONNECTING
