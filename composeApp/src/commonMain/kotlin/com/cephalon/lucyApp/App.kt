@@ -92,6 +92,12 @@ fun App(
                 }
             }
 
+            BindNetworkMonitor(
+                onNetworkChanged = {
+                    sdkSessionManager.onNetworkChanged()
+                },
+            )
+
             BindAppLifecycle(
                 onForeground = {
                     sdkSessionManager.onForeground()

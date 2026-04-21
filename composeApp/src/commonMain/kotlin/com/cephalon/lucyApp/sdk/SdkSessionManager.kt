@@ -391,6 +391,30 @@ class SdkSessionManager(
         disconnectInBackground()
     }
 
+    /**
+     * 网络变化时主动断开旧 NATS 连接并重连，防止 natskt 内部协程因 socket 断开
+     * 抛出 ClosedByteChannelException (ENOTCONN) 导致应用闪退。
+     * 由平台侧 [BindNetworkMonitor] 在检测到默认网络变化时调用。
+     */
+    fun onNetworkChanged() {
+        // 后台由 onBackground 统一处理
+        if (_isInBackground.value) return
+        if (session == null && _connectionState.value == SdkConnectionState.DISCONNECTED) return
+        appLogD(TAG, "网络变化检测，主动断开旧连接并重连")
+        scope.launch {
+            connectMutex.withLock {
+                logSdkEvent("网络变化触发断开, currentState=${_connectionState.value}, userId=${session?.userId}")
+                resetSessionResources()
+                _connectionState.value = SdkConnectionState.DISCONNECTED
+                _connectionLog.value = "网络变化，正在重连..."
+                appLogD(TAG, _connectionLog.value)
+            }
+            // 给网络切换留出稳定时间
+            delay(1_500L)
+            ensureConnectedIfTokenValid()
+        }
+    }
+
     private fun disconnectInBackground() {
         appLogD(TAG, "应用在后台，主动断开 NATS 连接")
         scope.launch {

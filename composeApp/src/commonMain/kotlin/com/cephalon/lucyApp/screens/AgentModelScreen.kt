@@ -99,6 +99,8 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelMessageList
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelProfileScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
+import com.cephalon.lucyApp.screens.agentmodel.BrainPowerBalancePage
+import com.cephalon.lucyApp.screens.agentmodel.RechargePackagePage
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
 import com.cephalon.lucyApp.screens.nas.NasSendToChatStore
 import com.cephalon.lucyApp.screens.nas.NasSendFileType
@@ -524,6 +526,9 @@ fun AgentModelScreen(
     }
     var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
     var showProfilePage by remember { mutableStateOf(false) }
+    var showRechargePage by remember { mutableStateOf(false) }
+    var showRechargePackagePage by remember { mutableStateOf(false) }
+    var showNasNotSupportedDialog by remember { mutableStateOf(false) }
     var showSearchPage by remember { mutableStateOf(false) }
     // 0 = 欢迎页, 1 = 技能卡片页, 2 = 已关闭
     var emptyViewState by remember { mutableStateOf(0) }
@@ -1229,6 +1234,28 @@ fun AgentModelScreen(
                                 attachmentsExpanded = false
                                 uriHandler.openUri("tel:")
                             },
+                            onPillClick = {
+                                focusManager.clearFocus()
+                                attachmentsExpanded = false
+                                previewState = null
+                                if (currentMessages.isNotEmpty()) {
+                                    // 有聊天记录 → NAS 逻辑
+                                    coroutineScope.launch {
+                                        val cdi = currentCdi
+                                        val device = if (!cdi.isNullOrBlank())
+                                            authRepository.findDeviceByChannelDeviceId(cdi) else null
+                                        if (device?.deviceType == "ai_npc") {
+                                            onNavigateToNas()
+                                        } else {
+                                            showNasNotSupportedDialog = true
+                                        }
+                                    }
+                                } else {
+                                    // 无聊天记录 → 充值页面
+                                    showRechargePage = true
+                                }
+                            },
+                            hasMessages = currentMessages.isNotEmpty(),
                             isDeviceOnline = currentCdi != null && currentCdi in onlineDeviceCdis
                         )
                     }
@@ -1454,6 +1481,52 @@ fun AgentModelScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
+                AnimatedVisibility(
+                    visible = showRechargePage,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 160)),
+                ) {
+                    BrainPowerBalancePage(
+                        modifier = Modifier.fillMaxSize(),
+                        onBack = { showRechargePage = false },
+                        onNavigateToPackage = {
+                            showRechargePackagePage = true
+                        },
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = showRechargePackagePage,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 160)),
+                ) {
+                    RechargePackagePage(
+                        modifier = Modifier.fillMaxSize(),
+                        onBack = { showRechargePackagePage = false },
+                    )
+                }
+
+                if (showNasNotSupportedDialog) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0x66000000))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) { showNasNotSupportedDialog = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        NasNotSupportedDialog(
+                            onDismiss = { showNasNotSupportedDialog = false },
+                            onBuy = {
+                                showNasNotSupportedDialog = false
+                                uriHandler.openUri("https://item.taobao.com/item.htm?ft=t&id=1041156653398")
+                            }
+                        )
+                    }
+                }
+
                 if (mediaAccessController.isRecording && !showProfilePage) {
                     AgentModelVoiceRecordingOverlay(
                         startedAtMillis = voiceRecordingStartedAtMillis ?: currentTimeMillis(),
@@ -1522,4 +1595,91 @@ fun AgentModelScreen(
     }
     } // Box
     } // DesignScaleProvider
+}
+
+@Composable
+private fun NasNotSupportedDialog(
+    onDismiss: () -> Unit,
+    onBuy: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    Surface(
+        shape = RoundedCornerShape(ds.sm(20.dp)),
+        color = Color.White,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { /* consume click */ }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
+        ) {
+            Text(
+                text = "NAS 功能提示",
+                fontSize = ds.sp(20f),
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+
+            Text(
+                text = "只有 AI NPC 支持 NAS 功能",
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF717580),
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onDismiss() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "知道了",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onBuy() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "去购买",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFFE84026),
+                    )
+                }
+            }
+        }
+    }
 }

@@ -45,6 +45,7 @@ import com.cephalon.lucyApp.deviceaccess.gatt.GattWifiNetwork
 import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage
 import com.cephalon.lucyApp.deviceaccess.gatt.ProvisionManager
 import com.cephalon.lucyApp.deviceaccess.gatt.rememberProvisionManager
+import com.cephalon.lucyApp.getPlatform
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -87,6 +88,9 @@ internal sealed interface DeviceProbeState {
 // 超过该上限往往表明设备端的 Lucy IPC 永久异常（例如 pairing ipc not enabled /
 // lucy pairing client not connected），再重连也不会更好，不如提示用户回扫描步人工排查。
 private const val OTP_FORCE_RECONNECT_MAX = 3
+
+// 单台设备探测最大重试次数；超过后标记 Failed，避免无限"检测中"。
+private const val MAX_PROBE_ATTEMPTS = 5
 
 @Composable
 fun BrainBoxLoginSheet(
@@ -249,15 +253,32 @@ fun BrainBoxLoginSheet(
         }
     }
 
-    // 扫描步骤后台探测调度器：
-    // - 扫描全程不停，probe 与 scan 并行运行（iOS Core Bluetooth 天然支持，Android 亦允许）；
+    // Android 不做 BLE probe（Android BLE 栈并发 scan+GATT 容易超时），直接标记 Free 让用户点"连接"。
+    // iOS 保留完整的 probe 逻辑（Core Bluetooth 天然支持并发 scan+connect）。
+    val isAndroidPlatform = remember { getPlatform().name.startsWith("Android", ignoreCase = true) }
+
+    // Android：发现新设备后立即标记为 Free
+    LaunchedEffect(isVisible, currentStep, isAndroidPlatform) {
+        if (!isAndroidPlatform || !isVisible || currentStep != BrainBoxStep.Scan) return@LaunchedEffect
+        while (true) {
+            provisionManager.scanState.value.devices.forEach { dev ->
+                if (probeStates[dev.id] == null) {
+                    probeStates[dev.id] = DeviceProbeState.Free
+                }
+            }
+            delay(300L)
+        }
+    }
+
+    // iOS：扫描步骤后台探测调度器
+    // - 扫描全程不停，probe 与 scan 并行运行（iOS Core Bluetooth 天然支持）；
     // - probe 之间仍然串行（共用 provisionManager.gattMutex），一次只连一台；
     // - 用户点"连接"后 connectingDeviceId 非空，调度器暂停 probe 让出 GATT 通道；
     // - 失败自动重试：指数退避 500ms → 1s → 2s → 4s → 8s，只延迟这一台，不阻塞其他设备；
     //   UI 在重试期间仍显示"检测中…"，直到拿到 Free/Occupied/OwnedByMe 等确定结果。
     // - key 只盯 (isVisible, currentStep)，蓝牙开关/权限在 loop 内动态查，避免广播抖动重启循环。
-    LaunchedEffect(isVisible, currentStep) {
-        if (!isVisible || currentStep != BrainBoxStep.Scan) return@LaunchedEffect
+    LaunchedEffect(isVisible, currentStep, isAndroidPlatform) {
+        if (isAndroidPlatform || !isVisible || currentStep != BrainBoxStep.Scan) return@LaunchedEffect
         while (true) {
             if (connectingDeviceId != null ||
                 !controller.bluetoothPermissionGranted ||
@@ -301,12 +322,16 @@ fun BrainBoxLoginSheet(
                 onFailure = { DeviceProbeState.Failed },
             )
             if (resolved is DeviceProbeState.Failed) {
-                // 未拿到确定结果：安排下次重试，UI 仍显示"检测中…"（probeStates 清掉即回到 null 态）
-                val shiftBits = (attempt - 1).coerceAtMost(4)
-                val backoff = (500L shl shiftBits).coerceAtMost(8_000L)
-                probeNextRetryAtMs[next.id] = currentTimeMillis() + backoff
-                probeStates.remove(next.id)
-                println("[BrainBox] probe failed for ${next.id} (attempt #$attempt), retry after ${backoff}ms")
+                if (attempt >= MAX_PROBE_ATTEMPTS) {
+                    probeStates[next.id] = DeviceProbeState.Failed
+                    println("[BrainBox] probe exhausted for ${next.id} after $attempt attempts, marking Failed")
+                } else {
+                    val shiftBits = (attempt - 1).coerceAtMost(4)
+                    val backoff = (500L shl shiftBits).coerceAtMost(8_000L)
+                    probeNextRetryAtMs[next.id] = currentTimeMillis() + backoff
+                    probeStates.remove(next.id)
+                    println("[BrainBox] probe failed for ${next.id} (attempt #$attempt), retry after ${backoff}ms")
+                }
             } else {
                 probeStates[next.id] = resolved
                 probeAttempts.remove(next.id)

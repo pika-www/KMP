@@ -108,7 +108,7 @@ import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
-private enum class ProfilePage {
+internal enum class ProfilePage {
     Settings,
     Account,
     DeleteAccount,
@@ -147,6 +147,14 @@ internal fun AgentModelProfileScreen(
     var switchDeviceCurrentCdi by remember { mutableStateOf("") }
     var showFeedbackSuccessDialog by remember { mutableStateOf(false) }
     var cacheSizeBytes by remember { mutableStateOf(getAppCacheSize()) }
+    var currentDeviceType by remember { mutableStateOf("") }
+
+    LaunchedEffect(isVisible, selectedCdi) {
+        if (isVisible && selectedCdi != null) {
+            val device = authRepository.findDeviceByChannelDeviceId(selectedCdi!!)
+            currentDeviceType = device?.deviceType.orEmpty()
+        }
+    }
 
     val ds = LocalDesignScale.current
     Box(modifier = modifier) {
@@ -291,7 +299,7 @@ internal fun AgentModelProfileScreen(
                                         title = "充值账户",
                                         onClick = { currentPage = ProfilePage.Recharge }
                                     )
-                                    if (isSelectedDeviceOnline) {
+                                    if (currentDeviceType == "ai_npc") {
                                         HorizontalDivider(color = Color(0xFFF5F5F5))
                                         ProfileMenuItemNew(
                                             icon = NasIcon,
@@ -1044,7 +1052,7 @@ private fun AccountDetailContent(
  * 的 layoutInfo 驱动方式等价但更适配 verticalScroll 里嵌套整段卡片的场景。
  */
 @Composable
-private fun BrainPowerBalancePage(
+internal fun BrainPowerBalancePage(
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
     onNavigateToPackage: () -> Unit,
@@ -1892,7 +1900,7 @@ private suspend fun handleRechargePackageClick(
  * 顶部 back + "选择套餐" 标题固定；下方套餐卡片列表 + 规则说明可滚动。
  */
 @Composable
-private fun RechargePackagePage(
+internal fun RechargePackagePage(
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
 ) {

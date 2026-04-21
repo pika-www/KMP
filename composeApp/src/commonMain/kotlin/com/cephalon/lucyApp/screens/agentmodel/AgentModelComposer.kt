@@ -148,7 +148,7 @@ internal fun AgentModelComposer(
                                 text = if (isSendDisabled) "回复中..."
                                 else if (isRecording) "录音中..."
                                 else if (isVoiceBusy) "正在转写语音..."
-                                else "Ask Anything",
+                                else "输入你想问咩",
                                 color = Color(0xFF9A9A9A),
                                 fontSize = ds.sp(15f),
                                 fontWeight = FontWeight.Medium

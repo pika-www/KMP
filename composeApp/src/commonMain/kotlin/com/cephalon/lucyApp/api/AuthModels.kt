@@ -156,6 +156,8 @@ data class LucyDevice(
     @SerialName("serial_number")
     val serialNumber: String = "",
     val status: String = "offline",
+    @SerialName("device_type")
+    val deviceType: String = "",
     @SerialName("pairing_info")
     val pairingInfo: LucyDevicePairingInfo? = null,
 )

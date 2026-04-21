@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.ic_brain
+import androidios.composeapp.generated.resources.ic_nas_storage
 import androidios.composeapp.generated.resources.ic_sparkle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -44,6 +46,8 @@ internal fun AgentModelTopBar(
     subtitle: String,
     onOpenProfile: () -> Unit,
     onCall: () -> Unit,
+    onPillClick: () -> Unit = {},
+    hasMessages: Boolean = false,
     isDeviceOnline: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -52,15 +56,7 @@ internal fun AgentModelTopBar(
     val balanceData by balanceWsManager.balance.collectAsState()
     val totalBalance = (balanceData.balances["1"] ?: 0L) + (balanceData.balances["4"] ?: 0L)
 
-    val pillShape = RoundedCornerShape(100.dp)
-
-    // 毛玻璃质感背景
-    val glassBrush = Brush.radialGradient(
-        colors = listOf(
-            Color.White.copy(alpha = 0.65f),
-            Color.White.copy(alpha = 0.85f)
-        )
-    )
+    val pillShape = RoundedCornerShape(80.dp)
 
     Row(
         modifier = modifier
@@ -70,19 +66,98 @@ internal fun AgentModelTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // ── 左侧：余额胶囊 ──
+        // ── 左侧：脑花图标 + 标题 ──
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier.size(ds.sm(32.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .shadow(
+                            elevation = 6.dp,
+                            shape = CircleShape,
+                            ambientColor = Color.Black.copy(alpha = 0.08f),
+                            spotColor = Color.Black.copy(alpha = 0.12f)
+                        )
+                        .clip(CircleShape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.85f),
+                                    Color.White.copy(alpha = 0.60f)
+                                )
+                            )
+                        )
+                        .border(
+                            width = 0.67.dp,
+                            color = Color.White.copy(alpha = 0.50f),
+                            shape = CircleShape
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onOpenProfile() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_brain),
+                        contentDescription = "Profile",
+                        tint = Color(0xFF1F2535),
+                        modifier = Modifier.size(ds.sm(14.dp))
+                    )
+                }
+                if (isDeviceOnline) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(ds.sm(8.dp))
+                            .clip(CircleShape)
+                            .background(Color(0xFF67C168))
+                            .border(1.5.dp, Color.White, CircleShape)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+
+            Text(
+                text = title,
+                color = Color(0xFF1F2535),
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.64.sp
+            )
+        }
+
+        // ── 右侧：余额胶囊 ──
         Box(
             modifier = Modifier
+                .height(ds.sh(32.dp))
                 .shadow(
-                    elevation = 8.dp,
+                    elevation = 6.dp,
                     shape = pillShape,
-                    ambientColor = Color.Black.copy(alpha = 0.15f),
-                    spotColor = Color.Black.copy(alpha = 0.20f)
+                    ambientColor = Color.Black.copy(alpha = 0.08f),
+                    spotColor = Color.Black.copy(alpha = 0.12f)
                 )
                 .clip(pillShape)
-                .background(glassBrush)
-                .border(1.dp, Color.White, pillShape)
-                .padding(horizontal = ds.sw(9.dp), vertical = ds.sh(6.dp)),
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.85f),
+                            Color.White.copy(alpha = 0.60f)
+                        )
+                    )
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.50f), pillShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onPillClick() }
+                .padding(horizontal = ds.sw(16.dp)),
             contentAlignment = Alignment.Center
         ) {
             Row(
@@ -90,51 +165,23 @@ internal fun AgentModelTopBar(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Icon(
-                    painter = painterResource(Res.drawable.ic_sparkle),
+                    painter = painterResource(
+                        if (hasMessages) Res.drawable.ic_nas_storage
+                        else Res.drawable.ic_sparkle
+                    ),
                     contentDescription = null,
                     tint = Color(0xFF1F2535),
-                    modifier = Modifier.size(ds.sm(14.dp))
+                    modifier = Modifier.size(ds.sm(16.dp))
                 )
                 Spacer(modifier = Modifier.width(ds.sw(4.dp)))
                 Text(
-                    text = "$totalBalance",
+                    text = if (hasMessages) "NAS" else "$totalBalance",
                     color = Color(0xFF1F2535),
-                    fontSize = ds.sp(10f),
+                    fontSize = ds.sp(12f),
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.4.sp
+                    letterSpacing = 0.48.sp
                 )
             }
-        }
-
-        // ── 右侧：脑花图标（圆形）──
-        Box(
-            modifier = Modifier
-                .shadow(
-                    elevation = 8.dp,
-                    shape = CircleShape,
-                    ambientColor = Color.Black.copy(alpha = 0.15f),
-                    spotColor = Color.Black.copy(alpha = 0.20f)
-                )
-                .clip(CircleShape)
-                .background(glassBrush)
-                .border(
-                    width = if (isDeviceOnline) 3.dp else 1.dp,
-                    color = if (isDeviceOnline) Color(0xFF67C168) else Color.White,
-                    shape = CircleShape
-                )
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onOpenProfile() }
-                .padding(ds.sm(7.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(Res.drawable.ic_brain),
-                contentDescription = "Profile",
-                tint = Color(0xFF1F2535),
-                modifier = Modifier.size(ds.sm(20.dp))
-            )
         }
     }
 }
