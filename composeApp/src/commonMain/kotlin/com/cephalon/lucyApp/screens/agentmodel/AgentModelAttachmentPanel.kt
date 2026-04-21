@@ -33,7 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
@@ -71,7 +72,7 @@ internal fun AgentModelAttachmentPanel(
     val gridState = rememberLazyGridState()
 
     // 收起时显示前 10 张，展开时显示全部已加载的图片
-    val visibleImages = if (expanded) recentImages else recentImages.take(10)
+    val visibleImages = if (expanded) recentImages else recentImages.take(7)
 
     // 展开模式下，滚动到底部自动加载更多
     if (expanded && hasMoreRecentImages) {
@@ -111,8 +112,9 @@ internal fun AgentModelAttachmentPanel(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .padding(start = ds.sw(8.dp), end = ds.sw(8.dp), bottom = ds.sh(8.dp))
                 .height(sheetHeight)
-                .clip(RoundedCornerShape(topStart = ds.sm(16.dp), topEnd = ds.sm(16.dp)))
+                .clip(RoundedCornerShape(ds.sm(16.dp)))
                 .background(Color.White)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -145,7 +147,7 @@ internal fun AgentModelAttachmentPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "上传照片/文件",
+                    text = "上传照片",
                     color = Color(0xFF1F2535),
                     fontSize = ds.sp(18f),
                     fontWeight = FontWeight.Bold
@@ -184,15 +186,6 @@ internal fun AgentModelAttachmentPanel(
                             onClick = onOpenCamera
                         )
                     }
-                    // 文件按钮
-                    item {
-                        ActionTile(
-                            icon = { Icon(Icons.Default.FolderOpen, contentDescription = "文件", tint = Color(0xFF3C3C3C), modifier = Modifier.size(ds.sm(24.dp))) },
-                            label = "文件",
-                            ds = ds,
-                            onClick = onOpenFilePicker
-                        )
-                    }
                     // 图片列表
                     itemsIndexed(visibleImages) { _, uri ->
                         val isSelected = uri in selectedUris
@@ -224,6 +217,53 @@ internal fun AgentModelAttachmentPanel(
                         }
                     }
                 }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = ds.sw(16.dp))
+                    .padding(top = ds.sh(12.dp), bottom = ds.sh(8.dp))
+                    .border(width = 0.dp, color = Color.Transparent)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onOpenFilePicker() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ds.sh(1.dp))
+                        .background(Color(0xFFF0F0F0))
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(18.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onOpenFilePicker() },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "上传系统文件",
+                    color = Color(0xFF1F2535),
+                    fontSize = ds.sp(18f),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowRight,
+                    contentDescription = "上传系统文件",
+                    tint = Color(0xFF8E8E93),
+                    modifier = Modifier.size(ds.sm(28.dp))
+                )
             }
 
             // ── 底部悬浮"添加照片"按钮（仅选中时显示）──
