@@ -477,7 +477,7 @@ private fun SkillSuggestionsBubble(
         Res.drawable.ic_skill_voice to "脑花翻录音 记得一句就能翻出来",
         Res.drawable.ic_skill_document to "脑花调文档 文件名忘了也能调",
         Res.drawable.ic_skill_chat to "脑花搞内容 从想法到发出不断更",
-        Res.drawable.ic_skill_knowledge to "脑花帮解答 知识库检索专属答案",
+        Res.drawable.ic_skill_knowledge to "脑花控手机 插上硬件听你使唤",
     )
 
     Column(

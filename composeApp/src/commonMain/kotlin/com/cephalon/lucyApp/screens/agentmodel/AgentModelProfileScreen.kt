@@ -46,7 +46,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -142,6 +141,7 @@ internal fun AgentModelProfileScreen(
     var currentPage by remember { mutableStateOf(ProfilePage.Settings) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var wifiConfigDevice by remember { mutableStateOf<com.cephalon.lucyApp.api.LucyDevice?>(null) }
     var switchDeviceList by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
     var switchDeviceCurrentCdi by remember { mutableStateOf("") }
@@ -331,7 +331,7 @@ internal fun AgentModelProfileScreen(
                                     .clickable(
                                         indication = null,
                                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                    ) { currentPage = ProfilePage.DeleteAccount },
+                                    ) { showDeleteAccountDialog = true },
                                 shape = RoundedCornerShape(ds.sm(99.dp)),
                                 color = Color.White,
                                 shadowElevation = 0.dp,
@@ -390,7 +390,7 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.Account -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false) {
+                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                         ProfileTopBar(
                             title = "账号",
@@ -410,7 +410,7 @@ internal fun AgentModelProfileScreen(
                             AccountDetailContent(
                                 phone = userPhone,
                                 email = userEmail,
-                                onDeleteAccountClick = { currentPage = ProfilePage.DeleteAccount },
+                                onDeleteAccountClick = { showDeleteAccountDialog = true },
                                 onLogoutClick = { showLogoutDialog = true }
                             )
                         }
@@ -432,7 +432,7 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.Feedback -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false) {
+                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
                         Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                         Row(
                             modifier = Modifier
@@ -484,7 +484,7 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.MyDevices -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false) {
+                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                         ProfileTopBar(
                             title = null,
@@ -534,7 +534,7 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.SwitchDevice -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false) {
+                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
                         val sdkSessionManager = koinInject<SdkSessionManager>()
                         var pendingCdi by remember(switchDeviceCurrentCdi) {
                             mutableStateOf(switchDeviceCurrentCdi)
@@ -630,7 +630,7 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.WifiConfig -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false) {
+                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                         ProfileTopBar(
                             title = "配置WI-FI",
@@ -656,34 +656,7 @@ internal fun AgentModelProfileScreen(
                 }
 
                 ProfilePage.DeleteAccount -> {
-                    val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false) {
-                        Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-                        ProfileTopBar(
-                            title = "删除账号",
-                            showBack = true,
-                            onBack = { currentPage = ProfilePage.Settings },
-                            onClose = onDismiss
-                        )
-                        Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .padding(horizontal = ds.sw(18.dp)),
-                        ) {
-                            DeleteAccountContent(
-                                phone = userPhone,
-                                email = userEmail,
-                                authRepository = authRepository,
-                                onSuccess = {
-                                    onLogout()
-                                },
-                                onCancel = { currentPage = ProfilePage.Settings }
-                            )
-                        }
-                    }
+                    Box(Modifier.fillMaxSize())
                 }
             }
         } // end AnimatedContent
@@ -774,6 +747,29 @@ internal fun AgentModelProfileScreen(
                         showFeedbackSuccessDialog = false
                         currentPage = ProfilePage.Settings
                     }
+                )
+            }
+        }
+
+        if (showDeleteAccountDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x66000000))
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {
+                        showDeleteAccountDialog = false
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                DeleteAccountConfirmDialog(
+                    phone = userPhone,
+                    email = userEmail,
+                    authRepository = authRepository,
+                    onDismiss = { showDeleteAccountDialog = false },
+                    onSuccess = {
+                        showDeleteAccountDialog = false
+                        onLogout()
+                    },
                 )
             }
         }
@@ -2374,7 +2370,7 @@ private fun FeedbackContent(
         val size = mediaController.pickedFiles.size
         if (size > lastPickedFilesSize) {
             mediaController.pickedFiles
-                .takeLast(size - lastPickedFilesSize)
+                .take(size - lastPickedFilesSize)
                 .forEach { file ->
                     if (file.uri.isNotBlank() && attachedFiles.none { it.uri == file.uri }) {
                         attachedFiles.add(file)
@@ -2388,7 +2384,7 @@ private fun FeedbackContent(
         val size = mediaController.pickedImages.size
         if (size > lastPickedImagesSize) {
             mediaController.pickedImages
-                .takeLast(size - lastPickedImagesSize)
+                .take(size - lastPickedImagesSize)
                 .forEach { uri ->
                     if (uri.isNotBlank() && uri !in attachedImages) {
                         attachedImages.add(uri)
@@ -2714,15 +2710,15 @@ private fun FeedbackSuccessDialog(
     }
 }
 
-/* ───────── Delete Account page content ───────── */
+/* ───────── Delete Account Dialog ───────── */
 
 @Composable
-private fun DeleteAccountContent(
+private fun DeleteAccountConfirmDialog(
     phone: String,
     email: String,
     authRepository: AuthRepository,
+    onDismiss: () -> Unit,
     onSuccess: () -> Unit,
-    onCancel: () -> Unit,
 ) {
     val ds = LocalDesignScale.current
     val scope = rememberCoroutineScope()
@@ -2734,115 +2730,165 @@ private fun DeleteAccountContent(
     var errorMsg by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(ds.sh(16.dp))
+    Surface(
+        shape = RoundedCornerShape(ds.sm(24.dp)),
+        color = Color.White,
+        shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White),
+        modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { }
     ) {
-        Text(
-            text = "确认删除账户",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = Color(0xFF111111)
-        )
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(ds.sm(16.dp)),
-            color = Color(0xFFF5F5F5),
-        ) {
-            Text(
-                text = "一旦你的账户被删除，所有数据将被永久移除且无法恢复。你的订阅将在你的账户被删除时自动取消",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF666666),
-                modifier = Modifier.padding(ds.sm(16.dp))
-            )
-        }
-
-        Text(
-            text = "验证您的${if (usePhone) "手机号" else "邮箱"}：\n$account",
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = Color(0xFF111111)
-        )
-
-        CodeInput(
-            value = code,
-            onValueChange = { code = it; errorMsg = "" },
-            enabled = !isLoading,
-            onSendCode = { startTimer ->
-                scope.launch {
-                    val resp = authRepository.getCode(
-                        phone = if (usePhone) account else null,
-                        email = if (!usePhone) account else null,
-                        actionType = "to_close_user",
-                        appType = "lucy"
-                    )
-                    if (resp.code == 20000) {
-                        startTimer()
-                    } else {
-                        errorMsg = resp.msg
-                    }
-                }
-            }
-        )
-
-        if (errorMsg.isNotEmpty()) {
-            Text(
-                text = errorMsg,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFFF4444)
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = ds.sh(32.dp)),
-            horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
         ) {
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(ds.sm(12.dp)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
-            ) {
-                Text("取消", color = Color(0xFF666666))
-            }
+            Text(
+                text = "确认删除账户",
+                fontSize = ds.sp(20f),
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
 
-            TextButton(
-                onClick = {
-                    if (code.isBlank()) {
-                        errorMsg = "请输入验证码"
-                        return@TextButton
-                    }
-                    isLoading = true
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+
+            Text(
+                text = "一旦你的账户被删除，所有数据将被永久移除且无法恢复",
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF717580),
+            )
+            Text(
+                text = "你的订阅将在你的账户被删除时自动取消",
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF717580),
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+            Text(
+                text = "验证您的${if (usePhone) "手机号" else "邮箱"}：",
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF1F2535),
+            )
+            Text(
+                text = account,
+                fontSize = ds.sp(12f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF1F2535),
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+            CodeInput(
+                value = code,
+                onValueChange = { code = it; errorMsg = "" },
+                enabled = !isLoading,
+                containerColor = Color.Black.copy(alpha = 0.05f),
+                containerShadowElevation = 20.dp,
+                onSendCode = { startTimer ->
                     scope.launch {
-                        val request = CloseAccountRequest(
+                        val resp = authRepository.getCode(
                             phone = if (usePhone) account else null,
                             email = if (!usePhone) account else null,
-                            code = code,
-                            way = way
+                            actionType = "to_close_user",
+                            appType = "lucy"
                         )
-                        val resp = authRepository.closeAccount(request)
-                        isLoading = false
-                        when (resp.code) {
-                            20000 -> onSuccess()
-                            40020 -> errorMsg = "系统检测到您的脑力值账户为欠费状态，暂无法完成注销，请补交欠费后再试。"
-                            40004 -> errorMsg = "抱歉，您的账户状态异常，暂时无法注销。请联系客服获取帮助。"
-                            40021 -> errorMsg = "系统检测到您有正在运行的应用，暂无法完成注销。请关闭所有应用后，再尝试注销。"
-                            30000 -> errorMsg = "邮箱 / 手机号 / 验证码有误"
-                            else -> errorMsg = resp.msg
+                        if (resp.code == 20000) {
+                            startTimer()
+                        } else {
+                            errorMsg = resp.msg
                         }
                     }
-                },
-                enabled = !isLoading,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(ds.sm(12.dp)),
-                colors = ButtonDefaults.textButtonColors(
-                    containerColor = Color(0xFFFF4444)
+                }
+            )
+
+            if (errorMsg.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                Text(
+                    text = errorMsg,
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFFFF4444),
                 )
+            }
+
+            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
             ) {
-                Text(if (isLoading) "处理中..." else "删除", color = Color.White)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(ds.sh(48.dp))
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .border(1.dp, Color.White, RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) { onDismiss() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "取消",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(ds.sh(48.dp))
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .border(1.dp, Color.White, RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        ) {
+                            if (code.isBlank()) {
+                                errorMsg = "请输入验证码"
+                                return@clickable
+                            }
+                            isLoading = true
+                            scope.launch {
+                                val request = CloseAccountRequest(
+                                    phone = if (usePhone) account else null,
+                                    email = if (!usePhone) account else null,
+                                    code = code,
+                                    way = way
+                                )
+                                val resp = authRepository.closeAccount(request)
+                                isLoading = false
+                                when (resp.code) {
+                                    20000 -> onSuccess()
+                                    40020 -> errorMsg = "系统检测到您的脑力值账户为欠费状态，暂无法完成注销，请补交欠费后再试。"
+                                    40004 -> errorMsg = "抱歉，您的账户状态异常，暂时无法注销。请联系客服获取帮助。"
+                                    40021 -> errorMsg = "系统检测到您有正在运行的应用，暂无法完成注销。请关闭所有应用后，再尝试注销。"
+                                    30000 -> errorMsg = "邮箱 / 手机号 / 验证码有误"
+                                    else -> errorMsg = resp.msg
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (isLoading) "处理中..." else "清除",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFFE84026),
+                    )
+                }
             }
         }
     }
@@ -3140,6 +3186,7 @@ private fun DeviceCard(
                 spotColor = Color.Black.copy(alpha = 0.3f),
             )
             .clip(RoundedCornerShape(ds.sm(16.dp)))
+            .background(Color(0xFFF3F3F3))
             .border(1.dp, Color.White, RoundedCornerShape(ds.sm(16.dp)))
             .padding(start = ds.sw(16.dp), top = ds.sh(15.dp), end = ds.sw(16.dp), bottom = ds.sh(17.dp)),
         verticalAlignment = Alignment.CenterVertically,
@@ -3350,6 +3397,7 @@ private fun WifiConfigContent(
 
     var configState by remember { mutableStateOf<WifiConfigState>(WifiConfigState.Loading) }
     var wifiPassword by remember { mutableStateOf("") }
+    var deviceNetworkStatus by remember { mutableStateOf<com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload?>(null) }
 
     // ── 初始化：读本机 Wi‑Fi 并和设备对比 ──
     LaunchedEffect(device.id) {
@@ -3358,7 +3406,9 @@ private fun WifiConfigContent(
             is com.cephalon.lucyApp.brainbox.PhoneWifiState.Connected -> {
                 val phoneSsid = phoneWifi.ssid
                 // 尝试 BLE 读设备当前 Wi‑Fi
-                val deviceSsid = readDeviceCurrentSsid(provisionManager, device)
+                val ns = readDeviceNetworkStatus(provisionManager, device)
+                deviceNetworkStatus = ns
+                val deviceSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
                 if (deviceSsid != null && deviceSsid.equals(phoneSsid, ignoreCase = true)) {
                     configState = WifiConfigState.SsidMatch(phoneSsid)
                 } else {
@@ -3386,59 +3436,81 @@ private fun WifiConfigContent(
     }
 
     // ── 设备信息卡片（始终显示） ──
+    val deviceIdDisplay = device.channelDeviceId.ifBlank { device.id }
+    val ns = deviceNetworkStatus
+    val wifiSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
+    val wifiIp = ns?.ip?.trim()?.takeIf { it.isNotBlank() }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(ds.sm(16.dp)),
         color = Color.White
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(ds.sm(14.dp)),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
+            verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp)),
         ) {
-            Surface(
-                shape = RoundedCornerShape(ds.sm(12.dp)),
-                color = Color(0xFFE6E6E6),
-                modifier = Modifier.size(ds.sm(44.dp))
+            // 设备 ID
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = (device.name.firstOrNull() ?: 'D').uppercase(),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF555555)
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = device.name.ifBlank { "设备" },
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    text = "设备 ID",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF999999),
+                    modifier = Modifier.width(ds.sw(56.dp)),
+                )
+                Text(
+                    text = deviceIdDisplay,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                     color = Color(0xFF111111),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = device.serialNumber.ifBlank { device.id },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF999999),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
             }
-            if (device.status == "online" || device.status == "free") {
-                Surface(
-                    shape = RoundedCornerShape(ds.sm(8.dp)),
-                    color = Color(0xFFE8F5E9)
-                ) {
-                    Text(
-                        text = "已连接",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                        color = Color(0xFF34C759),
-                        modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(4.dp))
-                    )
-                }
+            // Wi-Fi
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Wi‑Fi",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF999999),
+                    modifier = Modifier.width(ds.sw(56.dp)),
+                )
+                Text(
+                    text = wifiSsid ?: if (ns == null) "读取中…" else "未连接",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = if (wifiSsid != null) Color(0xFF111111) else Color(0xFFBBBBBB),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            // IP
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "IP",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF999999),
+                    modifier = Modifier.width(ds.sw(56.dp)),
+                )
+                Text(
+                    text = wifiIp ?: if (ns == null) "读取中…" else "—",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = if (wifiIp != null) Color(0xFF111111) else Color(0xFFBBBBBB),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
@@ -3582,6 +3654,7 @@ private fun WifiConfigContent(
                                 ssid = ssid,
                                 password = pwd,
                                 onState = { configState = it },
+                                onNetworkStatus = { deviceNetworkStatus = it },
                             )
                         }
                     },
@@ -3747,81 +3820,101 @@ private fun WifiConfigContent(
     }
 }
 
+/** 持续扫描 + probe 的总超时 */
+private const val SCAN_AND_MATCH_TIMEOUT_MS = 60_000L
+/** 每轮扫描列表不变时的等待间隔 */
+private const val SCAN_POLL_INTERVAL_MS = 2_000L
+
 /**
- * BLE 扫描 → 逐个 probe → 匹配 channelDeviceId → 连接 → 读 network_status。
+ * 持续 BLE 扫描 + probe，直到找到 channelDeviceId == [targetCdi] 的设备或超时。
  *
- * 匹配策略（按优先级）：
- * 1. 扫到的所有 BrainBox 设备中只有一台 → 直接用它。
- * 2. BLE name 包含 LucyDevice.serialNumber 或 LucyDevice.name → 命中。
- * 3. 逐台 probe 读 pairing_info.channelDeviceId == LucyDevice.channelDeviceId → 命中。
+ * 匹配策略（每当扫描列表新增设备时重新执行）：
+ * 1. BLE name 包含 serialNumber 或 device.name → 命中。
+ * 2. 逐台 probe 读 pairing_info.channelDeviceId == targetCdi → 命中（最终确认方式）。
  *
- * 超时/失败返回 null。
+ * 返回 null 表示超时仍未匹配到。
  */
-private suspend fun readDeviceCurrentSsid(
+private suspend fun scanAndMatchDeviceByCdi(
     provisionManager: com.cephalon.lucyApp.deviceaccess.gatt.ProvisionManager,
     device: com.cephalon.lucyApp.api.LucyDevice,
-): String? {
-    val cdi = device.channelDeviceId
-    println("[WifiConfig] 开始扫描 BLE 设备，目标: name=${device.name}, serial=${device.serialNumber}, cdi=$cdi")
-    return try {
-        provisionManager.startScan()
-        // 等待扫到至少一台 BrainBox 设备
-        val firstDevice = provisionManager.awaitScannedDevice(15_000L) { true }
-            .getOrNull()
-        if (firstDevice == null) {
-            println("[WifiConfig] 15s 内未扫到任何 BrainBox 设备")
-            return null
-        }
+): com.cephalon.lucyApp.deviceaccess.BleScanDevice? {
+    val targetCdi = device.channelDeviceId
+    val serial = device.serialNumber.trim().takeIf { it.isNotBlank() && it != "unknown" }
+    val deviceName = device.name.trim().takeIf { it.isNotBlank() && it != "默认设备名称" }
 
-        // 再等 2s 收集更多设备
-        kotlinx.coroutines.delay(2000)
+    println("[WifiConfig] scanAndMatchDeviceByCdi: 目标 cdi=$targetCdi, serial=$serial, name=$deviceName")
+
+    provisionManager.startScan()
+
+    val probedIds = mutableSetOf<String>() // 已经 probe 过的 BLE device id
+    val startTime = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+
+    while (kotlinx.datetime.Clock.System.now().toEpochMilliseconds() - startTime < SCAN_AND_MATCH_TIMEOUT_MS) {
         val allDevices = provisionManager.scanState.value.devices
-        println("[WifiConfig] 扫描到 ${allDevices.size} 台设备: ${allDevices.map { "${it.name}(${it.id})" }}")
+        if (allDevices.isEmpty()) {
+            kotlinx.coroutines.delay(SCAN_POLL_INTERVAL_MS)
+            continue
+        }
 
-        // 策略 1：只有一台 → 直接用
-        val target = if (allDevices.size == 1) {
-            println("[WifiConfig] 仅扫到一台设备，直接使用")
-            allDevices.first()
-        } else {
-            // 策略 2：按名称匹配
-            val serial = device.serialNumber.trim().takeIf { it.isNotBlank() }
-            val nameMatch = allDevices.firstOrNull { ble ->
-                (serial != null && ble.name.contains(serial, ignoreCase = true)) ||
-                    ble.name.contains(device.name, ignoreCase = true)
-            }
-            if (nameMatch != null) {
-                println("[WifiConfig] 按名称匹配到设备: ${nameMatch.name}")
-                nameMatch
-            } else {
-                // 策略 3：逐台 probe 对比 channelDeviceId
-                println("[WifiConfig] 名称匹配失败，开始逐台 probe 对比 channelDeviceId")
-                var matched: com.cephalon.lucyApp.deviceaccess.BleScanDevice? = null
-                for (candidate in allDevices) {
-                    val probeResult = provisionManager.probeDevice(candidate).getOrNull()
-                    println("[WifiConfig] probe ${candidate.name}: cdi=${probeResult?.channelDeviceId}")
-                    if (probeResult != null && probeResult.channelDeviceId.equals(cdi, ignoreCase = true)) {
-                        matched = candidate
-                        break
-                    }
-                }
-                matched
+        println("[WifiConfig] 当前扫描到 ${allDevices.size} 台: ${allDevices.map { "${it.name}(${it.id})" }}")
+
+        // 策略 1：按名称匹配（BLE name 包含 serial 或 device.name）
+        val nameMatch = allDevices.firstOrNull { ble ->
+            (serial != null && ble.name.contains(serial, ignoreCase = true)) ||
+                (deviceName != null && ble.name.contains(deviceName, ignoreCase = true))
+        }
+        if (nameMatch != null) {
+            println("[WifiConfig] 按名称匹配到设备: ${nameMatch.name}")
+            return nameMatch
+        }
+
+        // 策略 2：逐台 probe 未探测过的设备，用 channelDeviceId 确认
+        val newDevices = allDevices.filter { it.id !in probedIds }
+        for (candidate in newDevices) {
+            probedIds.add(candidate.id)
+            val probeResult = provisionManager.probeDevice(candidate).getOrNull()
+            println("[WifiConfig] probe ${candidate.name}(${candidate.id}): cdi=${probeResult?.channelDeviceId}")
+            if (probeResult != null && probeResult.channelDeviceId.equals(targetCdi, ignoreCase = true)) {
+                println("[WifiConfig] ✓ 匹配到目标设备: ${candidate.name}")
+                return candidate
             }
         }
 
+        // 所有已知设备都 probe 过且没命中 → 等新设备出现
+        println("[WifiConfig] 已探测 ${probedIds.size} 台均未命中，等待更多设备...")
+        kotlinx.coroutines.delay(SCAN_POLL_INTERVAL_MS)
+    }
+
+    println("[WifiConfig] ${SCAN_AND_MATCH_TIMEOUT_MS}ms 超时，未匹配到目标设备")
+    return null
+}
+
+/**
+ * BLE 扫描 → 连接 → 读 network_status，返回完整的 NetworkStatusPayload（含 ssid + ip）。
+ * 超时/失败返回 null。
+ */
+private suspend fun readDeviceNetworkStatus(
+    provisionManager: com.cephalon.lucyApp.deviceaccess.gatt.ProvisionManager,
+    device: com.cephalon.lucyApp.api.LucyDevice,
+): com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload? {
+    println("[WifiConfig] readDeviceNetworkStatus: 开始扫描, name=${device.name}, serial=${device.serialNumber}, cdi=${device.channelDeviceId}")
+    return try {
+        val target = scanAndMatchDeviceByCdi(provisionManager, device)
         if (target == null) {
-            println("[WifiConfig] 未匹配到目标设备")
+            println("[WifiConfig] readDeviceNetworkStatus: 未匹配到目标设备")
             return null
         }
 
         println("[WifiConfig] 连接目标设备: ${target.name} (${target.id})")
         provisionManager.connectDevice(target).getOrThrow()
-        val ns = provisionManager.state.value.networkStatus
-        val ssid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
-        println("[WifiConfig] 设备当前 SSID: $ssid")
-        ssid
+        val networkStatus = provisionManager.state.value.networkStatus
+        println("[WifiConfig] 设备当前 SSID: ${networkStatus?.ssid}, IP: ${networkStatus?.ip}")
+        networkStatus
     } catch (e: Exception) {
-        println("[WifiConfig] readDeviceCurrentSsid failed: ${e.message}")
+        println("[WifiConfig] readDeviceNetworkStatus failed: ${e.message}")
         null
+    } finally {
+        provisionManager.stopScan()
     }
 }
 
@@ -3835,32 +3928,16 @@ private suspend fun configureDeviceWifi(
     ssid: String,
     password: String,
     onState: (WifiConfigState) -> Unit,
+    onNetworkStatus: (com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload) -> Unit = {},
 ) {
     try {
         // 如果 provisionManager 当前没有已连接的设备，需要重新扫描连接
         val currentDevice = provisionManager.state.value.selectedDevice
         if (currentDevice == null) {
-            println("[WifiConfig] configureDeviceWifi: 无已连接设备，重新扫描")
-            provisionManager.startScan()
-            val firstDevice = provisionManager.awaitScannedDevice(15_000L) { true }
-                .getOrElse {
-                    onState(WifiConfigState.Error("未找到设备蓝牙信号，请确认设备已通电且在附近", ssid))
-                    return
-                }
-            // 与 readDeviceCurrentSsid 相同：只有一台直接用，否则按名称匹配
-            kotlinx.coroutines.delay(2000)
-            val allDevices = provisionManager.scanState.value.devices
-            val serial = device.serialNumber.trim().takeIf { it.isNotBlank() }
-            val target = if (allDevices.size == 1) {
-                allDevices.first()
-            } else {
-                allDevices.firstOrNull { ble ->
-                    (serial != null && ble.name.contains(serial, ignoreCase = true)) ||
-                        ble.name.contains(device.name, ignoreCase = true)
-                } ?: allDevices.firstOrNull() // 兜底：用第一台
-            }
+            println("[WifiConfig] configureDeviceWifi: 无已连接设备，开始扫描匹配")
+            val target = scanAndMatchDeviceByCdi(provisionManager, device)
             if (target == null) {
-                onState(WifiConfigState.Error("未找到设备蓝牙信号，请确认设备已通电且在附近", ssid))
+                onState(WifiConfigState.Error("未找到目标设备蓝牙信号，请确认设备已通电且在附近", ssid))
                 return
             }
             println("[WifiConfig] configureDeviceWifi: 连接 ${target.name}")
@@ -3873,14 +3950,22 @@ private suspend fun configureDeviceWifi(
         // 下发 Wi‑Fi 配置
         val result = provisionManager.configureWifi(ssid = ssid, password = password)
         result.onSuccess { ns ->
+            onNetworkStatus(ns)
             val deviceSsid = ns.ssid.trim().takeIf { it.isNotBlank() }
-            if (password.isNotBlank()) {
-                wifiCredentialCache.save(ssid, password)
-            }
+            // 必须确认 network_status 返回的 SSID 与目标 SSID 一致才算成功
             if (deviceSsid != null && deviceSsid.equals(ssid, ignoreCase = true)) {
+                if (password.isNotBlank()) {
+                    wifiCredentialCache.save(ssid, password)
+                }
                 onState(WifiConfigState.Success(ssid))
             } else {
-                onState(WifiConfigState.Success(deviceSsid ?: ssid))
+                val hint = if (deviceSsid != null) {
+                    "设备当前连接的是「$deviceSsid」而非目标「$ssid」，网络未切换成功"
+                } else {
+                    "设备未返回有效的 Wi‑Fi 名称，网络切换可能未生效"
+                }
+                println("[WifiConfig] SSID 不匹配: target=$ssid, actual=$deviceSsid")
+                onState(WifiConfigState.Error(hint, ssid))
             }
         }.onFailure { error ->
             onState(WifiConfigState.Error(
@@ -3921,8 +4006,8 @@ private fun SwitchDeviceItem(
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.60f),
-                Color(0xFFE9ECF2).copy(alpha = 0.60f),
+                Color(0xFFF8F8F8),
+                Color(0xFFF0F1F5),
             )
         )
     }

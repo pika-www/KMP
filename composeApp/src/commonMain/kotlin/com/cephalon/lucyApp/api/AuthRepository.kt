@@ -67,7 +67,7 @@ class AuthRepository(
     }
 
     suspend fun closeAccount(request: CloseAccountRequest): BaseResponse<Unit> {
-        return authApi.post<CloseAccountRequest, Unit>("/user/close", request)
+        return authApi.put<CloseAccountRequest, Unit>("/user/close", request)
     }
 
     /**

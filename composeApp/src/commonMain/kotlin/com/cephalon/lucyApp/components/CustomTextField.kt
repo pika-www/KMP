@@ -52,7 +52,9 @@ fun CustomTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     enabled: Boolean = true,
-    singleLine: Boolean = true
+    singleLine: Boolean = true,
+    containerColor: Color = Color.White,
+    containerShadowElevation: androidx.compose.ui.unit.Dp = 10.dp,
 ) {
     val ds = LocalDesignScale.current
     var timeLeft by remember { mutableIntStateOf(0) }
@@ -79,12 +81,12 @@ fun CustomTextField(
             .fillMaxWidth()
             .height(ds.sh(52.dp))
             .shadow(
-                elevation = 10.dp,
+                elevation = containerShadowElevation,
                 shape = InputShape,
                 ambientColor = Color.Black.copy(alpha = 0.02f),
                 spotColor = Color.Black.copy(alpha = 0.02f)
             )
-            .background(Color.White, InputShape)
+            .background(containerColor, InputShape)
             .padding(horizontal = ds.sw(16.dp)),
         textStyle = textStyle,
         cursorBrush = SolidColor(InputTextColor),
@@ -260,6 +262,8 @@ fun CodeInput(
     imeAction: ImeAction = ImeAction.Next,
     onSendCode: ((startTimer: () -> Unit) -> Unit)? = null,
     canSend: Boolean = true,
+    containerColor: Color = Color.White,
+    containerShadowElevation: androidx.compose.ui.unit.Dp = 10.dp,
 ) {
     CustomTextField(
         value = value,
@@ -274,7 +278,9 @@ fun CodeInput(
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Number,
             imeAction = imeAction
-        )
+        ),
+        containerColor = containerColor,
+        containerShadowElevation = containerShadowElevation,
     )
 }
 
