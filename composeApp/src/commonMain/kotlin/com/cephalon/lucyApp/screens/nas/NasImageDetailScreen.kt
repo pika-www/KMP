@@ -3,7 +3,6 @@ package com.cephalon.lucyApp.screens.nas
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_download
-import androidios.composeapp.generated.resources.img_demo
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -179,21 +178,15 @@ internal fun NasImageDetailScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
                         errorContent = {
-                            Image(
-                                painter = painterResource(Res.drawable.img_demo),
-                                contentDescription = pageImage.name,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit
+                            Box(
+                                modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))
                             )
                         }
                     )
                 }
                 else -> {
-                    Image(
-                        painter = painterResource(Res.drawable.img_demo),
-                        contentDescription = pageImage.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))
                     )
                 }
             }

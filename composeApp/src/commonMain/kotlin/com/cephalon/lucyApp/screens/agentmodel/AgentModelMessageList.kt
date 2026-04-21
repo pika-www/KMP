@@ -118,6 +118,9 @@ internal fun AgentModelMessageList(
     onAttachmentClick: (MediaAttachment) -> Unit = {},
     onCopySuccess: () -> Unit = {},
     streamingStatusText: String? = null,
+    isStopMode: Boolean = false,
+    activeThinkingMessageIds: Set<String> = emptySet(),
+    hiddenStatusMessageIds: Set<String> = emptySet(),
     listState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
 ) {
@@ -144,24 +147,17 @@ internal fun AgentModelMessageList(
         }) { index, item ->
             when (item) {
                 is ChatItem.Assistant -> {
+                    val isThinkingActive = isStopMode && item.messageId != null && item.messageId in activeThinkingMessageIds
+                    val shouldHideStatusBubble = item.messageId != null && item.messageId in hiddenStatusMessageIds
                     Column(modifier = Modifier.fillMaxWidth(0.8f)) {
                         // ── 可折叠思考状态气泡 ──
-                        if (item.isStreaming || item.streamEvents.isNotEmpty()) {
+                        if (!shouldHideStatusBubble && (isThinkingActive || item.streamEvents.isNotEmpty())) {
                             ThinkingBubble(
                                 events = item.streamEvents,
-                                isStreaming = item.isStreaming,
+                                isStreaming = isThinkingActive,
                                 reasoningText = item.reasoningText,
                                 streamingStatusText = streamingStatusText,
                                 ds = ds,
-                            )
-                            Spacer(modifier = Modifier.height(ds.sh(6.dp)))
-                        }
-
-                        // ── 附件卡片 ──
-                        if (item.attachments.isNotEmpty()) {
-                            AssistantAttachments(
-                                attachments = item.attachments,
-                                onAttachmentClick = onAttachmentClick,
                             )
                             Spacer(modifier = Modifier.height(ds.sh(6.dp)))
                         }
@@ -177,6 +173,17 @@ internal fun AgentModelMessageList(
                                 isMarkdown = true,
                                 onClick = onTapMessageArea,
                                 onCopySuccess = onCopySuccess,
+                            )
+                        }
+
+                        // ── 附件卡片 ──
+                        if (item.attachments.isNotEmpty()) {
+                            if (item.text.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(ds.sh(6.dp)))
+                            }
+                            AssistantAttachments(
+                                attachments = item.attachments,
+                                onAttachmentClick = onAttachmentClick,
                             )
                         }
                     }
@@ -539,12 +546,6 @@ private fun AssistantAttachments(
     onAttachmentClick: (MediaAttachment) -> Unit = {},
 ) {
     val ds = LocalDesignScale.current
-    val imageAttachments = attachments.filter { it.effectiveContentType()?.startsWith("image") == true }
-    val audioAttachments = attachments.filter { it.effectiveContentType()?.startsWith("audio") == true }
-    val docAttachments = attachments.filter {
-        val ct = it.effectiveContentType()
-        ct == null || (!ct.startsWith("image") && !ct.startsWith("audio"))
-    }
 
     Surface(
         shape = RoundedCornerShape(ds.sm(22.dp)),
@@ -557,13 +558,9 @@ private fun AssistantAttachments(
                 .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp)),
             verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
         ) {
-            // ── 图片附件：缩略图 + 点击下载 ──
-            if (imageAttachments.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(ds.sw(6.dp)),
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                ) {
-                    imageAttachments.forEach { att ->
+            attachments.forEach { att ->
+                when {
+                    att.effectiveContentType()?.startsWith("image") == true -> {
                         Box(
                             modifier = Modifier
                                 .size(ds.sw(120.dp))
@@ -594,25 +591,21 @@ private fun AssistantAttachments(
                             }
                         }
                     }
+                    att.effectiveContentType()?.startsWith("audio") == true -> {
+                        AttachmentFileCard(
+                            icon = Res.drawable.ic_audio,
+                            fileName = att.fileName ?: "音频文件",
+                            onDownloadClick = { onAttachmentClick(att) },
+                        )
+                    }
+                    else -> {
+                        AttachmentFileCard(
+                            icon = Res.drawable.ic_doc,
+                            fileName = att.fileName ?: "文件",
+                            onDownloadClick = { onAttachmentClick(att) },
+                        )
+                    }
                 }
-            }
-
-            // ── 音频附件：文件卡片 ──
-            audioAttachments.forEach { att ->
-                AttachmentFileCard(
-                    icon = Res.drawable.ic_audio,
-                    fileName = att.fileName ?: "音频文件",
-                    onDownloadClick = { onAttachmentClick(att) },
-                )
-            }
-
-            // ── 文档附件：文件卡片 ──
-            docAttachments.forEach { att ->
-                AttachmentFileCard(
-                    icon = Res.drawable.ic_doc,
-                    fileName = att.fileName ?: "文件",
-                    onDownloadClick = { onAttachmentClick(att) },
-                )
             }
         }
     }

@@ -75,6 +75,8 @@ internal fun AgentModelComposer(
     attachmentsExpanded: Boolean,
     onToggleAttachments: () -> Unit,
     onSend: () -> Unit,
+    onStop: () -> Unit,
+    isStopMode: Boolean = false,
     isSendDisabled: Boolean = false,
     onSuggestionClick: (String) -> Unit,
     uploadStates: Map<String, AttachmentUploadState> = emptyMap(),
@@ -145,8 +147,7 @@ internal fun AgentModelComposer(
                     Box {
                         if (inputText.text.isEmpty()) {
                             Text(
-                                text = if (isSendDisabled) "回复中..."
-                                else if (isRecording) "录音中..."
+                                text = if (isRecording) "录音中..."
                                 else if (isVoiceBusy) "正在转写语音..."
                                 else "输入你想问咩",
                                 color = Color(0xFF9A9A9A),
@@ -224,16 +225,27 @@ internal fun AgentModelComposer(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             enabled = !isSendDisabled,
-                        ) { onSend() }
+                        ) {
+                            if (isStopMode) onStop() else onSend()
+                        }
                         .padding(start = ds.sw(6.dp), end = ds.sw(6.dp), top = ds.sh(7.dp), bottom = ds.sh(5.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_composer_send),
-                        contentDescription = "Send",
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(ds.sm(18.dp))
-                    )
+                    if (isStopMode) {
+                        Box(
+                            modifier = Modifier
+                                .size(ds.sm(10.dp))
+                                .clip(RoundedCornerShape(ds.sm(2.dp)))
+                                .background(Color.White)
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_composer_send),
+                            contentDescription = "Send",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(ds.sm(18.dp))
+                        )
+                    }
                 }
             }
         }

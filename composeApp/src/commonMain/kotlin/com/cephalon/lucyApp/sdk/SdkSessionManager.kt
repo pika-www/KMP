@@ -46,6 +46,22 @@ import lucy.im.sdk.filetransfer.SendItem
 import lucy.im.sdk.filetransfer.SendOptions
 import lucy.im.sdk.filetransfer.TransferTarget
 
+private fun mergeStreamingText(existing: String, incoming: String): String {
+    if (existing.isEmpty()) return incoming
+    if (incoming.isEmpty()) return existing
+    if (incoming.startsWith(existing)) return incoming
+    if (existing.startsWith(incoming)) return existing
+
+    val maxOverlap = minOf(existing.length, incoming.length)
+    for (overlap in maxOverlap downTo 1) {
+        if (existing.endsWith(incoming.substring(0, overlap))) {
+            return existing + incoming.substring(overlap)
+        }
+    }
+
+    return existing + incoming
+}
+
 enum class FileTransferDeviceKind {
     Npc,
     Nas,
@@ -231,6 +247,101 @@ class SdkSessionManager(
         }
     }
 
+    private fun emitNpcReplyEvent(
+        messageId: String,
+        type: String,
+        text: String?,
+        eventId: String?,
+        toolName: String?,
+        attachments: List<MediaAttachment>,
+        timestamp: Long?,
+    ) {
+        _npcReplyEvents.tryEmit(
+            NpcReplyEvent(
+                messageId = messageId,
+                type = type,
+                text = text,
+                eventId = eventId,
+                toolName = toolName,
+                attachments = attachments,
+                timestamp = timestamp,
+            ),
+        )
+    }
+
+    private data class AssistantFinalRecordResult(
+        val aggregate: AssistantFinalAggregate,
+        val isNewChunk: Boolean,
+    )
+
+    private fun recordAssistantFinalChunk(msgId: String, event: NpcMachineEvent): AssistantFinalRecordResult {
+        val chunkKey = event.timestamp?.toString() ?: "no-ts-${assistantFinalNoTimestampCounter++}"
+        val chunks = assistantFinalChunks.getOrPut(msgId) { linkedMapOf() }
+        val existing = chunks[chunkKey]
+        if (existing != null) {
+            return AssistantFinalRecordResult(
+                aggregate = buildAssistantFinalAggregate(msgId),
+                isNewChunk = false,
+            )
+        }
+        chunks[chunkKey] = AssistantFinalChunk(
+            key = chunkKey,
+            timestamp = event.timestamp,
+            text = event.text,
+            attachments = event.attachments,
+        )
+        return AssistantFinalRecordResult(
+            aggregate = buildAssistantFinalAggregate(msgId),
+            isNewChunk = true,
+        )
+    }
+
+    private fun buildAssistantFinalAggregate(msgId: String): AssistantFinalAggregate {
+        val chunks = assistantFinalChunks[msgId].orEmpty().values
+        val sortedChunks = chunks.sortedWith(
+            compareBy<AssistantFinalChunk> { it.timestamp ?: Long.MAX_VALUE }
+                .thenBy { it.key },
+        )
+        val aggregatedText = sortedChunks
+            .mapNotNull { it.text?.trimEnd()?.takeIf { text -> text.isNotBlank() } }
+            .joinToString(separator = "\n\n")
+        val attachments = linkedSetOf<MediaAttachment>()
+        sortedChunks.forEach { chunk ->
+            chunk.attachments.forEach { attachment ->
+                attachments.add(attachment)
+            }
+        }
+        val latestTimestamp = sortedChunks.maxOfOrNull { it.timestamp ?: Long.MIN_VALUE }
+            ?.takeIf { it != Long.MIN_VALUE }
+        return AssistantFinalAggregate(
+            text = aggregatedText,
+            attachments = attachments.toList(),
+            latestTimestamp = latestTimestamp,
+        )
+    }
+
+    private fun restartAssistantFinalCompletionTimer(msgId: String, isLatest: Boolean) {
+        assistantFinalCompletionJobs.remove(msgId)?.cancel()
+        assistantFinalCompletionJobs[msgId] = scope.launch {
+            delay(ASSISTANT_FINAL_SETTLE_DELAY_MS)
+            assistantFinalCompletionJobs.remove(msgId)
+            val aggregate = buildAssistantFinalAggregate(msgId)
+            updateReplyState(msgId) { state ->
+                state.copy(
+                    text = aggregate.text.ifBlank { state.text },
+                    streaming = false,
+                    streamingStatusText = null,
+                    attachments = aggregate.attachments.ifEmpty { state.attachments },
+                    timestamp = aggregate.latestTimestamp ?: state.timestamp,
+                )
+            }
+            if (isLatest && aggregate.text.isNotBlank()) {
+                _assistantReplyText.value = aggregate.text
+            }
+            completeRequest(msgId, msgId == _latestRequestId, "对话结束(assistant.final settle)")
+        }
+    }
+
     fun selectDevice(cdi: String?) {
         val normalized = cdi?.trim()?.takeIf { it.isNotEmpty() }
         _selectedDeviceCdi.value = normalized
@@ -302,15 +413,19 @@ class SdkSessionManager(
     private val _activeRequestIds = MutableStateFlow<Set<String>>(emptySet())
     val activeRequestIds: StateFlow<Set<String>> = _activeRequestIds.asStateFlow()
 
-    // 已完成的 requestId 集合，用于过滤服务端重复推送
-    private val _completedRequestIds = mutableSetOf<String>()
-    private val COMPLETED_IDS_MAX_SIZE = 200
+    // 已完成事件签名集合：同一 source_message_id 下仅过滤完全重复事件，允许不同 timestamp / 内容继续渲染。
+    private val _completedEventKeys = linkedSetOf<String>()
+    private val COMPLETED_EVENT_KEYS_MAX_SIZE = 1000
 
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
     private val _npcReplyEvents = MutableSharedFlow<NpcReplyEvent>(extraBufferCapacity = 64)
     val npcReplyEvents: SharedFlow<NpcReplyEvent> = _npcReplyEvents.asSharedFlow()
+
+    private val assistantFinalChunks = mutableMapOf<String, MutableMap<String, AssistantFinalChunk>>()
+    private val assistantFinalCompletionJobs = mutableMapOf<String, Job>()
+    private var assistantFinalNoTimestampCounter = 0L
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
@@ -553,6 +668,7 @@ class SdkSessionManager(
                 _lastReplyMessageId.value = null
                 _activeRequestIds.value = emptySet()
                 _replyStateMap.value = emptyMap()
+                _completedEventKeys.clear()
                 _latestRequestId = null
                 _assistantReplyText.value = ""
                 _assistantReplyStreaming.value = false
@@ -574,6 +690,8 @@ class SdkSessionManager(
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
+            assistantFinalCompletionJobs.remove(outgoingMessageId)?.cancel()
+            assistantFinalChunks.remove(outgoingMessageId)
             _activeRequestIds.update { it + outgoingMessageId }
             _replyStateMap.update { it + (outgoingMessageId to ReplyState()) }
             _latestRequestId = outgoingMessageId
@@ -1151,20 +1269,37 @@ class SdkSessionManager(
                     val activeIds = _activeRequestIds.value
                     val hasSourceId = !incomingSourceMessageId.isNullOrBlank()
                     val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
+                    val completedEventKey = if (hasSourceId && machineEvent != null) buildCompletedEventKey(incomingSourceMessageId!!, machineEvent) else null
 
                     if (hasSourceId && !sourceMatched) {
-                        // 已完成的请求 → 直接丢弃，不转发不渲染
-                        if (incomingSourceMessageId in _completedRequestIds) {
-                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成，丢弃重复推送 type=${machineEvent?.type}")
+                        // 已完成后的完全重复事件 → 直接丢弃；不同 timestamp / 内容的事件继续放行。
+                        if (completedEventKey != null && completedEventKey in _completedEventKeys) {
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成，丢弃重复事件 type=${machineEvent?.type} timestamp=${machineEvent?.timestamp}")
                             return@startUserChannelConsumer
                         }
                         // 不在活跃列表也不在已完成列表 → 发射到 npcReplyEvents 供 UI 直接处理（不过滤内容，允许 tool.start 等状态事件通过）
                         if (machineEvent != null) {
+                            completedEventKey?.let(::rememberCompletedEventKey)
+                            if (machineEvent.type == "assistant.final") {
+                                val aggregate = recordAssistantFinalChunk(incomingSourceMessageId ?: "", machineEvent).aggregate
+                                appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成但收到新的 assistant.final，按 timestamp 聚合后转发 latestTimestamp=${aggregate.latestTimestamp}")
+                                _npcReplyEvents.tryEmit(NpcReplyEvent(
+                                    messageId = incomingSourceMessageId ?: "",
+                                    type = machineEvent.type,
+                                    text = aggregate.text,
+                                    eventId = machineEvent.eventId,
+                                    toolName = machineEvent.toolName,
+                                    attachments = aggregate.attachments,
+                                    timestamp = aggregate.latestTimestamp,
+                                ))
+                                return@startUserChannelConsumer
+                            }
                             appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，转发到 npcReplyEvents type=${machineEvent.type}")
                             _npcReplyEvents.tryEmit(NpcReplyEvent(
                                 messageId = incomingSourceMessageId ?: "",
                                 type = machineEvent.type,
                                 text = machineEvent.text,
+                                eventId = machineEvent.eventId,
                                 toolName = machineEvent.toolName,
                                 attachments = machineEvent.attachments,
                                 timestamp = machineEvent.timestamp,
@@ -1189,6 +1324,7 @@ class SdkSessionManager(
                                 messageId = "",
                                 type = machineEvent.type,
                                 text = machineEvent.text,
+                                eventId = machineEvent.eventId,
                                 toolName = machineEvent.toolName,
                                 attachments = machineEvent.attachments,
                                 timestamp = machineEvent.timestamp,
@@ -1304,6 +1440,10 @@ class SdkSessionManager(
         _lastReplyMessageId.value = null
         _activeRequestIds.value = emptySet()
         _replyStateMap.value = emptyMap()
+        assistantFinalCompletionJobs.values.forEach { it.cancel() }
+        assistantFinalCompletionJobs.clear()
+        assistantFinalChunks.clear()
+        assistantFinalNoTimestampCounter = 0L
         pendingNasRegisterRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
@@ -1582,23 +1722,31 @@ class SdkSessionManager(
         val isLatest = msgId == _latestRequestId
         appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
 
-        // ── 统一发射事件到 UI ──
-        _npcReplyEvents.tryEmit(NpcReplyEvent(
-            messageId = msgId,
-            type = event.type,
-            text = event.text,
-            toolName = event.toolName,
-            attachments = event.attachments,
-            timestamp = event.timestamp,
-        ))
-
         when (event.type) {
             "inbound.accepted" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 updateReplyState(msgId) { it.copy(streaming = true) }
                 if (isLatest) _assistantReplyStreaming.value = true
             }
 
             "assistant.start" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "正在生成回复...") }
                 if (isLatest) {
                     _streamingStatusText.value = "正在生成回复..."
@@ -1607,6 +1755,15 @@ class SdkSessionManager(
             }
 
             "reasoning.partial" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 updateReplyState(msgId) { it.copy(reasoningText = event.text ?: it.reasoningText, streaming = true, streamingStatusText = "正在思考...") }
                 if (isLatest) {
                     if (event.text != null) _reasoningText.value = event.text
@@ -1616,6 +1773,15 @@ class SdkSessionManager(
             }
 
             "reasoning.final" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 updateReplyState(msgId) { it.copy(reasoningText = event.text ?: it.reasoningText, streaming = true, streamingStatusText = "思考完成，正在组织回复...") }
                 if (isLatest) {
                     if (event.text != null) _reasoningText.value = event.text
@@ -1625,6 +1791,15 @@ class SdkSessionManager(
             }
 
             "tool.start" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 val toolLabel = event.toolName ?: event.text ?: "工具"
                 updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = "正在使用 $toolLabel...") }
                 if (isLatest) {
@@ -1634,6 +1809,15 @@ class SdkSessionManager(
             }
 
             "tool.end" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 updateReplyState(msgId) { it.copy(streaming = true, streamingStatusText = null) }
                 if (isLatest) {
                     _streamingStatusText.value = null
@@ -1642,36 +1826,74 @@ class SdkSessionManager(
             }
 
             "assistant.partial" -> {
-                // 直接设置文本，不做长度保护
-                updateReplyState(msgId) { it.copy(text = event.text ?: it.text, streaming = true, streamingStatusText = null) }
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        text = event.text?.let { mergeStreamingText(state.text, it) } ?: state.text,
+                        streaming = true,
+                        streamingStatusText = null,
+                    )
+                }
                 if (isLatest) {
-                    if (event.text != null) _assistantReplyText.value = event.text
+                    if (event.text != null) {
+                        _assistantReplyText.value = mergeStreamingText(_assistantReplyText.value, event.text)
+                    }
                     _streamingStatusText.value = null
                     _assistantReplyStreaming.value = true
                 }
             }
 
             "assistant.final" -> {
-                val finalText = event.text
-                // 仅附件的 final 不结束请求，后续还有更多事件
-                val isMediaOnlyFinal = event.attachments.isNotEmpty() && finalText.isNullOrBlank()
-
+                val recordResult = recordAssistantFinalChunk(msgId, event)
+                val aggregate = recordResult.aggregate
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = aggregate.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = aggregate.attachments,
+                    timestamp = aggregate.latestTimestamp,
+                )
                 updateReplyState(msgId) { state ->
                     state.copy(
-                        text = finalText ?: state.text,
-                        streaming = isMediaOnlyFinal,
+                        text = aggregate.text.ifBlank { state.text },
+                        streaming = true,
                         streamingStatusText = null,
-                        attachments = event.attachments.ifEmpty { state.attachments },
-                        timestamp = event.timestamp ?: state.timestamp,
+                        attachments = aggregate.attachments.ifEmpty { state.attachments },
+                        timestamp = aggregate.latestTimestamp ?: state.timestamp,
                     )
                 }
-                if (!isMediaOnlyFinal) {
-                    if (isLatest) _assistantReplyText.value = finalText ?: _assistantReplyText.value
-                    completeRequest(msgId, isLatest, "对话结束")
+                if (isLatest) {
+                    if (aggregate.text.isNotBlank()) _assistantReplyText.value = aggregate.text
+                    _assistantReplyStreaming.value = true
+                    _streamingStatusText.value = null
+                }
+                if (recordResult.isNewChunk) {
+                    restartAssistantFinalCompletionTimer(msgId, isLatest)
+                } else {
+                    appLogD(TAG, "[Event] assistant.final 重复推送已忽略，不重置 settle 计时 msgId=$msgId timestamp=${event.timestamp}")
                 }
             }
 
             "error" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
                 val errorMsg = event.text ?: "未知错误"
                 updateReplyState(msgId) { it.copy(streaming = false, streamingStatusText = null, errorText = errorMsg) }
                 completeRequest(msgId, isLatest, "对话结束(异常) error=$errorMsg")
@@ -1699,21 +1921,35 @@ class SdkSessionManager(
     }
 
     private fun completeRequest(msgId: String, isLatest: Boolean, logLabel: String) {
+        assistantFinalCompletionJobs.remove(msgId)?.cancel()
         _activeRequestIds.update { it - msgId }
-        // 记录已完成的 requestId，后续重复推送直接丢弃
-        _completedRequestIds.add(msgId)
-        if (_completedRequestIds.size > COMPLETED_IDS_MAX_SIZE) {
-            _completedRequestIds.remove(_completedRequestIds.first())
-        }
         if (isLatest) {
             _streamingStatusText.value = null
             _assistantReplyStreaming.value = false
             _latestRequestId = _activeRequestIds.value.lastOrNull()
         }
         appLogD(TAG, "====== $logLabel msgId=$msgId ====== 剩余活跃: ${_activeRequestIds.value}")
-        notifyConversationCompleteIfInBackground(msgId)
-        if (_activeRequestIds.value.isEmpty()) {
-            scheduleBackgroundDisconnectIfNeeded()
+    }
+
+    private fun buildCompletedEventKey(sourceMessageId: String, event: NpcMachineEvent): String {
+        val textPart = event.text.orEmpty()
+        val attachmentsPart = event.attachments.joinToString(separator = "|") {
+            listOf(it.blobRef, it.contentType.orEmpty(), it.fileName.orEmpty()).joinToString(separator = ":")
+        }
+        return listOf(
+            sourceMessageId,
+            event.type,
+            event.timestamp?.toString().orEmpty(),
+            event.toolName.orEmpty(),
+            textPart,
+            attachmentsPart,
+        ).joinToString(separator = "#")
+    }
+
+    private fun rememberCompletedEventKey(eventKey: String) {
+        _completedEventKeys.add(eventKey)
+        while (_completedEventKeys.size > COMPLETED_EVENT_KEYS_MAX_SIZE) {
+            _completedEventKeys.remove(_completedEventKeys.first())
         }
     }
 
@@ -1756,6 +1992,11 @@ class SdkSessionManager(
                 ?: return null
 
         val text = extractTextFromEventObject(root)
+
+        val eventId =
+            root["event_id"]?.jsonPrimitive?.contentOrNull
+                ?: root["eventId"]?.jsonPrimitive?.contentOrNull
+                ?: root["id"]?.jsonPrimitive?.contentOrNull
 
         val sourceMessageId =
             root["source_message_id"]?.jsonPrimitive?.contentOrNull
@@ -1805,7 +2046,7 @@ class SdkSessionManager(
             root["timestamp"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         }.getOrNull()
 
-        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments, timestamp = timestamp)
+        return NpcMachineEvent(type = type, text = text, eventId = eventId, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments, timestamp = timestamp)
     }
 
     private fun extractTextFromEventObject(root: JsonObject): String? {
@@ -2062,15 +2303,16 @@ class SdkSessionManager(
 
     companion object {
         private const val TAG = "SdkSessionManager"
-        private const val OBSERVER_RESTART_DELAY_MS = 800L
-        private const val RECONNECT_DELAY_MS = 800L
-        private const val BACKGROUND_DISCONNECT_DELAY_MS = 3000L
-        private const val SDK_CONNECT_TIMEOUT_MS = 20_000L
-        private const val TOKEN_REFRESH_BUFFER_MS = 60_000L   // 过期前 60s 触发重连
-        private const val TOKEN_CHECK_MIN_INTERVAL_MS = 30_000L  // 最少 30s 检查一次
-        private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
+        private const val BACKGROUND_DISCONNECT_DELAY_MS = 5_000L
+        private const val ASSISTANT_FINAL_SETTLE_DELAY_MS = 3_000L
+        private const val RECONNECT_DELAY_MS = 3_000L
+        private const val TOKEN_RECONNECT_DELAY_MS = 2_000L
+        private const val TOKEN_REFRESH_BUFFER_MS = 60_000L
+        private const val TOKEN_CHECK_MIN_INTERVAL_MS = 30_000L
+        private const val OBSERVER_RESTART_DELAY_MS = 1_500L
         private const val MAX_AUTH_RECONNECT_ATTEMPTS = 3       // NATS 鉴权重连最多尝试次数
         private const val MAX_OBSERVER_RESTART_ATTEMPTS = 5      // observer 重建最多尝试次数
+        private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
         private const val KEY_SELECTED_DEVICE_CDI = "sdk.selected_device_cdi"
     }
 }
@@ -2225,6 +2467,7 @@ data class NpcReplyEvent(
     val messageId: String,
     val type: String,
     val text: String? = null,
+    val eventId: String? = null,
     val toolName: String? = null,
     val attachments: List<MediaAttachment> = emptyList(),
     val timestamp: Long? = null,
@@ -2233,6 +2476,7 @@ data class NpcReplyEvent(
 private data class NpcMachineEvent(
     val type: String,
     val text: String?,
+    val eventId: String?,
     val sourceMessageId: String?,
     val toolName: String? = null,
     val attachments: List<MediaAttachment> = emptyList(),
@@ -2247,6 +2491,19 @@ data class ReplyState(
     val attachments: List<MediaAttachment> = emptyList(),
     val errorText: String? = null,
     val timestamp: Long? = null,
+)
+
+private data class AssistantFinalChunk(
+    val key: String,
+    val timestamp: Long?,
+    val text: String?,
+    val attachments: List<MediaAttachment>,
+)
+
+private data class AssistantFinalAggregate(
+    val text: String,
+    val attachments: List<MediaAttachment>,
+    val latestTimestamp: Long?,
 )
 
 enum class SdkConnectionState {

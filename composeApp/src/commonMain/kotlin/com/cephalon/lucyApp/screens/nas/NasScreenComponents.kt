@@ -6,7 +6,6 @@ import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_doc
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_image
-import androidios.composeapp.generated.resources.img_demo
 import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
@@ -17,7 +16,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -289,7 +287,7 @@ internal fun NasUploadProgressDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(ds.sm(10.dp))
                 ) {
-                    tasks.forEach { task ->
+                    tasks.filter { it.status != NasUploadTaskStatus.Completed }.forEach { task ->
                         NasUploadTaskCard(task = task)
                     }
                 }
@@ -469,14 +467,31 @@ internal fun NasImageActionPopup(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // 图片预览盒子: 236×315, aspect-ratio 233/311, border-radius 2
-            Image(
-                painter = painterResource(Res.drawable.img_demo),
-                contentDescription = image.name,
-                modifier = Modifier
-                    .size(width = 236.dp, height = 315.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                contentScale = ContentScale.Crop
-            )
+            if (image.path.isNotBlank()) {
+                BlobImage(
+                    blobRef = image.path,
+                    contentDescription = image.name,
+                    modifier = Modifier
+                        .size(width = 236.dp, height = 315.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    contentScale = ContentScale.Crop,
+                    errorContent = {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 236.dp, height = 315.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color(0xFF1A1A1A))
+                        )
+                    }
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(width = 236.dp, height = 315.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF1A1A1A))
+                )
+            }
 
             // 操作按钮盒子: 240×89, border-radius 16, 半透明玻璃背景
             Surface(
@@ -1079,20 +1094,14 @@ internal fun NasImageThumbnail(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
                 errorContent = {
-                    Image(
-                        painter = painterResource(Res.drawable.img_demo),
-                        contentDescription = image.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))
                     )
                 }
             )
         } else {
-            Image(
-                painter = painterResource(Res.drawable.img_demo),
-                contentDescription = image.name,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))
             )
         }
 

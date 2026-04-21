@@ -125,6 +125,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import kotlin.math.PI
 import kotlin.math.sin
 
+private fun mergeStreamingAssistantText(existing: String, incoming: String): String {
+    if (existing.isEmpty()) return incoming
+    if (incoming.isEmpty()) return existing
+    if (incoming.startsWith(existing)) return incoming
+    if (existing.startsWith(incoming)) return existing
+
+    val maxOverlap = minOf(existing.length, incoming.length)
+    for (overlap in maxOverlap downTo 1) {
+        if (existing.endsWith(incoming.substring(0, overlap))) {
+            return existing + incoming.substring(overlap)
+        }
+    }
+
+    return existing + incoming
+}
+
 private fun List<StreamEvent>.addOrUpdate(event: StreamEvent): List<StreamEvent> {
     if (event.type == "tool") {
         // 工具事件按 label 去重
@@ -419,6 +435,44 @@ fun AgentModelScreen(
         }
     }
 
+    fun appendAttachmentsToLatestAssistant(
+        conversationId: String?,
+        attachments: List<MediaAttachment>,
+        text: String? = null,
+        timestamp: Long? = null,
+    ) {
+        if (attachments.isEmpty() && text.isNullOrBlank()) return
+        mutateConversationOnCdi(conversationId, targetCdi = null) { conversation ->
+            val msgs = conversation.messages.toMutableList()
+            val assistantIdx = msgs.indexOfLast { it is ChatItem.Assistant }
+            if (assistantIdx >= 0) {
+                val assistant = msgs[assistantIdx] as ChatItem.Assistant
+                val mergedAttachments = (assistant.attachments + attachments)
+                    .distinctBy { it.blobRef }
+                val mergedText = when {
+                    text.isNullOrBlank() -> assistant.text
+                    assistant.text.isBlank() -> text
+                    assistant.text.contains(text) -> assistant.text
+                    else -> "${assistant.text}\n\n$text"
+                }
+                msgs[assistantIdx] = assistant.copy(
+                    text = mergedText,
+                    attachments = mergedAttachments,
+                    timestamp = timestamp ?: assistant.timestamp,
+                )
+            } else {
+                msgs.add(
+                    ChatItem.Assistant(
+                        text = text ?: "",
+                        attachments = attachments.distinctBy { it.blobRef },
+                        timestamp = timestamp,
+                    )
+                )
+            }
+            conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+        }
+    }
+
     fun removeEmptyAssistantPlaceholder(conversationId: String?, messageId: String? = null) {
         val targetCdi = messageId?.let { messageIdToCdi[it] }
         mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
@@ -540,7 +594,15 @@ fun AgentModelScreen(
     var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
     val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
     val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
-    var isSendLocked by remember { mutableStateOf(false) }
+    val pendingStopMessageIds = remember { mutableStateListOf<String>() }
+    val hiddenStopReplyMessageIds = remember { mutableStateListOf<String>() }
+    val processedEventIds = remember { mutableStateListOf<String>() }
+    val hasActiveStreamingRequest by remember {
+        derivedStateOf { activeStreamingRequests.isNotEmpty() }
+    }
+    val isStopMode by remember {
+        derivedStateOf { hasActiveStreamingRequest && pendingStopMessageIds.isEmpty() }
+    }
 
     // ── SDK 层 "对话结束" 信号解锁发送 + 兜底同步 ChatItem 状态 ──
     // handleMachineEvent 使用 tryEmit 往 npcReplyEvents 发事件，缓冲区满时会静默丢弃。
@@ -549,23 +611,25 @@ fun AgentModelScreen(
     LaunchedEffect(Unit) {
         var prevIds = sdkSessionManager.activeRequestIds.value
         sdkSessionManager.activeRequestIds.collect { currentIds ->
-            // 解锁发送
-            if (currentIds.isEmpty() && isSendLocked) {
-                println("[Lock] SDK activeRequestIds 已清空（收到 assistant.final / error），解锁发送")
-                isSendLocked = false
-            }
-            // 兜底：把新移除的 msgId 对应的 assistant 消息标记为完成
             val removedIds = prevIds - currentIds
+            // 兜底：把新移除的 msgId 对应的 assistant 消息标记为完成
             for (msgId in removedIds) {
                 val convId = activeStreamingRequests[msgId] ?: selectedConversationId ?: continue
                 val replyState = sdkSessionManager.replyStateMap.value[msgId]
                 updateAssistantMessage(convId, msgId) { a ->
                     if (a.isStreaming) {
                         println("[Fallback] 兜底同步 msgId=$msgId isStreaming→false, textLen=${replyState?.text?.length ?: 0}")
+                        val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
+                            if (events.any { it.type == "reasoning" }) {
+                                events.addOrUpdate(StreamEvent("reasoning", "done"))
+                            } else {
+                                events
+                            }
+                        }
                         a.copy(
                             text = replyState?.text?.takeIf { it.isNotBlank() } ?: a.text,
                             isStreaming = false,
-                            streamEvents = a.streamEvents.markAllInactive()
+                            streamEvents = completedStreamEvents
                                 .addOrUpdate(StreamEvent("finish", "Finish")),
                         )
                     } else a
@@ -693,6 +757,28 @@ fun AgentModelScreen(
     LaunchedEffect(Unit) {
         sdkSessionManager.npcReplyEvents.collect { event ->
             val msgId = event.messageId
+            val eventId = event.eventId?.trim().orEmpty()
+            val isStopReply = msgId.isNotBlank() && msgId in hiddenStopReplyMessageIds
+            if (isStopReply && pendingStopMessageIds.remove(msgId)) {
+                println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
+            }
+            if (isStopReply && event.type != "assistant.partial" && event.type != "assistant.final") {
+                if (pendingStopMessageIds.remove(msgId)) {
+                    println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
+                }
+                println("[Stop] 跳过 /stop 非文本回复渲染 type=${event.type} msgId=$msgId")
+                return@collect
+            }
+            if (event.type != "assistant.final" && eventId.isNotEmpty()) {
+                if (processedEventIds.contains(eventId)) {
+                    println("[Event] 跳过重复事件 eventId=$eventId type=${event.type} msgId=$msgId")
+                    return@collect
+                }
+                processedEventIds.add(eventId)
+                if (processedEventIds.size > 500) {
+                    processedEventIds.removeAt(0)
+                }
+            }
             val convId = if (msgId.isNotBlank()) {
                 activeStreamingRequests[msgId] ?: selectedConversationId
             } else {
@@ -709,16 +795,12 @@ fun AgentModelScreen(
             // 无 sourceMessageId 的事件 → 独立消息，去重后追加
             if (msgId.isBlank()) {
                 if (event.attachments.isEmpty() && event.text.isNullOrBlank()) return@collect
-                val conv = conversations.firstOrNull { it.id == convId }
-                val existing = conv?.messages?.filterIsInstance<ChatItem.Assistant>()
-                val isDup = event.text?.let { t -> t.isNotBlank() && existing?.any { it.text == t } == true } ?: false
-                if (!isDup) {
-                    appendMessageToConversation(convId, ChatItem.Assistant(
-                        text = event.text ?: "",
-                        attachments = event.attachments,
-                        timestamp = event.timestamp,
-                    ))
-                }
+                appendAttachmentsToLatestAssistant(
+                    conversationId = convId,
+                    attachments = event.attachments,
+                    text = event.text,
+                    timestamp = event.timestamp,
+                )
                 return@collect
             }
 
@@ -781,7 +863,7 @@ fun AgentModelScreen(
                     if (event.text != null) {
                         updateAssistantMessage(convId, msgId) { a ->
                             a.copy(
-                                text = event.text, messageId = msgId, isStreaming = true,
+                                text = mergeStreamingAssistantText(a.text, event.text), messageId = msgId, isStreaming = true,
                                 streamEvents = a.streamEvents
                                     .addOrUpdate(StreamEvent("typing", "正在输入")), // 标记完成
                             )
@@ -789,34 +871,46 @@ fun AgentModelScreen(
                     }
                 }
                 "assistant.final" -> {
-                    val isMediaOnlyFinal = event.attachments.isNotEmpty() && event.text.isNullOrBlank()
-                    if (isMediaOnlyFinal) {
-                        updateAssistantMessage(convId, msgId) { a ->
-                            a.copy(
-                                messageId = msgId,
-                                attachments = a.attachments + event.attachments,
-                                timestamp = event.timestamp ?: a.timestamp,
-                                isStreaming = true,
-                            )
-                        }
-                    } else {
-                        updateAssistantMessage(convId, msgId) { a ->
-                            a.copy(
-                                text = event.text ?: a.text,
-                                messageId = msgId,
-                                attachments = if (event.attachments.isNotEmpty()) a.attachments + event.attachments else a.attachments,
-                                timestamp = event.timestamp ?: a.timestamp,
-                                isStreaming = false,
-                                streamEvents = a.streamEvents.markAllInactive()
-                                    .addOrUpdate(StreamEvent("finish", "Finish")),
-                            )
-                        }
-                        println("[Event] assistant.final 完成 msgId=$msgId, convId=$convId")
-                        activeStreamingRequests.remove(msgId)
-                        messageIdToCdi.remove(msgId)
+                    if (pendingStopMessageIds.isNotEmpty()) {
+                        println("[Stop] 收到首个 assistant.final msgId=$msgId，恢复发送按钮")
+                        pendingStopMessageIds.clear()
                     }
+                    updateAssistantMessage(convId, msgId) { a ->
+                        val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
+                            if (events.any { it.type == "reasoning" }) {
+                                events.addOrUpdate(StreamEvent("reasoning", "done"))
+                            } else {
+                                events
+                            }
+                        }
+                        a.copy(
+                            text = event.text ?: a.text,
+                            messageId = msgId,
+                            attachments = if (event.attachments.isNotEmpty()) event.attachments else a.attachments,
+                            timestamp = event.timestamp ?: a.timestamp,
+                            isStreaming = false,
+                            streamEvents = completedStreamEvents
+                                .addOrUpdate(StreamEvent("finish", "Finish")),
+                        )
+                    }
+                    activeStreamingRequests.remove(msgId)
+                    messageIdToCdi.remove(msgId)
+                    println("[Event] assistant.final 聚合更新 msgId=$msgId, convId=$convId, waitingSettle=true")
                 }
                 "error" -> {
+                    updateAssistantMessage(convId, msgId) { a ->
+                        val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
+                            if (events.any { it.type == "reasoning" }) {
+                                events.addOrUpdate(StreamEvent("reasoning", "done"))
+                            } else {
+                                events
+                            }
+                        }
+                        a.copy(
+                            isStreaming = false,
+                            streamEvents = completedStreamEvents.addOrUpdate(StreamEvent("finish", "Finish")),
+                        )
+                    }
                     removeEmptyAssistantPlaceholder(convId, msgId)
                     appendMessageToConversationOnCdi(
                         convId,
@@ -901,17 +995,9 @@ fun AgentModelScreen(
         val attachments = draftAttachments.toList()
 
         if (text.isNotEmpty() || attachments.isNotEmpty()) {
-            // ── 未收到 assistant.final，禁止发送新对话 ──
-            if (isSendLocked) {
-                toastMessage = "上一条消息正在回复中，请稍候"
-                return@Unit
-            }
-            isSendLocked = true
-
             // ── 设备离线检查 ──
             if (currentCdi == null || currentCdi !in onlineDeviceCdis) {
                 toastMessage = "设备不在线，请等待设备上线后重试"
-                isSendLocked = false
                 return@Unit
             }
 
@@ -919,17 +1005,14 @@ fun AgentModelScreen(
             val localAttachments = attachments.filter { it.nasFileId == null }
             if (localAttachments.any { attachmentUploadStates[it.uri] is AttachmentUploadState.Failed }) {
                 toastMessage = "文件上传失败请重新上传"
-                isSendLocked = false
                 return@Unit
             }
             if (localAttachments.any { attachmentUploadStates[it.uri] is AttachmentUploadState.Uploading }) {
                 toastMessage = "文件上传中"
-                isSendLocked = false
                 return@Unit
             }
             if (localAttachments.any { attachmentUploadStates[it.uri] !is AttachmentUploadState.Success }) {
                 toastMessage = "文件上传未完成，请稍后重试"
-                isSendLocked = false
                 return@Unit
             }
 
@@ -946,7 +1029,6 @@ fun AgentModelScreen(
                 appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
                 inputText = TextFieldValue("")
                 attachmentsExpanded = false
-                isSendLocked = false
                 return@Unit
             }
 
@@ -996,7 +1078,6 @@ fun AgentModelScreen(
                         targetCdi = sendingCdi,
                         message = ChatItem.System("连接失败：${connectResult.exceptionOrNull()?.message ?: "unknown"}")
                     )
-                    isSendLocked = false
                     return@launch
                 }
 
@@ -1041,7 +1122,6 @@ fun AgentModelScreen(
                         targetCdi = sendingCdi,
                         message = ChatItem.System("没有可用的设备，请等待设备上线后重试")
                     )
-                    isSendLocked = false
                     return@launch
                 }
                 println("[Chat] 解析到 targetCdi=$targetCdi")
@@ -1083,7 +1163,6 @@ fun AgentModelScreen(
                                 targetCdi = sendingCdi,
                                 message = ChatItem.System("NAS 文件获取失败：${getResult.exceptionOrNull()?.message ?: "unknown"}")
                             )
-                            isSendLocked = false
                             return@launch
                         }
                         val nasResponse = getResult.getOrThrow()
@@ -1103,7 +1182,6 @@ fun AgentModelScreen(
                                 targetCdi = sendingCdi,
                                 message = ChatItem.System("NAS 文件数据异常（缺少 blobRef），请重试")
                             )
-                            isSendLocked = false
                             return@launch
                         }
                         val fileName = att.displayName ?: "file"
@@ -1191,7 +1269,6 @@ fun AgentModelScreen(
                         targetCdi = sendingCdi,
                         message = ChatItem.System("发送失败：${error.message ?: "unknown"}")
                     )
-                    isSendLocked = false
                 }
             }
 
@@ -1202,6 +1279,37 @@ fun AgentModelScreen(
                 if (att.nasFileId == null) {
                     attachmentUploadStates.remove(att.uri)
                 }
+            }
+        }
+    }
+
+    val sendStopMessage = Unit@{
+        if (!isStopMode) return@Unit
+        val targetCdi = currentCdi
+        if (targetCdi == null || targetCdi !in onlineDeviceCdis) {
+            toastMessage = "设备不在线，请等待设备上线后重试"
+            return@Unit
+        }
+        coroutineScope.launch {
+            println("[Chat] 发送停止指令: cdi=$targetCdi text=/stop")
+            val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
+            if (connectResult.isFailure) {
+                toastMessage = "连接失败：${connectResult.exceptionOrNull()?.message ?: "unknown"}"
+                return@launch
+            }
+            val stopResult = sdkSessionManager.publishTextToNpc(cdi = targetCdi, text = "/stop")
+            stopResult.onSuccess { messageId ->
+                println("[Stop] 停止指令发送成功 stopMessageId=$messageId")
+                pendingStopMessageIds.clear()
+                pendingStopMessageIds.add(messageId)
+                hiddenStopReplyMessageIds.remove(messageId)
+                hiddenStopReplyMessageIds.add(messageId)
+                if (hiddenStopReplyMessageIds.size > 20) {
+                    hiddenStopReplyMessageIds.removeAt(0)
+                }
+            }
+            stopResult.onFailure { error ->
+                toastMessage = "停止失败：${error.message ?: "unknown"}"
             }
         }
     }
@@ -1378,6 +1486,9 @@ fun AgentModelScreen(
                                 },
                                 onCopySuccess = { toastMessage = "复制成功" },
                                 streamingStatusText = streamingStatusText,
+                                isStopMode = isStopMode,
+                                activeThinkingMessageIds = activeStreamingRequests.keys,
+                                hiddenStatusMessageIds = hiddenStopReplyMessageIds.toSet(),
                                 listState = messageListState,
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -1439,7 +1550,9 @@ fun AgentModelScreen(
                             if (attachmentsExpanded) focusManager.clearFocus()
                         },
                         onSend = sendMessage,
-                        isSendDisabled = isSendLocked,
+                        onStop = sendStopMessage,
+                        isStopMode = isStopMode,
+                        isSendDisabled = false,
                         onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) },
                         uploadStates = attachmentUploadStates,
                     )
