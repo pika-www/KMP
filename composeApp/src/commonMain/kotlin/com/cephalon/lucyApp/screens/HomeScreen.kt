@@ -47,9 +47,14 @@ import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.logo
 import androidios.composeapp.generated.resources.reboto
 import androidios.composeapp.generated.resources.roboto_bg
+import androidx.compose.runtime.snapshotFlow
 import com.cephalon.lucyApp.components.DesignScaleProvider
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.scan.rememberCameraPermissionController
+import com.cephalon.lucyApp.scan.rememberOpenAppSettings
 import com.cephalon.lucyApp.screens.brainbox.BrainBoxLoginSheet
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.absoluteValue
@@ -100,6 +105,27 @@ fun HomeScreen(
 ) {
     val scope = rememberCoroutineScope()
     var showBrainBoxLoginSheet by remember { mutableStateOf(false) }
+    val cameraPermission = rememberCameraPermissionController()
+    val openAppSettings = rememberOpenAppSettings()
+
+    val openScanWithPermission: () -> Unit = {
+        if (cameraPermission.hasPermission) {
+            onOpenScanBindChannel()
+        } else {
+            val countBefore = cameraPermission.responseCount
+            cameraPermission.requestPermission()
+            scope.launch {
+                snapshotFlow { cameraPermission.responseCount }
+                    .filter { it > countBefore }
+                    .first()
+                if (cameraPermission.hasPermission) {
+                    onOpenScanBindChannel()
+                } else {
+                    openAppSettings()
+                }
+            }
+        }
+    }
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { accessCards.size }
@@ -188,7 +214,7 @@ fun HomeScreen(
                                 when (pageIndex) {
                                     0 -> showBrainBoxLoginSheet = true
                                     1 -> onOpenAgentModel()
-                                    2 -> onOpenScanBindChannel()
+                                    2 -> openScanWithPermission()
                                 }
                             } else {
                                 scope.launch { pagerState.animateScrollToPage(pageIndex) }
@@ -271,7 +297,7 @@ fun HomeScreen(
                                         when (pageIndex) {
                                             0 -> showBrainBoxLoginSheet = true
                                             1 -> onOpenAgentModel()
-                                            2 -> onOpenScanBindChannel()
+                                            2 -> openScanWithPermission()
                                         }
                                     } else {
                                         scope.launch { pagerState.animateScrollToPage(pageIndex) }

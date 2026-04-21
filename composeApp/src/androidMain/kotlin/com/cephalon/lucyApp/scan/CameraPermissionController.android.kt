@@ -21,15 +21,22 @@ actual fun rememberCameraPermissionController(): CameraPermissionController {
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         )
     }
+    var permissionResponseCount by remember { mutableStateOf(0) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted -> hasCameraPermission = granted }
+        onResult = { granted ->
+            hasCameraPermission = granted
+            permissionResponseCount++
+        }
     )
 
     return object : CameraPermissionController {
         override val hasPermission: Boolean
             get() = hasCameraPermission
+
+        override val responseCount: Int
+            get() = permissionResponseCount
 
         override fun requestPermission() {
             launcher.launch(Manifest.permission.CAMERA)

@@ -5,11 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,7 +16,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,17 +27,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
-import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.scan.playScanBeep
 import com.cephalon.lucyApp.scan.QrScannerView
-import com.cephalon.lucyApp.scan.rememberOpenAppSettings
 import com.cephalon.lucyApp.scan.rememberCameraPermissionController
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
@@ -72,21 +66,18 @@ private fun parseLucyBindUrl(url: String): Pair<String, String>? {
     return cdi to otp
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanBindChannelScreen(
     onBack: () -> Unit,
     onScanSuccess: (cdi: String) -> Unit,
+    onOpenGuide: () -> Unit,
 ) {
-    val uriHandler = LocalUriHandler.current
     val scrollState = rememberScrollState()
     val cameraPermission = rememberCameraPermissionController()
-    val openSettings = rememberOpenAppSettings()
     val authRepository: AuthRepository = koinInject()
     val coroutineScope = rememberCoroutineScope()
 
     var scanState by remember { mutableStateOf(ScanState.Idle) }
-    var showPermissionDialog by remember { mutableStateOf(false) }
     var bindErrorMsg by remember { mutableStateOf("") }
     var boundCdi by remember { mutableStateOf("") }
     val logs = remember {
@@ -94,16 +85,6 @@ fun ScanBindChannelScreen(
             "等待扫描二维码...",
             "二维码来源：OpenClaw 控制台生成（openclaw lucy auth-qrcode）。"
         )
-    }
-
-    LaunchedEffect(Unit) {
-        if (!cameraPermission.hasPermission) {
-            cameraPermission.requestPermission()
-            kotlinx.coroutines.delay(500)
-            if (!cameraPermission.hasPermission) {
-                showPermissionDialog = true
-            }
-        }
     }
 
     // 绑定成功后自动跳转
@@ -226,14 +207,6 @@ fun ScanBindChannelScreen(
                     }
                 )
 
-                if (!cameraPermission.hasPermission) {
-                    Text(
-                        text = "需要相机权限以扫码",
-                        fontSize = 14.sp,
-                        color = subtleWhite,
-                    )
-                }
-
                 when (scanState) {
                     ScanState.Idle -> Unit
 
@@ -311,72 +284,11 @@ fun ScanBindChannelScreen(
                 textDecoration = TextDecoration.Underline,
                 modifier = Modifier
                     .padding(horizontal = horizontalGutter)
-                    .clickable { uriHandler.openUri("https://github.com/HzTTT/lucy") },
+                    .clickable { onOpenGuide() },
             )
 
             Spacer(modifier = Modifier.height(26.dp))
         }
     }
 
-    if (showPermissionDialog && !cameraPermission.hasPermission) {
-        HalfModalBottomSheet(
-            isVisible = true,
-            onDismissRequest = {
-                showPermissionDialog = false
-            },
-            onDismissed = {
-                showPermissionDialog = false
-            },
-            onBack = null,
-            showBackButton = false,
-            showCloseButton = false,
-            showTopBar = false,
-            containerShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            containerColor = Color(0xFFF5F5F7),
-            topPadding = 0.dp,
-            contentPadding = null
-        ) {
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Text(
-                text = "需要相机权限",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFF111111)
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "进入扫码绑定页需要使用相机进行二维码识别。请授权相机权限。",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF333333)
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(
-                    onClick = {
-                        showPermissionDialog = false
-                        onBack()
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("稍后")
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Button(
-                    onClick = {
-                        showPermissionDialog = false
-                        openSettings()
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("去授权")
-                }
-            }
-        }
-    }
 }

@@ -31,6 +31,7 @@ import com.cephalon.lucyApp.screens.HomeScreen
 import com.cephalon.lucyApp.screens.AgentModelScreen
 import com.cephalon.lucyApp.screens.nas.NasScreen
 import com.cephalon.lucyApp.screens.LoginScreen
+import com.cephalon.lucyApp.screens.LucyGuideScreen
 import com.cephalon.lucyApp.screens.ScanBindChannelScreen
 import com.cephalon.lucyApp.screens.SdkTestScreen
 import com.cephalon.lucyApp.screens.WsTestScreen
@@ -182,6 +183,13 @@ fun App(
                         ScanBindChannelScreen(
                             onBack = instance.component::onBack,
                             onScanSuccess = instance.component::onScanSuccess,
+                            onOpenGuide = instance.component::onOpenGuide,
+                        )
+                    }
+
+                    is RootComponent.Child.LucyGuide -> {
+                        LucyGuideScreen(
+                            onBack = instance.component::onBack,
                         )
                     }
 

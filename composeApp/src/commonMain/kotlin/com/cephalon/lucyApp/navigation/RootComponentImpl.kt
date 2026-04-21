@@ -322,6 +322,9 @@ class RootComponentImpl(
                     override fun onBack() {
                         navigation.pop()
                     }
+                    override fun onOpenGuide() {
+                        safePush(Config.LucyGuide)
+                    }
                     override fun onScanSuccess(cdi: String) {
                         scope.launch {
                             authRepository.setConnectionFlag()
@@ -348,6 +351,14 @@ class RootComponentImpl(
 
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
                         }
+                    }
+                }
+            )
+
+            Config.LucyGuide -> RootComponent.Child.LucyGuide(
+                component = object : LucyGuideComponent {
+                    override fun onBack() {
+                        navigation.pop()
                     }
                 }
             )
@@ -464,6 +475,9 @@ class RootComponentImpl(
 
         @Serializable
         data object ScanBindChannel : Config
+
+        @Serializable
+        data object LucyGuide : Config
 
         @Serializable
         data object Nas : Config
