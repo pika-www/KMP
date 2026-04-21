@@ -1,5 +1,8 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidApplication)
@@ -185,8 +188,9 @@ android {
 
     applicationVariants.all {
         outputs.all {
+            val buildDate = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy.MM dd-MM"))
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "脑花-${buildType.name}.apk"
+            output.outputFileName = "${buildDate}-脑花-${buildType.name}.apk"
         }
     }
 
