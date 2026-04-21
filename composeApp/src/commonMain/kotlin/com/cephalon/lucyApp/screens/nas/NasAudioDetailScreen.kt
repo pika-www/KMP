@@ -82,6 +82,8 @@ internal fun NasAudioDetailScreen(
     onShare: () -> Unit,
     onDownload: () -> Unit,
     onDelete: () -> Unit,
+    isChatMode: Boolean = false,
+    resolveAudioFile: (suspend () -> String)? = null,
     modifier: Modifier = Modifier
 ) {
     val ds = LocalDesignScale.current
@@ -90,6 +92,8 @@ internal fun NasAudioDetailScreen(
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
+    val backgroundColor = if (isChatMode) Color.White else Color.Black
+    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
@@ -99,24 +103,30 @@ internal fun NasAudioDetailScreen(
     var fileLoading by remember(audio.id) { mutableStateOf(false) }
     var fileError by remember(audio.id) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(audio.fileId, targetCdi) {
-        val fid = audio.fileId ?: run {
-            fileError = "文件 ID 缺失"
-            return@LaunchedEffect
-        }
+    LaunchedEffect(audio.id, targetCdi, resolveAudioFile) {
         if (localFilePath != null) return@LaunchedEffect
         fileLoading = true
         fileError = null
         coroutineScope.launch {
             runCatching {
-                val getResponse = sdkSessionManager.getFileFromNas(
-                    targetCdi = targetCdi,
-                    fileId = fid,
-                ).getOrThrow()
-                val blobRef = getResponse.item?.blobRef
-                    ?: throw IllegalStateException("文件详情缺少 blobRef")
-                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
-                platformSaveCacheFile(bytes, audio.name)
+                if (resolveAudioFile != null) {
+                    resolveAudioFile()
+                } else {
+                    val blobRef = when {
+                        audio.fileId != null -> {
+                            val getResponse = sdkSessionManager.getFileFromNas(
+                                targetCdi = targetCdi,
+                                fileId = audio.fileId,
+                            ).getOrThrow()
+                            getResponse.item?.blobRef
+                                ?: throw IllegalStateException("文件详情缺少 blobRef")
+                        }
+                        audio.path.isNotBlank() -> audio.path
+                        else -> throw IllegalStateException("文件 ID 缺失")
+                    }
+                    val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+                    platformSaveCacheFile(bytes, audio.name)
+                }
             }.onSuccess { path ->
                 localFilePath = path
                 fileLoading = false
@@ -149,7 +159,7 @@ internal fun NasAudioDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(backgroundColor)
             .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
@@ -190,108 +200,125 @@ internal fun NasAudioDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                AudioDetailGlassCircleButton(size = ds.sm(36.dp), onClick = onBack) {
+                AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = isChatMode, onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        tint = Color.White,
+                        tint = foregroundColor,
                         modifier = Modifier.size(ds.sm(16.dp))
                     )
                 }
 
-                // Tab 切换
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xFF1C1C1E))
-                        .padding(ds.sm(4.dp))
-                ) {
-                    listOf("音频", "文稿").forEachIndexed { index, title ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(
-                                    if (selectedTab == index) Color(0xFF3A3A3C) else Color.Transparent
+                // Tab 切换（对话模式隐藏）
+                if (!isChatMode) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFF1C1C1E))
+                            .padding(ds.sm(4.dp))
+                    ) {
+                        listOf("音频", "文稿").forEachIndexed { index, title ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(
+                                        if (selectedTab == index) Color(0xFF3A3A3C)
+                                        else Color.Transparent
+                                    )
+                                    .clickable { selectedTab = index }
+                                    .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = ds.sp(14f),
+                                        fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
+                                    ),
+                                    color = foregroundColor
                                 )
-                                .clickable { selectedTab = index }
-                                .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontSize = ds.sp(14f),
-                                    fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
-                                ),
-                                color = Color.White
-                            )
+                            }
                         }
                     }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
 
                 // 更多按钮 + 下拉菜单
-                Box {
-                    AudioDetailGlassCircleButton(size = ds.sm(36.dp), onClick = { showMenu = true }) {
+                if (isChatMode) {
+                    AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onDownload) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "更多",
-                            tint = Color.White,
+                            painter = painterResource(Res.drawable.ic_download),
+                            contentDescription = "下载",
+                            tint = foregroundColor,
                             modifier = Modifier.size(ds.sm(16.dp))
                         )
                     }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        containerColor = Color(0xFF1C1C1E),
-                        shape = RoundedCornerShape(ds.sm(12.dp))
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("发送脑花", color = Color.White) },
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(Res.drawable.ic_share),
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(ds.sm(18.dp))
-                                )
-                            },
-                            onClick = { showMenu = false; onShare() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("下载", color = Color.White) },
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(Res.drawable.ic_download),
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(ds.sm(18.dp))
-                                )
-                            },
-                            onClick = { showMenu = false; onDownload() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("删除", color = Color(0xFFFF3B30)) },
-                            leadingIcon = {
-                                Icon(
-                                    painter = painterResource(Res.drawable.ic_delete),
-                                    contentDescription = null,
-                                    tint = Color(0xFFFF3B30),
-                                    modifier = Modifier.size(ds.sm(18.dp))
-                                )
-                            },
-                            onClick = { showMenu = false; onDelete() }
-                        )
+                } else {
+                    Box {
+                        AudioDetailGlassCircleButton(size = ds.sm(36.dp), onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "更多",
+                                tint = Color.White,
+                                modifier = Modifier.size(ds.sm(16.dp))
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            containerColor = Color(0xFF1C1C1E),
+                            shape = RoundedCornerShape(ds.sm(12.dp))
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("发送脑花", color = Color.White) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(Res.drawable.ic_share),
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(ds.sm(18.dp))
+                                    )
+                                },
+                                onClick = { showMenu = false; onShare() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("下载", color = Color.White) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(Res.drawable.ic_download),
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(ds.sm(18.dp))
+                                    )
+                                },
+                                onClick = { showMenu = false; onDownload() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("删除", color = Color(0xFFFF3B30)) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(Res.drawable.ic_delete),
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF3B30),
+                                        modifier = Modifier.size(ds.sm(18.dp))
+                                    )
+                                },
+                                onClick = { showMenu = false; onDelete() }
+                            )
+                        }
                     }
                 }
             }
 
             // 内容区域
-            when (selectedTab) {
-                0 -> AudioPlayerContent(
+            if (isChatMode) {
+                AudioPlayerContent(
                     audio = audio,
                     isPlaying = isPlaying,
                     fileLoading = fileLoading,
                     fileError = fileError,
+                    foregroundColor = foregroundColor,
                     currentPositionMillis = if (isSeeking) sliderPositionMillis.roundToLong() else currentPositionMillis,
                     durationMillis = durationMillis,
                     onPlayPauseClick = {
@@ -316,7 +343,40 @@ internal fun NasAudioDetailScreen(
                     onSkipNextClick = { mediaController.skipAudioPlaybackBy(10_000L) },
                     modifier = Modifier.weight(1f)
                 )
-                1 -> TranscriptContent(modifier = Modifier.weight(1f))
+            } else {
+                when (selectedTab) {
+                    0 -> AudioPlayerContent(
+                        audio = audio,
+                        isPlaying = isPlaying,
+                        fileLoading = fileLoading,
+                        fileError = fileError,
+                        foregroundColor = foregroundColor,
+                        currentPositionMillis = if (isSeeking) sliderPositionMillis.roundToLong() else currentPositionMillis,
+                        durationMillis = durationMillis,
+                        onPlayPauseClick = {
+                            val path = localFilePath
+                            if (path != null) {
+                                mediaController.toggleAudioPlayback(
+                                    sourceId = audio.id,
+                                    name = audio.name,
+                                    source = path
+                                )
+                            }
+                        },
+                        onProgressChange = { value ->
+                            isSeeking = true
+                            sliderPositionMillis = value.coerceIn(0f, durationMillis.toFloat())
+                        },
+                        onProgressChangeFinished = {
+                            mediaController.seekAudioPlaybackTo(sliderPositionMillis.roundToLong())
+                            isSeeking = false
+                        },
+                        onSkipPreviousClick = { mediaController.skipAudioPlaybackBy(-10_000L) },
+                        onSkipNextClick = { mediaController.skipAudioPlaybackBy(10_000L) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    1 -> TranscriptContent(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
@@ -328,6 +388,7 @@ private fun AudioPlayerContent(
     isPlaying: Boolean,
     fileLoading: Boolean = false,
     fileError: String? = null,
+    foregroundColor: Color = Color.White,
     currentPositionMillis: Long,
     durationMillis: Long,
     onPlayPauseClick: () -> Unit,
@@ -350,7 +411,7 @@ private fun AudioPlayerContent(
                 fileLoading -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
-                            color = Color.White.copy(alpha = 0.7f),
+                            color = foregroundColor.copy(alpha = 0.7f),
                             modifier = Modifier.size(ds.sm(32.dp))
                         )
                         Spacer(modifier = Modifier.height(ds.sm(12.dp)))
@@ -373,7 +434,7 @@ private fun AudioPlayerContent(
                         imageVector = Icons.Default.Audiotrack,
                         contentDescription = null,
                         modifier = Modifier.size(ds.sm(120.dp)),
-                        tint = Color(0xFF3A3A3C)
+                        tint = foregroundColor.copy(alpha = 0.15f)
                     )
                 }
             }
@@ -393,7 +454,7 @@ private fun AudioPlayerContent(
                 fontSize = ds.sp(16f),
                 fontWeight = FontWeight.Normal
             ),
-            color = Color.White,
+            color = foregroundColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -404,6 +465,7 @@ private fun AudioPlayerContent(
         AudioProgressBar(
             currentMs = currentPositionMillis,
             durationMs = durationMillis,
+            trackColor = foregroundColor,
             onProgressChange = onProgressChange,
             onProgressChangeFinished = onProgressChangeFinished,
             modifier = Modifier.padding(horizontal = ds.sm(16.dp))
@@ -447,7 +509,7 @@ private fun AudioPlayerContent(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "上一首",
                     modifier = Modifier.size(ds.sm(32.dp)),
-                    tint = Color.White
+                    tint = foregroundColor
                 )
             }
 
@@ -464,7 +526,7 @@ private fun AudioPlayerContent(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (isPlaying) "暂停" else "播放",
                     modifier = Modifier.size(ds.sm(44.dp)),
-                    tint = Color.White
+                    tint = foregroundColor
                 )
             }
 
@@ -481,7 +543,7 @@ private fun AudioPlayerContent(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "下一首",
                     modifier = Modifier.size(ds.sm(32.dp)),
-                    tint = Color.White
+                    tint = foregroundColor
                 )
             }
         }
@@ -494,6 +556,7 @@ private fun AudioPlayerContent(
 private fun AudioProgressBar(
     currentMs: Long,
     durationMs: Long,
+    trackColor: Color = Color.White,
     onProgressChange: (Float) -> Unit,
     onProgressChangeFinished: () -> Unit,
     modifier: Modifier = Modifier
@@ -531,26 +594,26 @@ private fun AudioProgressBar(
 
         // 未播放轨道
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.40f),
+            color = trackColor.copy(alpha = 0.40f),
             topLeft = Offset(startX, trackY - trackH / 2),
             size = Size(trackLen, trackH),
             cornerRadius = cornerR
         )
-        // 已播放轨道（白色）
+        // 已播放轨道
         if (thumbX > startX) {
             drawRoundRect(
-                color = Color.White,
+                color = trackColor,
                 topLeft = Offset(startX, trackY - trackH / 2),
                 size = Size(thumbX - startX, trackH),
                 cornerRadius = cornerR
             )
         }
         // 起点小圆点
-        drawCircle(color = Color.White, radius = dotRadiusPx, center = Offset(startX, trackY))
+        drawCircle(color = trackColor, radius = dotRadiusPx, center = Offset(startX, trackY))
         // 当前位置小圆点（thumb）
-        drawCircle(color = Color.White, radius = dotRadiusPx, center = Offset(thumbX, trackY))
+        drawCircle(color = trackColor, radius = dotRadiusPx, center = Offset(thumbX, trackY))
         // 终点小圆点
-        drawCircle(color = Color.White, radius = dotRadiusPx, center = Offset(endX, trackY))
+        drawCircle(color = trackColor, radius = dotRadiusPx, center = Offset(endX, trackY))
     }
 }
 
@@ -573,6 +636,7 @@ private fun TranscriptContent(modifier: Modifier = Modifier) {
 @Composable
 private fun AudioDetailGlassCircleButton(
     size: Dp,
+    isLight: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -580,8 +644,8 @@ private fun AudioDetailGlassCircleButton(
     Surface(
         modifier = modifier.size(size),
         shape = CircleShape,
-        color = Color(0x1AFFFFFF),
-        border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+        color = if (isLight) Color.White else Color(0x1AFFFFFF),
+        border = BorderStroke(1.dp, if (isLight) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
     ) {
         Box(
             modifier = Modifier

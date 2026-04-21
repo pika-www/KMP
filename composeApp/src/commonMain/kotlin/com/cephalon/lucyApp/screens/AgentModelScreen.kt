@@ -77,6 +77,7 @@ import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.time.currentTimeMillis
+import com.cephalon.lucyApp.media.platformSaveCacheFile
 import com.cephalon.lucyApp.media.platformSaveFile
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.screens.agentmodel.ChatHistoryCache
@@ -99,6 +100,7 @@ import com.cephalon.lucyApp.screens.agentmodel.AgentModelMessageList
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelProfileScreen
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelTopBar
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelVoiceRecordingOverlay
+import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.screens.agentmodel.BrainPowerBalancePage
 import com.cephalon.lucyApp.screens.agentmodel.RechargePackagePage
 import com.cephalon.lucyApp.screens.agentmodel.asPickedFile
@@ -122,6 +124,13 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.text.style.TextOverflow
+import com.cephalon.lucyApp.screens.agentmodel.asAudioRecording
+import com.cephalon.lucyApp.screens.nas.NasAudioDetailScreen
+import com.cephalon.lucyApp.screens.nas.NasAudioItem
+import com.cephalon.lucyApp.screens.nas.NasDocumentDetailScreen
+import com.cephalon.lucyApp.screens.nas.NasDocumentItem
+import com.cephalon.lucyApp.screens.nas.NasImageDetailScreen
+import com.cephalon.lucyApp.screens.nas.NasImageItem
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -270,6 +279,10 @@ fun AgentModelScreen(
             "相机会先申请系统权限，图库和文件会通过系统选择器打开。",
             "录音会先申请麦克风权限，结束后可在下方播放。"
         )
+    }
+
+    val mediaAccessController = rememberPlatformMediaAccessController { message ->
+        logs.add(0, message)
     }
 
     // 对话列表是本地持久化的：按 (userId, cdi) 落到 Settings；当任一 key 变化会重新 load。
@@ -541,6 +554,35 @@ fun AgentModelScreen(
         }
     }
 
+    var inputText by remember { mutableStateOf(TextFieldValue("")) }
+    var attachmentsExpanded by remember { mutableStateOf(false) }
+    var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
+    var selectedChatImageId by remember { mutableStateOf<String?>(null) }
+    var selectedChatImages by remember { mutableStateOf<List<NasImageItem>>(emptyList()) }
+    var selectedRecordingAudio by remember { mutableStateOf<NasAudioItem?>(null) }
+    var selectedChatAudio by remember { mutableStateOf<NasAudioItem?>(null) }
+    var selectedChatDocument by remember { mutableStateOf<NasDocumentItem?>(null) }
+    var showProfilePage by remember { mutableStateOf(false) }
+    var showRechargePage by remember { mutableStateOf(false) }
+    var showRechargePackagePage by remember { mutableStateOf(false) }
+    var showNasNotSupportedDialog by remember { mutableStateOf(false) }
+    var showSearchPage by remember { mutableStateOf(false) }
+    var emptyViewState by remember { mutableStateOf(0) }
+    val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
+    var lastPickedImagesSize by remember { mutableStateOf(0) }
+    var lastPickedFilesSize by remember { mutableStateOf(0) }
+    var isVoiceBusy by remember { mutableStateOf(false) }
+    var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
+    val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
+    val isStopMode by remember { derivedStateOf { activeStreamingRequests.isNotEmpty() } }
+    val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
+    val pendingStopMessageIds = remember { mutableStateListOf<String>() }
+    val hiddenStopReplyMessageIds = remember { mutableStateListOf<String>() }
+    val processedEventIds = remember { mutableStateListOf<String>() }
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+    val audioBlobCacheMap = remember { mutableStateMapOf<String, String>() }
+    val loadingAudioBlobRefs = remember { mutableStateListOf<String>() }
+
     // 发送 / 新增消息时动画滚动到底部
     LaunchedEffect(currentMessages.size) {
         if (currentMessages.isNotEmpty()) {
@@ -566,112 +608,87 @@ fun AgentModelScreen(
         }
     }
 
-    val mediaAccessController = rememberPlatformMediaAccessController { message ->
-        logs.add(0, message)
+    fun AudioRecording.toNasAudioItem(): NasAudioItem {
+        val format = name.substringAfterLast('.', "").lowercase().ifBlank { "m4a" }
+        return NasAudioItem(
+            id = id,
+            name = name,
+            type = inferContentType(name) ?: "audio/*",
+            format = format,
+            sizeKB = 0,
+            path = path,
+            time = "",
+            durationSec = 0,
+        )
     }
 
-    var inputText by remember { mutableStateOf(TextFieldValue("")) }
-    var attachmentsExpanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        snapshotFlow { inputText.text }
-            .drop(1)
-            .collect { if (attachmentsExpanded) attachmentsExpanded = false }
-    }
-    var previewState by remember { mutableStateOf<ImagePreviewState?>(null) }
-    var showProfilePage by remember { mutableStateOf(false) }
-    var showRechargePage by remember { mutableStateOf(false) }
-    var showRechargePackagePage by remember { mutableStateOf(false) }
-    var showNasNotSupportedDialog by remember { mutableStateOf(false) }
-    var showSearchPage by remember { mutableStateOf(false) }
-    // 0 = 欢迎页, 1 = 技能卡片页, 2 = 已关闭
-    var emptyViewState by remember { mutableStateOf(0) }
-
-    val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
-    var lastPickedImagesSize by remember { mutableStateOf(0) }
-    var lastPickedFilesSize by remember { mutableStateOf(0) }
-    var isVoiceBusy by remember { mutableStateOf(false) }
-    var voiceRecordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
-    val activeStreamingRequests = remember { mutableStateMapOf<String, String>() }
-    val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
-    val pendingStopMessageIds = remember { mutableStateListOf<String>() }
-    val hiddenStopReplyMessageIds = remember { mutableStateListOf<String>() }
-    val processedEventIds = remember { mutableStateListOf<String>() }
-    val hasActiveStreamingRequest by remember {
-        derivedStateOf { activeStreamingRequests.isNotEmpty() }
-    }
-    val isStopMode by remember {
-        derivedStateOf { hasActiveStreamingRequest && pendingStopMessageIds.isEmpty() }
+    fun handleRecordingOpen(recording: AudioRecording) {
+        focusManager.clearFocus()
+        attachmentsExpanded = false
+        selectedRecordingAudio = recording.toNasAudioItem()
     }
 
-    // ── SDK 层 "对话结束" 信号解锁发送 + 兜底同步 ChatItem 状态 ──
-    // handleMachineEvent 使用 tryEmit 往 npcReplyEvents 发事件，缓冲区满时会静默丢弃。
-    // 这里监听 activeRequestIds 的实际变化：当某个 msgId 被移除时，
-    // 强制把对应 ChatItem.isStreaming 置为 false，确保 UI 状态不会卡在"正在输入"。
-    LaunchedEffect(Unit) {
-        var prevIds = sdkSessionManager.activeRequestIds.value
-        sdkSessionManager.activeRequestIds.collect { currentIds ->
-            val removedIds = prevIds - currentIds
-            // 兜底：把新移除的 msgId 对应的 assistant 消息标记为完成
-            for (msgId in removedIds) {
-                val convId = activeStreamingRequests[msgId] ?: selectedConversationId ?: continue
-                val replyState = sdkSessionManager.replyStateMap.value[msgId]
-                updateAssistantMessage(convId, msgId) { a ->
-                    if (a.isStreaming) {
-                        println("[Fallback] 兜底同步 msgId=$msgId isStreaming→false, textLen=${replyState?.text?.length ?: 0}")
-                        val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
-                            if (events.any { it.type == "reasoning" }) {
-                                events.addOrUpdate(StreamEvent("reasoning", "done"))
-                            } else {
-                                events
-                            }
-                        }
-                        a.copy(
-                            text = replyState?.text?.takeIf { it.isNotBlank() } ?: a.text,
-                            isStreaming = false,
-                            streamEvents = completedStreamEvents
-                                .addOrUpdate(StreamEvent("finish", "Finish")),
-                        )
-                    } else a
-                }
-                activeStreamingRequests.remove(msgId)
-                messageIdToCdi.remove(msgId)
-            }
-            prevIds = currentIds
+    fun attachmentFileName(attachment: MediaAttachment): String {
+        val explicit = attachment.fileName?.trim().orEmpty()
+        if (explicit.isNotBlank()) return explicit
+        val ext = attachment.contentType?.let(::extensionForContentType)
+        return if (ext != null) {
+            "attachment.$ext"
+        } else {
+            "attachment"
         }
     }
 
-    // ── 轻提示 Toast ──
-    var toastMessage by remember { mutableStateOf<String?>(null) }
+    fun attachmentFormat(attachment: MediaAttachment): String {
+        val fileName = attachmentFileName(attachment)
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        if (ext.isNotBlank()) return ext
+        return attachment.contentType?.substringAfterLast('/')?.substringBefore('+')?.lowercase().orEmpty().ifBlank { "file" }
+    }
 
-    // ── 监听 NAS "发送脑花" ──
-    LaunchedEffect(Unit) {
-        snapshotFlow { NasSendToChatStore.pendingItems.size }
-            .collect { size ->
-                if (size > 0) {
-                    val items = NasSendToChatStore.consume()
-                    items.forEach { nasItem ->
-                        val attType = when (nasItem.fileType) {
-                            NasSendFileType.Image -> DraftAttachmentType.Image
-                            NasSendFileType.Audio -> DraftAttachmentType.File
-                            NasSendFileType.Document -> DraftAttachmentType.File
-                        }
-                        val uri = if (nasItem.fileType == NasSendFileType.Image) {
-                            nasItem.thumbnailBlobRef
-                        } else {
-                            "nas-file://${nasItem.fileId}"
-                        }
-                        draftAttachments.add(
-                            DraftAttachment(
-                                type = attType,
-                                uri = uri,
-                                displayName = nasItem.fileName,
-                                nasFileId = nasItem.fileId,
-                            )
-                        )
-                    }
-                }
-            }
+    fun MediaAttachment.toNasImageItem(index: Int): NasImageItem {
+        val fileName = attachmentFileName(this)
+        val format = attachmentFormat(this)
+        return NasImageItem(
+            id = "chat-image-$index-$blobRef",
+            name = fileName,
+            type = contentType ?: "image/*",
+            format = format,
+            sizeKB = 0,
+            path = blobRef,
+            time = "",
+            location = null,
+            resolution = "",
+        )
+    }
+
+    fun MediaAttachment.toNasAudioItem(): NasAudioItem {
+        val fileName = attachmentFileName(this)
+        val format = attachmentFormat(this)
+        return NasAudioItem(
+            id = "chat-audio-$blobRef",
+            name = fileName,
+            type = contentType ?: "audio/*",
+            format = format,
+            sizeKB = 0,
+            path = blobRef,
+            time = "",
+            durationSec = 0,
+        )
+    }
+
+    fun MediaAttachment.toNasDocumentItem(): NasDocumentItem {
+        val fileName = attachmentFileName(this)
+        val format = attachmentFormat(this)
+        return NasDocumentItem(
+            id = "chat-document-$blobRef",
+            name = fileName,
+            type = contentType ?: "application/octet-stream",
+            format = format,
+            sizeKB = 0,
+            path = blobRef,
+            time = "",
+        )
     }
 
     fun handleAttachmentDownload(attachment: MediaAttachment) {
@@ -690,6 +707,70 @@ fun AgentModelScreen(
                 }
             }.onFailure { e ->
                 toastMessage = "下载失败: ${e.message}"
+            }
+        }
+    }
+
+    fun handleToggleAudioAttachmentPlayback(attachment: MediaAttachment) {
+        val blobRef = attachment.blobRef
+        val sourceId = "chat-audio-$blobRef"
+        val fileName = attachment.fileName?.trim()?.takeIf { it.isNotBlank() }
+            ?: "audio_${blobRef.take(8)}"
+        val playbackState = mediaAccessController.audioPlaybackState
+
+        // 当前正在播放/暂停同一个源 → 直接 toggle
+        if (playbackState.sourceId == sourceId) {
+            val cachedPath = audioBlobCacheMap[blobRef] ?: return
+            mediaAccessController.toggleAudioPlayback(sourceId, fileName, cachedPath)
+            return
+        }
+
+        // 已有缓存 → 直接播放
+        val cachedPath = audioBlobCacheMap[blobRef]
+        if (cachedPath != null) {
+            mediaAccessController.toggleAudioPlayback(sourceId, fileName, cachedPath)
+            return
+        }
+
+        // 需要下载 blob → 缓存 → 播放
+        if (blobRef in loadingAudioBlobRefs) return
+        loadingAudioBlobRefs.add(blobRef)
+        coroutineScope.launch {
+            runCatching {
+                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+                val path = platformSaveCacheFile(bytes, fileName)
+                audioBlobCacheMap[blobRef] = path
+                mediaAccessController.toggleAudioPlayback(sourceId, fileName, path)
+            }.onFailure { e ->
+                toastMessage = "音频加载失败: ${e.message}"
+            }
+            loadingAudioBlobRefs.remove(blobRef)
+        }
+    }
+
+    fun handleAttachmentOpen(attachment: MediaAttachment, gallery: List<MediaAttachment>) {
+        focusManager.clearFocus()
+        attachmentsExpanded = false
+        val inferred = inferContentType(attachmentFileName(attachment))
+        val contentType = if (inferred != "application/octet-stream") {
+            inferred
+        } else {
+            attachment.contentType?.takeIf { it.isNotBlank() } ?: inferred
+        }
+        when {
+            contentType.startsWith("image/") -> {
+                val imageItems = gallery.mapIndexed { index, mediaAttachment -> mediaAttachment.toNasImageItem(index) }
+                val currentId = imageItems.firstOrNull { it.path == attachment.blobRef }?.id ?: imageItems.firstOrNull()?.id
+                if (currentId != null) {
+                    selectedChatImages = imageItems
+                    selectedChatImageId = currentId
+                }
+            }
+            contentType.startsWith("audio/") -> {
+                selectedChatAudio = attachment.toNasAudioItem()
+            }
+            else -> {
+                selectedChatDocument = attachment.toNasDocumentItem()
             }
         }
     }
@@ -1316,7 +1397,98 @@ fun AgentModelScreen(
 
     DesignScaleProvider {
     Box(modifier = Modifier.fillMaxSize()) {
-    if (previewState == null) {
+    if (selectedChatImageId != null && selectedChatImages.isNotEmpty()) {
+        NasImageDetailScreen(
+            images = selectedChatImages,
+            initialImageId = selectedChatImageId!!,
+            targetCdi = currentCdi.orEmpty(),
+            onBack = {
+                selectedChatImageId = null
+                selectedChatImages = emptyList()
+            },
+            onShare = {},
+            onDownload = { currentImage ->
+                currentMessages
+                    .filterIsInstance<ChatItem.Assistant>()
+                    .flatMap { it.attachments }
+                    .firstOrNull { it.blobRef == currentImage.path }
+                    ?.let(::handleAttachmentDownload)
+            },
+            onDelete = {},
+            isChatMode = true,
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else if (selectedChatAudio != null) {
+        val currentChatAudio = selectedChatAudio!!
+        NasAudioDetailScreen(
+            audio = currentChatAudio,
+            targetCdi = currentCdi.orEmpty(),
+            mediaController = mediaAccessController,
+            onBack = {
+                mediaAccessController.stopAudioPlayback()
+                selectedChatAudio = null
+            },
+            onShare = {},
+            onDownload = {
+                currentMessages
+                    .filterIsInstance<ChatItem.Assistant>()
+                    .flatMap { it.attachments }
+                    .firstOrNull { it.blobRef == currentChatAudio.path }
+                    ?.let(::handleAttachmentDownload)
+            },
+            onDelete = {},
+            isChatMode = true,
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else if (selectedChatDocument != null) {
+        val currentChatDocument = selectedChatDocument!!
+        NasDocumentDetailScreen(
+            document = currentChatDocument,
+            targetCdi = currentCdi.orEmpty(),
+            onBack = { selectedChatDocument = null },
+            onShare = {},
+            onDownload = {
+                currentMessages
+                    .filterIsInstance<ChatItem.Assistant>()
+                    .flatMap { it.attachments }
+                    .firstOrNull { it.blobRef == currentChatDocument.path }
+                    ?.let(::handleAttachmentDownload)
+            },
+            onDelete = {},
+            isChatMode = true,
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else if (selectedRecordingAudio != null) {
+        val currentRecordingAudio = selectedRecordingAudio!!
+        NasAudioDetailScreen(
+            audio = currentRecordingAudio,
+            targetCdi = currentCdi.orEmpty(),
+            mediaController = mediaAccessController,
+            onBack = {
+                mediaAccessController.stopAudioPlayback()
+                selectedRecordingAudio = null
+            },
+            onShare = {},
+            onDownload = {
+                coroutineScope.launch {
+                    toastMessage = "正在下载…"
+                    runCatching {
+                        val bytes = mediaAccessController.readUriToBytes(currentRecordingAudio.path)
+                            ?: error("读取录音失败")
+                        platformSaveFile(bytes, currentRecordingAudio.name, currentRecordingAudio.type)
+                    }.onSuccess {
+                        toastMessage = "下载成功"
+                    }.onFailure { e ->
+                        toastMessage = "保存失败: ${e.message}"
+                    }
+                }
+            },
+            onDelete = {},
+            isChatMode = false,
+            resolveAudioFile = { currentRecordingAudio.path },
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else if (previewState == null) {
         Scaffold(
             containerColor = Color(0xFFF5F5F7),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1347,7 +1519,6 @@ fun AgentModelScreen(
                                 attachmentsExpanded = false
                                 previewState = null
                                 if (currentMessages.isNotEmpty()) {
-                                    // 有聊天记录 → NAS 逻辑
                                     coroutineScope.launch {
                                         val cdi = currentCdi
                                         val device = if (!cdi.isNullOrBlank())
@@ -1359,7 +1530,6 @@ fun AgentModelScreen(
                                         }
                                     }
                                 } else {
-                                    // 无聊天记录 → 充值页面
                                     showRechargePage = true
                                 }
                             },
@@ -1471,8 +1641,10 @@ fun AgentModelScreen(
                                 messages = currentMessages,
                                 playingRecordingId = mediaAccessController.playingRecordingId,
                                 onToggleRecordingPlayback = { mediaAccessController.toggleRecordingPlayback(it) },
+                                onRecordingOpen = ::handleRecordingOpen,
                                 onImageClick = { previewState = it },
                                 onFileClick = { mediaAccessController.openFilePreview(it) },
+                                onAudioFileOpen = ::handleRecordingOpen,
                                 onTapMessageArea = {
                                     focusManager.clearFocus()
                                     attachmentsExpanded = false
@@ -1481,9 +1653,11 @@ fun AgentModelScreen(
                                     inputText = TextFieldValue(skillText)
                                     sendMessage()
                                 },
-                                onAttachmentClick = { attachment ->
-                                    handleAttachmentDownload(attachment)
-                                },
+                                onAttachmentOpen = ::handleAttachmentOpen,
+                                onAttachmentDownload = ::handleAttachmentDownload,
+                                audioPlaybackState = mediaAccessController.audioPlaybackState,
+                                loadingAudioBlobRefs = loadingAudioBlobRefs.toSet(),
+                                onToggleAudioAttachmentPlayback = ::handleToggleAudioAttachmentPlayback,
                                 onCopySuccess = { toastMessage = "复制成功" },
                                 streamingStatusText = streamingStatusText,
                                 isStopMode = isStopMode,
@@ -1526,6 +1700,7 @@ fun AgentModelScreen(
                         },
                         onImageClick = { previewState = it },
                         onFileClick = { mediaAccessController.openFilePreview(it.asPickedFile()) },
+                        onAudioClick = { handleRecordingOpen(it.asAudioRecording()) },
                         playingRecordingId = mediaAccessController.playingRecordingId,
                         onToggleRecordingPlayback = { recordingPath ->
                             mediaAccessController.toggleRecordingPlayback(

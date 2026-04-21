@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +69,7 @@ internal fun NasImageDetailScreen(
     onShare: (NasImageItem) -> Unit,
     onDownload: (NasImageItem) -> Unit,
     onDelete: (NasImageItem) -> Unit,
+    isChatMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (images.isEmpty()) return
@@ -80,6 +82,8 @@ internal fun NasImageDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val fullImageCache = remember { mutableStateMapOf<Long, ImageBitmap?>() }
     val fullImageLoading = remember { mutableStateMapOf<Long, Boolean>() }
+    val backgroundColor = if (isChatMode) Color.White else Color.Black
+    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
 
     val initialPage = images.indexOfFirst { it.id == initialImageId }.takeIf { it >= 0 } ?: 0
     val pagerState = rememberPagerState(initialPage = initialPage) { images.size }
@@ -88,7 +92,7 @@ internal fun NasImageDetailScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(backgroundColor)
             .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Initial)
@@ -166,7 +170,7 @@ internal fun NasImageDetailScreen(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(32.dp),
-                            color = Color.White.copy(alpha = 0.7f),
+                            color = foregroundColor.copy(alpha = 0.7f),
                             strokeWidth = 3.dp,
                         )
                     }
@@ -179,14 +183,14 @@ internal fun NasImageDetailScreen(
                         contentScale = ContentScale.Fit,
                         errorContent = {
                             Box(
-                                modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))
+                                modifier = Modifier.fillMaxSize().background(if (isChatMode) Color(0xFFF2F2F2) else Color(0xFF1A1A1A))
                             )
                         }
                     )
                 }
                 else -> {
                     Box(
-                        modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))
+                        modifier = Modifier.fillMaxSize().background(if (isChatMode) Color(0xFFF2F2F2) else Color(0xFF1A1A1A))
                     )
                 }
             }
@@ -204,45 +208,58 @@ internal fun NasImageDetailScreen(
         ) {
             NasDetailGlassCircleButton(
                 size = ds.sm(36.dp),
+                isLight = isChatMode,
                 onClick = onBack
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "返回",
-                    tint = Color.White,
+                    tint = foregroundColor,
                     modifier = Modifier.size(ds.sm(16.dp))
                 )
             }
 
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = Color(0x1AFFFFFF),
-                border = BorderStroke(1.dp, Color(0x0FFFFFFF))
-            ) {
+            if (isChatMode) {
                 Text(
-                    text = buildString {
-                        append(currentImage.time)
-                        currentImage.location?.let { append("  $it") }
-                    },
-                    modifier = Modifier.padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
+                    text = "${pagerState.currentPage + 1}/${images.size}",
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = ds.sp(12f),
                         fontWeight = FontWeight.SemiBold
                     ),
-                    color = Color.White
+                    color = foregroundColor,
                 )
-            }
+                Spacer(modifier = Modifier.width(ds.sm(36.dp)))
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color(0x1AFFFFFF),
+                    border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+                ) {
+                    Text(
+                        text = buildString {
+                            append(currentImage.time)
+                            currentImage.location?.let { append("  $it") }
+                        },
+                        modifier = Modifier.padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White
+                    )
+                }
 
-            NasDetailGlassCircleButton(
-                size = ds.sm(36.dp),
-                onClick = { onDelete(currentImage) }
-            ) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_delete),
-                    contentDescription = "删除",
-                    tint = Color.White,
-                    modifier = Modifier.size(ds.sm(16.dp))
-                )
+                NasDetailGlassCircleButton(
+                    size = ds.sm(36.dp),
+                    onClick = { onDelete(currentImage) }
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_delete),
+                        contentDescription = "删除",
+                        tint = Color.White,
+                        modifier = Modifier.size(ds.sm(16.dp))
+                    )
+                }
             }
         }
 
@@ -256,38 +273,54 @@ internal fun NasImageDetailScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Surface(
-                modifier = Modifier
-                    .width(ds.sm(140.dp))
-                    .height(ds.sm(49.dp))
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { onShare(currentImage) },
-                shape = RoundedCornerShape(999.dp),
-                color = Color(0x1AFFFFFF),
-                border = BorderStroke(1.dp, Color(0x0FFFFFFF))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "发送脑花",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = ds.sp(18f),
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = Color.White
+            if (isChatMode) {
+                Spacer(modifier = Modifier.width(ds.sm(48.dp)))
+                NasDetailGlassCircleButton(
+                    size = ds.sm(48.dp),
+                    isLight = true,
+                    onClick = { onDownload(currentImage) }
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_download),
+                        contentDescription = "下载",
+                        tint = foregroundColor,
+                        modifier = Modifier.size(ds.sm(20.dp))
                     )
                 }
-            }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .width(ds.sm(140.dp))
+                        .height(ds.sm(49.dp))
+                        .clip(RoundedCornerShape(999.dp))
+                        .clickable { onShare(currentImage) },
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color(0x1AFFFFFF),
+                    border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "发送脑花",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = ds.sp(18f),
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = Color.White
+                        )
+                    }
+                }
 
-            NasDetailGlassCircleButton(
-                size = ds.sm(48.dp),
-                onClick = { onDownload(currentImage) }
-            ) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_download),
-                    contentDescription = "下载",
-                    tint = Color.White,
-                    modifier = Modifier.size(ds.sm(20.dp))
-                )
+                NasDetailGlassCircleButton(
+                    size = ds.sm(48.dp),
+                    onClick = { onDownload(currentImage) }
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_download),
+                        contentDescription = "下载",
+                        tint = Color.White,
+                        modifier = Modifier.size(ds.sm(20.dp))
+                    )
+                }
             }
         }
     }
@@ -296,6 +329,7 @@ internal fun NasImageDetailScreen(
 @Composable
 private fun NasDetailGlassCircleButton(
     size: Dp,
+    isLight: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -303,8 +337,8 @@ private fun NasDetailGlassCircleButton(
     Surface(
         modifier = modifier.size(size),
         shape = CircleShape,
-        color = Color(0x1AFFFFFF),
-        border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+        color = if (isLight) Color.White else Color(0x1AFFFFFF),
+        border = BorderStroke(1.dp, if (isLight) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
     ) {
         Box(
             modifier = Modifier

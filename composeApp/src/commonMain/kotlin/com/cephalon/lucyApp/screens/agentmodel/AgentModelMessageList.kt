@@ -64,6 +64,7 @@ import androidios.composeapp.generated.resources.ic_audio
 import androidx.compose.foundation.layout.width
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.media.AudioPlaybackState
 import com.cephalon.lucyApp.sdk.MediaAttachment
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
@@ -76,6 +77,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 
 /** 根据文件扩展名推断 MIME content type，用于 contentType 为 null 时的兜底分类 */
@@ -111,11 +117,17 @@ internal fun AgentModelMessageList(
     messages: List<ChatItem>,
     playingRecordingId: String?,
     onToggleRecordingPlayback: (AudioRecording) -> Unit,
+    onRecordingOpen: (AudioRecording) -> Unit = {},
     onImageClick: (ImagePreviewState) -> Unit,
     onFileClick: (PickedFile) -> Unit,
+    onAudioFileOpen: (AudioRecording) -> Unit = {},
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
-    onAttachmentClick: (MediaAttachment) -> Unit = {},
+    onAttachmentOpen: (MediaAttachment, List<MediaAttachment>) -> Unit = { _, _ -> },
+    onAttachmentDownload: (MediaAttachment) -> Unit = {},
+    audioPlaybackState: AudioPlaybackState = AudioPlaybackState(),
+    loadingAudioBlobRefs: Set<String> = emptySet(),
+    onToggleAudioAttachmentPlayback: (MediaAttachment) -> Unit = {},
     onCopySuccess: () -> Unit = {},
     streamingStatusText: String? = null,
     isStopMode: Boolean = false,
@@ -183,7 +195,12 @@ internal fun AgentModelMessageList(
                             }
                             AssistantAttachments(
                                 attachments = item.attachments,
-                                onAttachmentClick = onAttachmentClick,
+                                timestamp = item.timestamp,
+                                audioPlaybackState = audioPlaybackState,
+                                loadingAudioBlobRefs = loadingAudioBlobRefs,
+                                onToggleAudioAttachmentPlayback = onToggleAudioAttachmentPlayback,
+                                onAttachmentOpen = onAttachmentOpen,
+                                onAttachmentDownload = onAttachmentDownload,
                             )
                         }
                     }
@@ -304,7 +321,13 @@ internal fun AgentModelMessageList(
                                                         modifier = Modifier
                                                             .width(fileCellWidth)
                                                             .height(ds.sh(72.dp))
-                                                            .clickable { onFileClick(attachment.asPickedFile()) }
+                                                            .clickable {
+                                                                if (attachment.type == DraftAttachmentType.Audio) {
+                                                                    onAudioFileOpen(attachment.asAudioRecording())
+                                                                } else {
+                                                                    onFileClick(attachment.asPickedFile())
+                                                                }
+                                                            }
                                                     ) {
                                                         Column(
                                                             modifier = Modifier
@@ -370,7 +393,16 @@ internal fun AgentModelMessageList(
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
                             modifier = Modifier
-                                .clickable { onTapMessageArea() }
+                                .clickable {
+                                    onTapMessageArea()
+                                    onRecordingOpen(
+                                        AudioRecording(
+                                            id = item.id,
+                                            name = item.name,
+                                            path = item.path
+                                        )
+                                    )
+                                }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
@@ -401,7 +433,7 @@ internal fun AgentModelMessageList(
                                 }
                                 OutlinedButton(
                                     onClick = {
-                                        onToggleRecordingPlayback(
+                                        onRecordingOpen(
                                             AudioRecording(
                                                 id = item.id,
                                                 name = item.name,
@@ -410,7 +442,7 @@ internal fun AgentModelMessageList(
                                         )
                                     }
                                 ) {
-                                    Text(if (playingRecordingId == item.id) "暂停" else "播放")
+                                    Text("详情")
                                 }
                             }
                         }
@@ -543,9 +575,20 @@ private fun SkillSuggestionsBubble(
 @Composable
 private fun AssistantAttachments(
     attachments: List<MediaAttachment>,
-    onAttachmentClick: (MediaAttachment) -> Unit = {},
+    timestamp: Long? = null,
+    audioPlaybackState: AudioPlaybackState = AudioPlaybackState(),
+    loadingAudioBlobRefs: Set<String> = emptySet(),
+    onToggleAudioAttachmentPlayback: (MediaAttachment) -> Unit = {},
+    onAttachmentOpen: (MediaAttachment, List<MediaAttachment>) -> Unit = { _, _ -> },
+    onAttachmentDownload: (MediaAttachment) -> Unit = {},
 ) {
     val ds = LocalDesignScale.current
+    val imageAttachments = attachments.filter { it.effectiveContentType()?.startsWith("image") == true }
+    val audioAttachments = attachments.filter { it.effectiveContentType()?.startsWith("audio") == true }
+    val docAttachments = attachments.filter {
+        it.effectiveContentType()?.startsWith("image") != true &&
+        it.effectiveContentType()?.startsWith("audio") != true
+    }
 
     Surface(
         shape = RoundedCornerShape(ds.sm(22.dp)),
@@ -558,51 +601,63 @@ private fun AssistantAttachments(
                 .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp)),
             verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
         ) {
-            attachments.forEach { att ->
-                when {
-                    att.effectiveContentType()?.startsWith("image") == true -> {
-                        Box(
-                            modifier = Modifier
-                                .size(ds.sw(120.dp))
-                                .clip(RoundedCornerShape(ds.sm(8.dp))),
-                        ) {
-                            BlobImage(
-                                blobRef = att.blobRef,
-                                contentDescription = att.fileName,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            // 仅下载图标可点击
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(ds.sm(6.dp))
-                                    .size(ds.sm(24.dp))
-                                    .clip(RoundedCornerShape(ds.sm(12.dp)))
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                                    .clickable { onAttachmentClick(att) },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    painter = painterResource(Res.drawable.ic_download),
-                                    contentDescription = "下载",
-                                    modifier = Modifier.size(ds.sm(14.dp)),
-                                    tint = Color.White,
-                                )
-                            }
-                        }
-                    }
-                    att.effectiveContentType()?.startsWith("audio") == true -> {
-                        AttachmentFileCard(
-                            icon = Res.drawable.ic_audio,
-                            fileName = att.fileName ?: "音频文件",
-                            onDownloadClick = { onAttachmentClick(att) },
+            // ── 图片 ──
+            imageAttachments.forEach { att ->
+                Box(
+                    modifier = Modifier
+                        .size(ds.sw(120.dp))
+                        .clip(RoundedCornerShape(ds.sm(8.dp)))
+                        .clickable { onAttachmentOpen(att, imageAttachments) },
+                ) {
+                    BlobImage(
+                        blobRef = att.blobRef,
+                        contentDescription = att.fileName,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(ds.sm(6.dp))
+                            .size(ds.sm(24.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .clickable { onAttachmentDownload(att) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_download),
+                            contentDescription = "下载",
+                            modifier = Modifier.size(ds.sm(14.dp)),
+                            tint = Color.White,
                         )
                     }
-                    else -> {
+                }
+            }
+
+            // ── 音频 ──
+            if (audioAttachments.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+                    audioAttachments.forEach { att ->
+                        AudioAttachmentCard(
+                            attachment = att,
+                            timestamp = timestamp,
+                            audioPlaybackState = audioPlaybackState,
+                            isLoading = att.blobRef in loadingAudioBlobRefs,
+                            onPlayToggle = { onToggleAudioAttachmentPlayback(att) },
+                            onClick = { onAttachmentOpen(att, audioAttachments) },
+                        )
+                    }
+                }
+            }
+
+            // ── 文档 ──
+            if (docAttachments.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+                    docAttachments.forEach { att ->
                         AttachmentFileCard(
                             icon = Res.drawable.ic_doc,
                             fileName = att.fileName ?: "文件",
-                            onDownloadClick = { onAttachmentClick(att) },
+                            onClick = { onAttachmentOpen(att, listOf(att)) },
                         )
                     }
                 }
@@ -615,45 +670,144 @@ private fun AssistantAttachments(
 private fun AttachmentFileCard(
     icon: org.jetbrains.compose.resources.DrawableResource,
     fileName: String,
-    onDownloadClick: () -> Unit,
+    onClick: () -> Unit,
 ) {
     val ds = LocalDesignScale.current
     Surface(
-        shape = RoundedCornerShape(ds.sm(12.dp)),
+        shape = RoundedCornerShape(ds.sm(99.dp)),
         color = Color(0xFFF5F5F7),
-        modifier = Modifier
-            .padding(top = ds.sh(4.dp)),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
+                .clickable(onClick = onClick)
+                .padding(start = ds.sw(14.dp), end = ds.sw(12.dp))
+                .padding(vertical = ds.sh(10.dp)),
         ) {
             Icon(
                 painter = painterResource(icon),
                 contentDescription = null,
                 modifier = Modifier.size(ds.sm(20.dp)),
-                tint = Color(0xFF666666),
+                tint = Color(0xFF1F2535),
             )
-            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+            Spacer(modifier = Modifier.width(ds.sw(10.dp)))
             Text(
                 text = fileName,
                 fontSize = ds.sp(14f),
-                color = Color(0xFF333333),
+                color = Color(0xFF1F2535),
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
             Icon(
-                painter = painterResource(Res.drawable.ic_download),
-                contentDescription = "下载",
-                modifier = Modifier
-                    .size(ds.sm(18.dp))
-                    .clickable(onClick = onDownloadClick),
-                tint = Color(0xFF999999),
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Color(0xFFAAAAAA),
+                modifier = Modifier.size(ds.sm(20.dp)),
+            )
+        }
+    }
+}
+
+// ─────────────── 音频附件卡片 ───────────────
+
+private fun formatAudioTimestamp(epochMillis: Long?): String {
+    if (epochMillis == null || epochMillis <= 0) return "音频文件"
+    return try {
+        val instant = Instant.fromEpochMilliseconds(epochMillis)
+        val dt = instant.toLocalDateTime(TimeZone.of("Asia/Shanghai"))
+        val y = dt.year
+        val m = dt.monthNumber.toString().padStart(2, '0')
+        val d = dt.dayOfMonth.toString().padStart(2, '0')
+        val hh = dt.hour.toString().padStart(2, '0')
+        val mm = dt.minute.toString().padStart(2, '0')
+        "$y.$m.$d.  $hh:$mm"
+    } catch (_: Exception) {
+        "音频文件"
+    }
+}
+
+@Composable
+private fun AudioAttachmentCard(
+    attachment: MediaAttachment,
+    timestamp: Long?,
+    audioPlaybackState: AudioPlaybackState,
+    isLoading: Boolean,
+    onPlayToggle: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val sourceId = "chat-audio-${attachment.blobRef}"
+    val isCurrentAudio = audioPlaybackState.sourceId == sourceId
+    val isPlaying = isCurrentAudio && audioPlaybackState.isPlaying
+    val displayText = attachment.fileName
+        ?.takeIf { it.isNotBlank() }
+        ?: formatAudioTimestamp(timestamp)
+
+    Surface(
+        shape = RoundedCornerShape(ds.sm(99.dp)),
+        color = Color(0xFFF5F5F7),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(start = ds.sw(10.dp), end = ds.sw(12.dp))
+                .padding(vertical = ds.sh(8.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Play / Pause 按钮
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF1F2535),
+                modifier = Modifier.size(ds.sm(28.dp)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(onClick = onPlayToggle),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isLoading) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(ds.sm(14.dp)),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            tint = Color.White,
+                            modifier = Modifier.size(ds.sm(14.dp)),
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(ds.sw(10.dp)))
+
+            // 日期 / 文件名
+            Text(
+                text = displayText,
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF1F2535),
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            // 右箭头
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Color(0xFFAAAAAA),
+                modifier = Modifier.size(ds.sm(20.dp)),
             )
         }
     }
