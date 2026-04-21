@@ -88,7 +88,7 @@ internal fun AgentModelComposer(
             Color.White
         )
     )
-    val actionBtnShape = RoundedCornerShape(30.dp)
+    val actionBtnShape = RoundedCornerShape(ds.sm(30.dp))
 
     Column(
         modifier = modifier
@@ -254,9 +254,10 @@ private fun DraftAttachmentPreviewRow(
     val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
     val imageUris = imageAttachments.map { it.uri }
 
+    val ds = LocalDesignScale.current
     LazyRow(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
     ) {
         itemsIndexed(
             items = attachments,
@@ -277,7 +278,7 @@ private fun DraftAttachmentPreviewRow(
                         val imageIndex = imageAttachments.indexOfFirst { it.uri == attachment.uri }
                         Card(
                             modifier = Modifier
-                                .size(72.dp)
+                                .size(ds.sm(72.dp))
                                 .clickable {
                                     if (imageIndex >= 0) {
                                         onImageClick(
@@ -288,7 +289,7 @@ private fun DraftAttachmentPreviewRow(
                                         )
                                     }
                                 },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(ds.sm(12.dp)),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
                             border = if (isFailed) BorderStroke(1.5.dp, Color(0xFFE53935)) else null,
                         ) {
@@ -313,13 +314,13 @@ private fun DraftAttachmentPreviewRow(
                                             .background(
                                                 if (isFailed) Color.Red.copy(alpha = 0.25f)
                                                 else Color.Black.copy(alpha = 0.35f),
-                                                RoundedCornerShape(12.dp)
+                                                RoundedCornerShape(ds.sm(12.dp))
                                             ),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isUploading) {
                                             CircularProgressIndicator(
-                                                modifier = Modifier.size(24.dp),
+                                                modifier = Modifier.size(ds.sm(24.dp)),
                                                 strokeWidth = 2.dp,
                                                 color = Color.White,
                                             )
@@ -328,7 +329,7 @@ private fun DraftAttachmentPreviewRow(
                                                 imageVector = Icons.Default.ErrorOutline,
                                                 contentDescription = "Upload failed",
                                                 tint = Color.White,
-                                                modifier = Modifier.size(24.dp),
+                                                modifier = Modifier.size(ds.sm(24.dp)),
                                             )
                                         }
                                     }
@@ -340,10 +341,10 @@ private fun DraftAttachmentPreviewRow(
                     DraftAttachmentType.File -> {
                         Surface(
                             modifier = Modifier
-                                .width(164.dp)
-                                .height(72.dp)
+                                .width(ds.sw(164.dp))
+                                .height(ds.sh(72.dp))
                                 .clickable { onFileClick(attachment) },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(ds.sm(12.dp)),
                             color = Color(0xFFF5F5F5),
                             border = BorderStroke(1.dp, borderColor)
                         ) {
@@ -351,8 +352,8 @@ private fun DraftAttachmentPreviewRow(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
+                                    verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(999.dp),
@@ -362,7 +363,7 @@ private fun DraftAttachmentPreviewRow(
                                             text = attachment.fileExtensionLabel(),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
                                         )
                                     }
                                     Text(
@@ -381,13 +382,13 @@ private fun DraftAttachmentPreviewRow(
                                             .background(
                                                 if (isFailed) Color.Red.copy(alpha = 0.18f)
                                                 else Color.Black.copy(alpha = 0.25f),
-                                                RoundedCornerShape(12.dp)
+                                                RoundedCornerShape(ds.sm(12.dp))
                                             ),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isUploading) {
                                             CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(ds.sm(20.dp)),
                                                 strokeWidth = 2.dp,
                                                 color = Color.White,
                                             )
@@ -396,7 +397,7 @@ private fun DraftAttachmentPreviewRow(
                                                 imageVector = Icons.Default.ErrorOutline,
                                                 contentDescription = "Upload failed",
                                                 tint = Color(0xFFE53935),
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(ds.sm(20.dp)),
                                             )
                                         }
                                     }
@@ -408,9 +409,9 @@ private fun DraftAttachmentPreviewRow(
                     DraftAttachmentType.Audio -> {
                         Surface(
                             modifier = Modifier
-                                .width(210.dp)
-                                .height(72.dp),
-                            shape = RoundedCornerShape(12.dp),
+                                .width(ds.sw(210.dp))
+                                .height(ds.sh(72.dp)),
+                            shape = RoundedCornerShape(ds.sm(12.dp)),
                             color = Color(0xFFF5F5F5),
                             border = BorderStroke(1.dp, borderColor)
                         ) {
@@ -418,14 +419,14 @@ private fun DraftAttachmentPreviewRow(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(999.dp),
                                         color = Color(0xFF111111),
-                                        modifier = Modifier.size(36.dp)
+                                        modifier = Modifier.size(ds.sm(36.dp))
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -437,7 +438,7 @@ private fun DraftAttachmentPreviewRow(
                                                 imageVector = if (playingRecordingId == attachment.uri) Icons.Default.Pause else Icons.Default.PlayArrow,
                                                 contentDescription = "Audio Preview",
                                                 tint = Color.White,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(ds.sm(18.dp))
                                             )
                                         }
                                     }
@@ -472,13 +473,13 @@ private fun DraftAttachmentPreviewRow(
                                             .background(
                                                 if (isFailed) Color.Red.copy(alpha = 0.18f)
                                                 else Color.Black.copy(alpha = 0.25f),
-                                                RoundedCornerShape(12.dp)
+                                                RoundedCornerShape(ds.sm(12.dp))
                                             ),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isUploading) {
                                             CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(ds.sm(20.dp)),
                                                 strokeWidth = 2.dp,
                                                 color = Color.White,
                                             )
@@ -487,7 +488,7 @@ private fun DraftAttachmentPreviewRow(
                                                 imageVector = Icons.Default.ErrorOutline,
                                                 contentDescription = "Upload failed",
                                                 tint = Color(0xFFE53935),
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(ds.sm(20.dp)),
                                             )
                                         }
                                     }
@@ -500,8 +501,8 @@ private fun DraftAttachmentPreviewRow(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 4.dp, end = 4.dp)
-                        .size(20.dp)
+                        .padding(top = ds.sh(4.dp), end = ds.sw(4.dp))
+                        .size(ds.sm(20.dp))
                         .clickable { onRemoveAttachment(attachment) },
                     shape = RoundedCornerShape(999.dp),
                     color = Color.Black.copy(alpha = 0.60f)
@@ -511,7 +512,7 @@ private fun DraftAttachmentPreviewRow(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Remove",
                             tint = Color.White,
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(ds.sm(12.dp))
                         )
                     }
                 }
@@ -525,15 +526,16 @@ private fun SuggestionChip(
     text: String,
     onClick: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(ds.sm(18.dp)),
         color = Color(0xFFF5F5F5),
         border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
         modifier = Modifier
-            .height(34.dp)
+            .height(ds.sh(34.dp))
             .clickable { onClick() }
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = ds.sw(12.dp))) {
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodySmall,

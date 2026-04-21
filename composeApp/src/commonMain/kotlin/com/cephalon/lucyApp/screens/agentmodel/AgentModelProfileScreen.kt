@@ -121,8 +121,6 @@ private enum class ProfilePage {
     WifiConfig,
 }
 
-private val ProfilePageShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
-
 @Composable
 internal fun AgentModelProfileScreen(
     isVisible: Boolean,
@@ -150,6 +148,7 @@ internal fun AgentModelProfileScreen(
     var showFeedbackSuccessDialog by remember { mutableStateOf(false) }
     var cacheSizeBytes by remember { mutableStateOf(getAppCacheSize()) }
 
+    val ds = LocalDesignScale.current
     Box(modifier = modifier) {
         HalfModalBottomSheet(
             isVisible = isVisible,
@@ -158,7 +157,7 @@ internal fun AgentModelProfileScreen(
             showBackButton = false,
             showCloseButton = false,
             showTopBar = false,
-            topPadding = 72.dp,
+            topPadding = ds.sh(72.dp),
             containerShape = RoundedCornerShape(0.dp),
             containerColor = Color.Transparent,
             contentPadding = PaddingValues(0.dp)
@@ -810,11 +809,13 @@ private fun ProfilePageContainer(
     backgroundColor: Color = Color.White.copy(alpha = 0.80f),
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val ds = LocalDesignScale.current
+    val pageShape = RoundedCornerShape(topStart = ds.sm(32.dp), topEnd = ds.sm(32.dp))
     Box(
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
-                shape = ProfilePageShape
+                shape = pageShape
                 clip = true
                 shadowElevation = 0f
             }
@@ -1145,7 +1146,7 @@ private fun BrainPowerBalancePage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (showRulesDialog) Modifier.blur(2.dp) else Modifier)
+                .then(if (showRulesDialog) Modifier.blur(ds.sm(2.dp)) else Modifier)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = ds.sw(18.dp)),
@@ -2397,17 +2398,18 @@ private fun FeedbackContent(
         lastPickedImagesSize = size
     }
 
+    val ds = LocalDesignScale.current
     val labelColor = Color(0xFF1F2535)
     val asteriskColor = Color(0xFFE84026)
     val inputTextColor = Color(0xFF1F2535)
     val placeholderColor = Color(0xFFBBBBBB)
     val labelTextStyle = TextStyle(
-        fontSize = 16.sp,
+        fontSize = ds.sp(16f),
         fontWeight = FontWeight.Medium,
         color = labelColor,
     )
     val inputTextStyle = TextStyle(
-        fontSize = 14.sp,
+        fontSize = ds.sp(14f),
         fontWeight = FontWeight.Normal,
         color = inputTextColor,
     )
@@ -2428,7 +2430,7 @@ private fun FeedbackContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
             // ── 反馈标题 输入框 ──
             FeedbackInputBox {
@@ -2453,7 +2455,7 @@ private fun FeedbackContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
             // ── 反馈描述 label ──
             Row {
@@ -2464,7 +2466,7 @@ private fun FeedbackContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
             // ── 反馈描述 输入框（高度随内容增长） ──
             FeedbackInputBox {
@@ -2489,7 +2491,7 @@ private fun FeedbackContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
             // ── 添加附件 ──
             Row(
@@ -2498,17 +2500,17 @@ private fun FeedbackContent(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 ) { mediaController.openGallery() },
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp)),
             ) {
                 Icon(
                     imageVector = Icons.Filled.AttachFile,
                     contentDescription = null,
                     tint = Color(0xFF1A73E9),
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(ds.sm(22.dp)),
                 )
                 Text(
                     text = "添加附件",
-                    fontSize = 16.sp,
+                    fontSize = ds.sp(16f),
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFF1A73E9),
                 )
@@ -2516,17 +2518,17 @@ private fun FeedbackContent(
 
             // ── 已选图片预览 ──
             if (attachedImages.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
                 androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp)),
+                    verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
                 ) {
                     attachedImages.forEach { uri ->
-                        Box(modifier = Modifier.size(72.dp)) {
+                        Box(modifier = Modifier.size(ds.sm(72.dp))) {
                             Surface(
                                 modifier = Modifier.fillMaxSize(),
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(ds.sm(10.dp)),
                                 color = Color(0xFFF5F5F5),
                             ) {
                                 PlatformImageThumbnail(
@@ -2540,10 +2542,10 @@ private fun FeedbackContent(
                                 color = Color.White,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(2.dp)
+                                    .padding(ds.sm(2.dp))
                                     .clip(CircleShape)
                                     .background(Color(0x99000000))
-                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    .padding(horizontal = ds.sw(4.dp), vertical = ds.sh(1.dp))
                                     .clickable { attachedImages.remove(uri) }
                             )
                         }
@@ -2553,20 +2555,20 @@ private fun FeedbackContent(
 
             // ── 已选文件列表 ──
             if (attachedFiles.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
                     attachedFiles.forEach { file ->
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(ds.sm(10.dp)),
                             color = Color(0xFFF5F5F5),
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
                             ) {
                                 Text(
                                     text = file.displayName,
@@ -2589,7 +2591,7 @@ private fun FeedbackContent(
             }
 
             if (errorMessage != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
                 Text(
                     text = errorMessage!!,
                     style = MaterialTheme.typography.bodySmall,
@@ -2597,7 +2599,7 @@ private fun FeedbackContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
         }
 
         // ── 底部 创建工单 按钮 ──
@@ -2605,9 +2607,9 @@ private fun FeedbackContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp)
-                .height(48.dp)
-                .clip(RoundedCornerShape(100.dp))
+                .padding(vertical = ds.sh(16.dp))
+                .height(ds.sh(48.dp))
+                .clip(RoundedCornerShape(ds.sm(100.dp)))
                 .background(
                     if (canSubmit) Color(0xFF1F2535)
                     else Color(0xFF1F2535).copy(alpha = 0.5f)
@@ -2636,7 +2638,7 @@ private fun FeedbackContent(
             Text(
                 text = if (isSubmitting) "提交中..." else "创建工单",
                 color = Color.White,
-                fontSize = 16.sp,
+                fontSize = ds.sp(16f),
                 fontWeight = FontWeight.Normal,
                 textAlign = TextAlign.Center,
             )
@@ -2647,18 +2649,19 @@ private fun FeedbackContent(
 /* 反馈表单输入框容器：白底、12dp 圆角、14dp 纵向 + 12dp 横向 padding、柔和阴影 */
 @Composable
 private fun FeedbackInputBox(content: @Composable () -> Unit) {
+    val ds = LocalDesignScale.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
                 elevation = 4.dp,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(ds.sm(12.dp)),
                 ambientColor = Color.Black.copy(alpha = 0.02f),
                 spotColor = Color.Black.copy(alpha = 0.04f),
             )
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(ds.sm(12.dp)))
             .background(Color.White)
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+            .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(14.dp)),
     ) {
         content()
     }
@@ -2668,8 +2671,9 @@ private fun FeedbackInputBox(content: @Composable () -> Unit) {
 private fun FeedbackSuccessDialog(
     onDismiss: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(ds.sm(20.dp)),
         color = Color.White,
         shadowElevation = 6.dp,
         modifier = Modifier
@@ -2679,9 +2683,9 @@ private fun FeedbackSuccessDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(ds.sh(16.dp))
         ) {
             Text(
                 text = "提交成功",
@@ -2699,7 +2703,7 @@ private fun FeedbackSuccessDialog(
             TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(ds.sm(12.dp)),
                 colors = ButtonDefaults.textButtonColors(
                     containerColor = Color(0xFF111111)
                 )
@@ -2720,6 +2724,7 @@ private fun DeleteAccountContent(
     onSuccess: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     val scope = rememberCoroutineScope()
     val usePhone = phone.isNotEmpty()
     val account = if (usePhone) phone else email
@@ -2731,7 +2736,7 @@ private fun DeleteAccountContent(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(ds.sh(16.dp))
     ) {
         Text(
             text = "确认删除账户",
@@ -2741,14 +2746,14 @@ private fun DeleteAccountContent(
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(ds.sm(16.dp)),
             color = Color(0xFFF5F5F5),
         ) {
             Text(
                 text = "一旦你的账户被删除，所有数据将被永久移除且无法恢复。你的订阅将在你的账户被删除时自动取消",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFF666666),
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(ds.sm(16.dp))
             )
         }
 
@@ -2792,13 +2797,13 @@ private fun DeleteAccountContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(bottom = ds.sh(32.dp)),
+            horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
         ) {
             OutlinedButton(
                 onClick = onCancel,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(ds.sm(12.dp)),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDDDDDD))
             ) {
                 Text("取消", color = Color(0xFF666666))
@@ -2832,7 +2837,7 @@ private fun DeleteAccountContent(
                 },
                 enabled = !isLoading,
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(ds.sm(12.dp)),
                 colors = ButtonDefaults.textButtonColors(
                     containerColor = Color(0xFFFF4444)
                 )
@@ -2851,8 +2856,9 @@ private fun ClearCacheConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(ds.sm(20.dp)),
         color = Color.White,
         shadowElevation = 6.dp,
         modifier = Modifier
@@ -2862,47 +2868,47 @@ private fun ClearCacheConfirmDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
         ) {
             Text(
                 text = "清除缓存",
-                fontSize = 20.sp,
+                fontSize = ds.sp(20f),
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFF1F2535),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
             Text(
                 text = "缓存数据有助于加快加载速度，清除可能会导致内容重新加载",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF717580),
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(100.dp))
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
                         .background(Color.Black.copy(alpha = 0.05f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) { onDismiss() }
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = ds.sh(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "取消",
-                        fontSize = 16.sp,
+                        fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
                         color = Color(0xFF1F2535),
                     )
@@ -2911,18 +2917,18 @@ private fun ClearCacheConfirmDialog(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(100.dp))
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
                         .background(Color.Black.copy(alpha = 0.05f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) { onConfirm() }
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = ds.sh(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "清除",
-                        fontSize = 16.sp,
+                        fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
                         color = Color(0xFFE84026),
                     )
@@ -2939,8 +2945,9 @@ private fun LogoutConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Surface(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(ds.sm(20.dp)),
         color = Color.White,
         shadowElevation = 6.dp,
         modifier = Modifier
@@ -2950,47 +2957,47 @@ private fun LogoutConfirmDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
         ) {
             Text(
                 text = "退出登录",
-                fontSize = 20.sp,
+                fontSize = ds.sp(20f),
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFF1F2535),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
             Text(
                 text = "确定要退出吗？退出登录不会丢失数据，您仍然可以再次登录此账号",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF717580),
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
             ) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(100.dp))
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
                         .background(Color.Black.copy(alpha = 0.05f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) { onDismiss() }
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = ds.sh(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "取消",
-                        fontSize = 16.sp,
+                        fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
                         color = Color(0xFF1F2535),
                     )
@@ -2999,18 +3006,18 @@ private fun LogoutConfirmDialog(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(100.dp))
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
                         .background(Color.Black.copy(alpha = 0.05f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) { onConfirm() }
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = ds.sh(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "退出",
-                        fontSize = 16.sp,
+                        fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
                         color = Color(0xFFE84026),
                     )
@@ -3028,6 +3035,7 @@ private fun MyDevicesContent(
     onConfigureWifi: (com.cephalon.lucyApp.api.LucyDevice) -> Unit = {},
     onSwitchDevice: (devices: List<com.cephalon.lucyApp.api.LucyDevice>, currentCdi: String) -> Unit = { _, _ -> },
 ) {
+    val ds = LocalDesignScale.current
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val authRepository = koinInject<AuthRepository>()
     val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
@@ -3047,7 +3055,7 @@ private fun MyDevicesContent(
 
     if (isLoading) {
         Box(
-            modifier = Modifier.fillMaxWidth().height(200.dp),
+            modifier = Modifier.fillMaxWidth().height(ds.sh(200.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text("加载中...", color = Color(0xFF999999))
@@ -3057,7 +3065,7 @@ private fun MyDevicesContent(
 
     if (backendDevices.isEmpty()) {
         Box(
-            modifier = Modifier.fillMaxWidth().height(200.dp),
+            modifier = Modifier.fillMaxWidth().height(ds.sh(200.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text("暂无设备", color = Color(0xFF999999))
@@ -3085,7 +3093,7 @@ private fun MyDevicesContent(
         onConfigureWifi = { onConfigureWifi(currentDevice) },
     )
 
-    Spacer(modifier = Modifier.height(20.dp))
+    Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 }
 
 @Composable
@@ -3097,6 +3105,7 @@ private fun DeviceCard(
     onAddNewDevice: () -> Unit = {},
     onConfigureWifi: () -> Unit = {},
 ) {
+    val ds = LocalDesignScale.current
     // 主标题显示设备 id（按设计稿要求，取 channelDeviceId → serialNumber → id 兜底）
     val deviceIdDisplay = device.channelDeviceId.ifBlank {
         device.serialNumber.ifBlank { device.id }
@@ -3126,21 +3135,21 @@ private fun DeviceCard(
             .fillMaxWidth()
             .shadow(
                 elevation = 15.dp,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(ds.sm(16.dp)),
                 ambientColor = Color.Black.copy(alpha = 0.15f),
                 spotColor = Color.Black.copy(alpha = 0.3f),
             )
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, Color.White, RoundedCornerShape(16.dp))
-            .padding(start = 16.dp, top = 15.dp, end = 16.dp, bottom = 17.dp),
+            .clip(RoundedCornerShape(ds.sm(16.dp)))
+            .border(1.dp, Color.White, RoundedCornerShape(ds.sm(16.dp)))
+            .padding(start = ds.sw(16.dp), top = ds.sh(15.dp), end = ds.sw(16.dp), bottom = ds.sh(17.dp)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
     ) {
         // 56x56 深色图标容器
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .size(ds.sm(56.dp))
+                .clip(RoundedCornerShape(ds.sm(16.dp)))
                 .background(Color(0xFF1F2535)),
             contentAlignment = Alignment.Center
         ) {
@@ -3148,7 +3157,7 @@ private fun DeviceCard(
                 painter = painterResource(Res.drawable.ic_device_storage),
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(width = 26.dp, height = 21.dp)
+                modifier = Modifier.size(width = ds.sm(26.dp), height = ds.sm(21.dp))
             )
         }
 
@@ -3156,16 +3165,16 @@ private fun DeviceCard(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = deviceIdDisplay,
-                fontSize = 18.sp,
+                fontSize = ds.sp(18f),
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFF12192B),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
             Text(
                 text = statusText,
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF595E6B),
             )
@@ -3174,20 +3183,20 @@ private fun DeviceCard(
         // 右侧连接状态
         Text(
             text = rightText,
-            fontSize = 12.sp,
+            fontSize = ds.sp(12f),
             fontWeight = FontWeight.Normal,
-            lineHeight = 16.sp,
+            lineHeight = ds.sp(16f),
             color = rightColor,
             textAlign = TextAlign.End,
         )
     }
 
-    Spacer(modifier = Modifier.height(20.dp))
+    Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
     // ── 切换设备 + 添加新设备 ──
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
     ) {
         DeviceActionButton(
             text = "切换设备",
@@ -3203,7 +3212,7 @@ private fun DeviceCard(
         )
     }
 
-    Spacer(modifier = Modifier.height(12.dp))
+    Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
     // ── 配置 WIFI ──
     DeviceActionButton(
@@ -3221,7 +3230,8 @@ private fun DeviceActionButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
-    val shape = RoundedCornerShape(100.dp)
+    val ds = LocalDesignScale.current
+    val shape = RoundedCornerShape(ds.sm(100.dp))
     val bgBrush = if (filled) {
         Brush.verticalGradient(
             listOf(
@@ -3251,12 +3261,12 @@ private fun DeviceActionButton(
             .background(bgBrush)
             .border(1.dp, Color.White, shape)
             .clickable { onClick() }
-            .padding(vertical = 14.dp),
+            .padding(vertical = ds.sh(14.dp)),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
-            fontSize = 16.sp,
+            fontSize = ds.sp(16f),
             fontWeight = FontWeight.Normal,
             color = textColor
         )
@@ -3271,6 +3281,7 @@ private fun SwitchDeviceContent(
     pendingCdi: String,
     onDeviceClicked: (com.cephalon.lucyApp.api.LucyDevice) -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val onlineCdis by sdkSessionManager.onlineDeviceCdis.collectAsState()
     val observerHasEmitted by sdkSessionManager.deviceObserverHasEmitted.collectAsState()
@@ -3278,7 +3289,7 @@ private fun SwitchDeviceContent(
 
     if (devices.isEmpty()) {
         Box(
-            modifier = Modifier.fillMaxWidth().height(120.dp),
+            modifier = Modifier.fillMaxWidth().height(ds.sh(120.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text("暂无可用设备", color = Color(0xFF999999))
@@ -3296,7 +3307,7 @@ private fun SwitchDeviceContent(
                 onClick = { onDeviceClicked(device) }
             )
             if (index != devices.lastIndex) {
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(ds.sh(20.dp)))
             }
         }
     }
@@ -3892,12 +3903,13 @@ private fun SwitchDeviceItem(
     isCheckingOnline: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     // 主标题显示设备 id（channelDeviceId → serialNumber → id 兜底）
     val deviceIdDisplay = device.channelDeviceId.ifBlank {
         device.serialNumber.ifBlank { device.id }
     }
 
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(ds.sm(16.dp))
     // 选中：深色 #1F2535；默认：浅色半透明白（页面底色为白，故用轻微灰色呈现玻璃质感）
     val cardBgBrush = if (isSelected) {
         Brush.verticalGradient(
@@ -3950,15 +3962,15 @@ private fun SwitchDeviceItem(
             .background(cardBgBrush)
             .border(1.dp, Color.White, shape)
             .clickable { onClick() }
-            .padding(16.dp),
+            .padding(ds.sm(16.dp)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp)),
     ) {
         // 56x56 图标容器（选中态为白色，默认为深色）
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .size(ds.sm(56.dp))
+                .clip(RoundedCornerShape(ds.sm(16.dp)))
                 .background(iconBoxColor),
             contentAlignment = Alignment.Center,
         ) {
@@ -3966,7 +3978,7 @@ private fun SwitchDeviceItem(
                 painter = painterResource(Res.drawable.ic_device_storage),
                 contentDescription = null,
                 tint = iconTint,
-                modifier = Modifier.size(width = 26.dp, height = 21.dp),
+                modifier = Modifier.size(width = ds.sm(26.dp), height = ds.sm(21.dp)),
             )
         }
 
@@ -3974,27 +3986,27 @@ private fun SwitchDeviceItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = deviceIdDisplay,
-                fontSize = 18.sp,
+                fontSize = ds.sp(18f),
                 fontWeight = FontWeight.Medium,
                 color = idColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
             Text(
                 text = statusText,
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = statusColor,
             )
         }
 
-        // 右侧状态标签（选中时显示 "当前选择"）
+        // 右侧状态标签（选中时显示 “当前选择”）
         Text(
             text = rightText,
-            fontSize = 12.sp,
+            fontSize = ds.sp(12f),
             fontWeight = FontWeight.Normal,
-            lineHeight = 16.sp,
+            lineHeight = ds.sp(16f),
             color = rightColor,
             textAlign = TextAlign.End,
         )

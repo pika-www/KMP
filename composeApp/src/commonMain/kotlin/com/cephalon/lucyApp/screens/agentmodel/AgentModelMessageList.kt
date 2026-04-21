@@ -210,8 +210,8 @@ internal fun AgentModelMessageList(
 
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
-                        val imageCellSize = ((bubbleMaxWidth - 28.dp - 8.dp) / 2).coerceAtMost(132.dp)
-                        val fileCellWidth = (bubbleMaxWidth - 28.dp - 8.dp) / 2
+                        val imageCellSize = ((bubbleMaxWidth - ds.sw(28.dp) - ds.sw(8.dp)) / 2).coerceAtMost(ds.sm(132.dp))
+                        val fileCellWidth = (bubbleMaxWidth - ds.sw(28.dp) - ds.sw(8.dp)) / 2
                         Surface(
                             // 右侧用户附件气泡同样 22dp，和文字气泡视觉一致
                             shape = RoundedCornerShape(ds.sm(22.dp)),
@@ -351,7 +351,7 @@ internal fun AgentModelMessageList(
                             color = Color(0xFF8A8A8A),
                             modifier = Modifier
                                 .background(Color.Transparent)
-                                .padding(vertical = 2.dp)
+                                .padding(vertical = ds.sh(2.dp))
                         )
                     }
                 }
@@ -359,7 +359,7 @@ internal fun AgentModelMessageList(
                 is ChatItem.RecordingItem -> {
                     BubbleContainer(alignEnd = false) { bubbleMaxWidth ->
                         Card(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(ds.sm(16.dp)),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
                             border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
                             modifier = Modifier
@@ -369,16 +369,16 @@ internal fun AgentModelMessageList(
                         ) {
                             Row(
                                 modifier = Modifier
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(12.dp)),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
                             ) {
                                 androidx.compose.material3.Icon(
                                     imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                                     contentDescription = null,
                                     tint = Color(0xFF111111)
                                 )
-                                Column(modifier = Modifier.widthIn(max = bubbleMaxWidth - 140.dp)) {
+                                Column(modifier = Modifier.widthIn(max = bubbleMaxWidth - ds.sw(140.dp))) {
                                     Text(
                                         text = item.name,
                                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -1082,11 +1082,12 @@ private fun ImageAttachmentCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val ds = LocalDesignScale.current
     if (attachment == null) {
         Spacer(modifier = modifier)
     } else {
         Card(
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(ds.sm(12.dp)),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF2B2B2B)),
             modifier = modifier
                 .clickable { onClick() }

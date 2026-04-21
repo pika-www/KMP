@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.LocalDesignScale
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -59,28 +60,29 @@ internal fun AgentModelDrawerContent(
     onOpenSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val ds = LocalDesignScale.current
     Column(
         modifier = modifier
             .fillMaxHeight()
             .statusBarsPadding()
-            .padding(top = 8.dp)
+            .padding(top = ds.sh(8.dp))
     ) {
         // ---- header: "我的聊天" + 搜索 ----
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(12.dp)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(ds.sm(16.dp)),
                 color = Color(0xFF222222)
             ) {
                 Text(
                     text = "我的聊天",
                     style = MaterialTheme.typography.titleSmall,
                     color = Color.White,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(horizontal = ds.sw(14.dp), vertical = ds.sh(6.dp))
                 )
             }
 
@@ -100,7 +102,7 @@ internal fun AgentModelDrawerContent(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(ds.sh(4.dp))
         ) {
             itemsIndexed(
                 items = conversations,
@@ -119,14 +121,14 @@ internal fun AgentModelDrawerContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(ds.sm(16.dp)),
             contentAlignment = Alignment.CenterEnd
         ) {
             Surface(
                 shape = CircleShape,
                 color = Color(0xFF222222),
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(ds.sm(44.dp))
                     .clickable { onNewChat() }
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -134,7 +136,7 @@ internal fun AgentModelDrawerContent(
                         imageVector = Icons.Default.Add,
                         contentDescription = "新对话",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(ds.sm(22.dp))
                     )
                 }
             }
@@ -150,7 +152,8 @@ private fun SwipeToDeleteItem(
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val deleteWidth = 72.dp
+    val ds = LocalDesignScale.current
+    val deleteWidth = ds.sw(72.dp)
     val deleteWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { deleteWidth.toPx() }
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -159,8 +162,8 @@ private fun SwipeToDeleteItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .padding(horizontal = ds.sw(8.dp))
+            .clip(RoundedCornerShape(ds.sm(12.dp)))
     ) {
         // 底层：删除按钮（右侧）
         Box(
@@ -168,7 +171,7 @@ private fun SwipeToDeleteItem(
                 .align(Alignment.CenterEnd)
                 .width(deleteWidth)
                 .matchParentSize()
-                .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+                .clip(RoundedCornerShape(topEnd = ds.sm(12.dp), bottomEnd = ds.sm(12.dp)))
                 .background(Color(0xFFE53935))
                 .clickable {
                     if (isConfirmingDelete) {
@@ -219,7 +222,7 @@ private fun SwipeToDeleteItem(
                     isConfirmingDelete = false
                     onClick()
                 },
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(ds.sm(12.dp)),
             color = if (isSelected) Color(0xFFF0F0F0) else Color(0xFFF8F8F8)
         ) {
             Text(
@@ -230,7 +233,7 @@ private fun SwipeToDeleteItem(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp))
             )
         }
     }

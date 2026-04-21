@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.LocalDesignScale
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.media.PlatformImagePreview
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
@@ -53,6 +54,7 @@ internal fun AgentModelImagePreview(
 
     val currentIndex = pagerState.currentPage
     val coroutineScope = rememberCoroutineScope()
+    val ds = LocalDesignScale.current
 
     Box(
         modifier = modifier
@@ -70,7 +72,7 @@ internal fun AgentModelImagePreview(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = ds.sw(8.dp), vertical = ds.sh(8.dp)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
@@ -90,7 +92,7 @@ internal fun AgentModelImagePreview(
                 )
 
                 Spacer(modifier = Modifier.weight(1f))
-                Spacer(modifier = Modifier.width(48.dp))
+                Spacer(modifier = Modifier.width(ds.sw(48.dp)))
             }
 
             // 主图区域 - HorizontalPager 支持左右滑动
@@ -99,7 +101,7 @@ internal fun AgentModelImagePreview(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                pageSpacing = 16.dp,
+                pageSpacing = ds.sw(16.dp),
                 beyondViewportPageCount = 1
             ) { page ->
                 Box(
@@ -120,21 +122,21 @@ internal fun AgentModelImagePreview(
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
+                        .padding(vertical = ds.sh(12.dp)),
+                    horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp)),
+                    contentPadding = PaddingValues(horizontal = ds.sw(16.dp))
                 ) {
                     itemsIndexed(images) { index, uri ->
                         val isSelected = index == currentIndex
                         Card(
                             modifier = Modifier
-                                .size(width = 58.dp, height = 72.dp)
+                                .size(width = ds.sw(58.dp), height = ds.sh(72.dp))
                                 .clickable {
                                     coroutineScope.launch {
                                         pagerState.animateScrollToPage(index)
                                     }
                                 },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(ds.sm(14.dp)),
                             border = if (isSelected) {
                                 BorderStroke(width = 2.dp, color = Color.White)
                             } else null,

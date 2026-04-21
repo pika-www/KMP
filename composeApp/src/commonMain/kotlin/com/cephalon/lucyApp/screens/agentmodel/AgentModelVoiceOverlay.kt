@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.time.currentTimeMillis
 import kotlinx.coroutines.delay
 
@@ -63,19 +64,20 @@ internal fun AgentModelVoiceRecordingOverlay(
         )
     )
 
+    val ds = LocalDesignScale.current
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(240.dp)
+            .height(ds.sh(240.dp))
             .background(gradient)
     ) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(bottom = 22.dp),
+                .padding(bottom = ds.sh(22.dp)),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(ds.sh(14.dp))
         ) {
             Text(
                 text = "录音时长",
@@ -90,19 +92,19 @@ internal fun AgentModelVoiceRecordingOverlay(
             )
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(4.dp)),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(ds.sm(18.dp)))
                     .background(Color(0x33000000))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(10.dp))
             ) {
                 val bars = listOf(6, 10, 14, 10, 6, 12, 18, 12, 6, 10, 14, 10)
                 bars.forEach { h ->
                     Box(
                         modifier = Modifier
-                            .width(3.dp)
-                            .height(h.dp)
+                            .width(ds.sw(3.dp))
+                            .height(ds.sh(h.dp))
                             .clip(RoundedCornerShape(99.dp))
                             .background(Color.White)
                     )
@@ -112,7 +114,7 @@ internal fun AgentModelVoiceRecordingOverlay(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 28.dp),
+                    .padding(horizontal = ds.sw(28.dp)),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -122,7 +124,7 @@ internal fun AgentModelVoiceRecordingOverlay(
                     onClick = onCancel
                 )
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(ds.sw(16.dp)))
 
                 VoiceActionButton(
                     icon = Icons.Default.Check,
@@ -140,22 +142,23 @@ private fun VoiceActionButton(
     label: String,
     onClick: () -> Unit,
 ) {
+    val ds = LocalDesignScale.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp)),
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0x33000000))
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = ds.sw(14.dp), vertical = ds.sh(10.dp))
     ) {
         Surface(
             shape = RoundedCornerShape(999.dp),
             color = Color.White.copy(alpha = 0.18f),
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(ds.sm(28.dp))
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(ds.sm(16.dp)))
             }
         }
         Text(

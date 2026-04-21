@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.api.LucyDevice
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
 
@@ -33,6 +34,7 @@ internal fun WifiConfigSheet(
     onDismiss: () -> Unit,
 ) {
     val openWifiSettings = rememberOpenWifiSettings()
+    val ds = LocalDesignScale.current
 
     HalfModalBottomSheet(
         isVisible = isVisible,
@@ -42,9 +44,9 @@ internal fun WifiConfigSheet(
         onBack = onDismiss,
         showCloseButton = false,
         showTopBar = true,
-        containerShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+        containerShape = RoundedCornerShape(topStart = ds.sm(32.dp), topEnd = ds.sm(32.dp)),
         containerColor = Color(0xFFF5F5F7),
-        topPadding = 120.dp,
+        topPadding = ds.sh(120.dp),
         contentPadding = null
     ) {
         if (device == null) return@HalfModalBottomSheet
@@ -56,25 +58,25 @@ internal fun WifiConfigSheet(
             color = Color(0xFF111111)
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
         // ── 设备信息卡片 ──
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(ds.sm(16.dp)),
             color = Color.White
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(14.dp),
+                    .padding(ds.sm(14.dp)),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(ds.sm(12.dp)),
                     color = Color(0xFFE6E6E6),
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(ds.sm(44.dp))
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
@@ -104,21 +106,21 @@ internal fun WifiConfigSheet(
 
                 if (device.status == "online" || device.status == "free") {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(ds.sm(8.dp)),
                         color = Color(0xFFE8F5E9)
                     ) {
                         Text(
                             text = "已连接",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                             color = Color(0xFF34C759),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(4.dp))
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
         // ── 打开系统WiFi设置按钮 ──
         Surface(
@@ -128,13 +130,13 @@ internal fun WifiConfigSheet(
                     openWifiSettings()
                     onDismiss()
                 },
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(ds.sm(14.dp)),
             color = Color(0xFF1F2535)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 14.dp),
+                    .padding(vertical = ds.sh(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -145,7 +147,7 @@ internal fun WifiConfigSheet(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(ds.sh(10.dp)))
 
         Text(
             text = "点击后将跳转到系统WiFi设置页面，请在系统设置中完成WiFi连接后返回",

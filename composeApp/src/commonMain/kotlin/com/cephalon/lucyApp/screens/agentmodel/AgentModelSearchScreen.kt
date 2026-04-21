@@ -41,6 +41,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.components.LocalDesignScale
 
 @Composable
 internal fun AgentModelSearchScreen(
@@ -62,6 +63,7 @@ internal fun AgentModelSearchScreen(
         focusRequester.requestFocus()
     }
 
+    val ds = LocalDesignScale.current
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -72,31 +74,31 @@ internal fun AgentModelSearchScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(ds.sm(20.dp)))
                     .background(Color.White)
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = ds.sw(12.dp)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
                     tint = Color(0xFF999999),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(ds.sm(18.dp))
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(ds.sw(8.dp)))
                 BasicTextField(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
                     textStyle = TextStyle(
-                        fontSize = 15.sp,
+                        fontSize = ds.sp(15f),
                         color = Color(0xFF333333)
                     ),
                     cursorBrush = SolidColor(Color(0xFF333333)),
@@ -108,7 +110,7 @@ internal fun AgentModelSearchScreen(
                             if (query.isEmpty()) {
                                 Text(
                                     text = "搜索对话...",
-                                    style = TextStyle(fontSize = 15.sp, color = Color(0xFFBBBBBB))
+                                    style = TextStyle(fontSize = ds.sp(15f), color = Color(0xFFBBBBBB))
                                 )
                             }
                             innerTextField()
@@ -117,7 +119,7 @@ internal fun AgentModelSearchScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(ds.sw(10.dp)))
 
             Text(
                 text = "取消",
@@ -132,17 +134,17 @@ internal fun AgentModelSearchScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = ds.sw(12.dp)),
+            verticalArrangement = Arrangement.spacedBy(ds.sh(4.dp))
         ) {
             items(filtered, key = { it.id }) { item ->
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp)))
                         .background(Color.White)
                         .clickable { onSelect(item) }
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp))
                 ) {
                     Text(
                         text = item.displayTitle(),
@@ -159,7 +161,7 @@ internal fun AgentModelSearchScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 40.dp),
+                            .padding(vertical = ds.sh(40.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
