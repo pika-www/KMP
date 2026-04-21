@@ -134,6 +134,7 @@ private class IOSPlatformMediaAccessController(
     override val pickedImages: List<String>,
     override val pickedFiles: List<PickedFile>,
     override val recentImages: List<String>,
+    override val hasMoreRecentImages: Boolean,
     override val playingRecordingId: String?,
     override val audioPlaybackState: AudioPlaybackState,
     private val onOpenCamera: () -> Unit,
@@ -150,6 +151,7 @@ private class IOSPlatformMediaAccessController(
     private val onSkipAudioPlaybackBy: (Long) -> Unit,
     private val onStopAudioPlayback: () -> Unit,
     private val onRefreshRecentImages: () -> Unit,
+    private val onLoadMoreRecentImages: () -> Unit,
     private val onReadUriToBytes: suspend (String) -> ByteArray?,
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
@@ -181,6 +183,8 @@ private class IOSPlatformMediaAccessController(
 
     override fun refreshRecentImages() = onRefreshRecentImages()
 
+    override fun loadMoreRecentImages() = onLoadMoreRecentImages()
+
     override suspend fun readUriToBytes(uri: String): ByteArray? = onReadUriToBytes(uri)
 }
 
@@ -194,6 +198,8 @@ actual fun rememberPlatformMediaAccessController(
     val pickedImages = remember { mutableStateListOf<String>() }
     val pickedFiles = remember { mutableStateListOf<PickedFile>() }
     val recentImages = remember { mutableStateListOf<String>() }
+    var hasMoreRecentImages by remember { mutableStateOf(false) }
+    var allPhotosFetchResult by remember { mutableStateOf<PHFetchResult?>(null) }
     var isRecording by remember { mutableStateOf(false) }
     var audioRecorder by remember { mutableStateOf<AVAudioRecorder?>(null) }
     var audioPlayer by remember { mutableStateOf<AVAudioPlayer?>(null) }
@@ -232,36 +238,44 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
-    fun loadRecentImages() {
+    val recentImagesPageSize = 24
+
+    fun loadRecentImagesPage(reset: Boolean) {
         try {
-            val options = PHFetchOptions().apply {
-                sortDescriptors = listOf<NSSortDescriptor>(
-                    NSSortDescriptor.sortDescriptorWithKey("creationDate", ascending = false)
-                )
-                fetchLimit = 24u
+            if (reset) {
+                val options = PHFetchOptions().apply {
+                    sortDescriptors = listOf<NSSortDescriptor>(
+                        NSSortDescriptor.sortDescriptorWithKey("creationDate", ascending = false)
+                    )
+                }
+                allPhotosFetchResult = PHAsset.fetchAssetsWithMediaType(PHAssetMediaTypeImage, options)
+                recentImages.clear()
             }
-            val result: PHFetchResult = PHAsset.fetchAssetsWithMediaType(PHAssetMediaTypeImage, options)
-            val uris = buildList {
-                val count = result.count.toInt()
-                for (i in 0 until count) {
+            val result = allPhotosFetchResult ?: return
+            val totalCount = result.count.toInt()
+            val offset = recentImages.size
+            val end = (offset + recentImagesPageSize).coerceAtMost(totalCount)
+            val newUris = buildList {
+                for (i in offset until end) {
                     val asset = result.objectAtIndex(i.toULong()) as? PHAsset ?: continue
-                    val id = asset.localIdentifier
-                    add("ios-phasset://$id")
+                    add("ios-phasset://${asset.localIdentifier}")
                 }
             }
-            recentImages.clear()
-            recentImages.addAll(uris)
+            recentImages.addAll(newUris)
+            hasMoreRecentImages = end < totalCount
             currentOnEvent.value(
-                if (uris.isEmpty()) {
+                if (recentImages.isEmpty()) {
                     "已授权相册读取，但未读取到近期照片。"
                 } else {
-                    "已加载 ${uris.size} 张近期照片。"
+                    "已加载 ${recentImages.size} 张照片。"
                 }
             )
         } catch (t: Throwable) {
             currentOnEvent.value("读取近期照片失败: ${t.message.orEmpty()}")
         }
     }
+
+    fun loadRecentImages() = loadRecentImagesPage(reset = true)
 
     fun resetAudioPlaybackState() {
         audioPlaybackState = AudioPlaybackState()
@@ -352,6 +366,7 @@ actual fun rememberPlatformMediaAccessController(
         pickedImages.size,
         pickedFiles.size,
         recentImages.size,
+        hasMoreRecentImages,
         playingRecordingId,
         audioPlaybackState
     ) {
@@ -361,6 +376,7 @@ actual fun rememberPlatformMediaAccessController(
             pickedImages = pickedImages,
             pickedFiles = pickedFiles,
             recentImages = recentImages,
+            hasMoreRecentImages = hasMoreRecentImages,
             playingRecordingId = playingRecordingId,
             audioPlaybackState = audioPlaybackState,
             onOpenCamera = {
@@ -608,6 +624,11 @@ actual fun rememberPlatformMediaAccessController(
                     readFileUriToBytes(uri)
                 }
             },
+            onLoadMoreRecentImages = {
+                if (hasMoreRecentImages) {
+                    loadRecentImagesPage(reset = false)
+                }
+            },
             onRefreshRecentImages = {
                 when (photoLibraryAuthorizationStatus()) {
                     PHAuthorizationStatusAuthorized,
@@ -624,6 +645,7 @@ actual fun rememberPlatformMediaAccessController(
                                 } else {
                                     currentOnEvent.value("相册权限被拒绝，无法展示近期照片。")
                                     recentImages.clear()
+                                    hasMoreRecentImages = false
                                 }
                             }
                         }

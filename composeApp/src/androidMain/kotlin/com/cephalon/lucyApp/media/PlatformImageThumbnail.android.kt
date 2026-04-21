@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.media
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.withContext
 
 @Composable
 actual fun PlatformImageThumbnail(
@@ -52,23 +56,28 @@ actual fun PlatformImagePreview(
     }
 }
 
+private val thumbnailCache = LruCache<String, ImageBitmap>(150)
+
 @Composable
 private fun rememberPlatformImageBitmap(uri: String): ImageBitmap? {
     val context = LocalContext.current
 
-    val imageBitmapState by produceState<ImageBitmap?>(initialValue = null, key1 = uri) {
-        value = try {
-            if (uri.startsWith("android-bitmap-preview://")) {
-                null
-            } else {
-                val parsed = Uri.parse(uri)
-                context.contentResolver.openInputStream(parsed)?.use { input ->
-                    val bmp = BitmapFactory.decodeStream(input) ?: return@use null
-                    bmp.asImageBitmap()
+    val imageBitmapState by produceState<ImageBitmap?>(initialValue = thumbnailCache.get(uri), key1 = uri) {
+        thumbnailCache.get(uri)?.let { value = it; return@produceState }
+        value = withContext(Dispatchers.IO) {
+            try {
+                if (uri.startsWith("android-bitmap-preview://")) {
+                    null
+                } else {
+                    val parsed = Uri.parse(uri)
+                    val bitmap = context.contentResolver.openInputStream(parsed)?.use { input ->
+                        BitmapFactory.decodeStream(input)?.asImageBitmap()
+                    }
+                    bitmap?.also { thumbnailCache.put(uri, it) }
                 }
+            } catch (_: Throwable) {
+                null
             }
-        } catch (_: Throwable) {
-            null
         }
     }
 

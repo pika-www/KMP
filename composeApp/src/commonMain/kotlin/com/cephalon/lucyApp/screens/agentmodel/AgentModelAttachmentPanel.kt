@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,8 +40,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +57,8 @@ import com.cephalon.lucyApp.media.PlatformImageThumbnail
 @Composable
 internal fun AgentModelAttachmentPanel(
     recentImages: List<String>,
+    hasMoreRecentImages: Boolean,
+    onLoadMoreRecentImages: () -> Unit,
     onOpenCamera: () -> Unit,
     onOpenFilePicker: () -> Unit,
     onImagesSelected: (List<String>) -> Unit,
@@ -62,11 +68,24 @@ internal fun AgentModelAttachmentPanel(
     val ds = LocalDesignScale.current
     var expanded by remember { mutableStateOf(false) }
     val selectedUris = remember { mutableStateListOf<String>() }
+    val gridState = rememberLazyGridState()
 
-    // 默认显示 3 行 × 4 列 = 12 格，前 2 格是功能按钮，剩余 10 格放图片
-    // expanded 时显示更多图片（80% 屏幕高度）
-    val visibleImageCount = if (expanded) recentImages.size.coerceAtMost(50) else recentImages.size.coerceAtMost(10)
-    val visibleImages = recentImages.take(visibleImageCount)
+    // 收起时显示前 10 张，展开时显示全部已加载的图片
+    val visibleImages = if (expanded) recentImages else recentImages.take(10)
+
+    // 展开模式下，滚动到底部自动加载更多
+    if (expanded && hasMoreRecentImages) {
+        LaunchedEffect(gridState, hasMoreRecentImages) {
+            snapshotFlow {
+                val layoutInfo = gridState.layoutInfo
+                val totalItems = layoutInfo.totalItemsCount
+                val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisibleIndex >= totalItems - 8 // 提前 8 个 item 触发加载
+            }.distinctUntilChanged().collect { shouldLoad ->
+                if (shouldLoad) onLoadMoreRecentImages()
+            }
+        }
+    }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val parentHeight = maxHeight
@@ -148,6 +167,7 @@ internal fun AgentModelAttachmentPanel(
             // ── 图片网格 ──
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Fixed(4),
                     modifier = Modifier
                         .fillMaxSize()
@@ -185,6 +205,23 @@ internal fun AgentModelAttachmentPanel(
                                 else selectedUris.add(uri)
                             }
                         )
+                    }
+                    // 加载中提示
+                    if (expanded && hasMoreRecentImages) {
+                        item(span = { GridItemSpan(4) }) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = ds.sh(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "加载更多...",
+                                    color = Color(0xFF999999),
+                                    fontSize = ds.sp(13f)
+                                )
+                            }
+                        }
                     }
                 }
             }

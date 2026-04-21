@@ -32,6 +32,7 @@ interface PlatformMediaAccessController {
     val pickedImages: List<String>
     val pickedFiles: List<PickedFile>
     val recentImages: List<String>
+    val hasMoreRecentImages: Boolean
     val playingRecordingId: String?
     val audioPlaybackState: AudioPlaybackState
 
@@ -52,6 +53,7 @@ interface PlatformMediaAccessController {
     fun stopAudioPlayback()
 
     fun refreshRecentImages()
+    fun loadMoreRecentImages()
 
     suspend fun readUriToBytes(uri: String): ByteArray?
 }

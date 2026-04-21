@@ -25,6 +25,7 @@ import platform.Photos.PHImageContentModeAspectFill
 import platform.Photos.PHImageContentModeAspectFit
 import platform.Photos.PHImageManager
 import platform.Photos.PHImageRequestOptions
+import platform.Photos.PHImageRequestOptionsDeliveryModeFastFormat
 import platform.Photos.PHImageRequestOptionsDeliveryModeHighQualityFormat
 import platform.Photos.PHImageRequestOptionsResizeModeFast
 import platform.UIKit.UIColor
@@ -38,25 +39,44 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Image as SkiaImage
 
+private val thumbnailBitmapCache = HashMap<String, ImageBitmap>(150)
+private const val THUMBNAIL_CACHE_MAX = 200
+
 @Composable
 @OptIn(ExperimentalForeignApi::class)
 actual fun PlatformImageThumbnail(
     uri: String,
     modifier: Modifier,
 ) {
-    val image by produceState<UIImage?>(initialValue = null, key1 = uri) {
-        value = loadIosImage(
-            uri = uri,
-            targetPixels = UIScreen.mainScreen.scale * 160.0,
-            requestContentMode = PHImageContentModeAspectFill
-        )
+    val bitmap by produceState<ImageBitmap?>(initialValue = thumbnailBitmapCache[uri], key1 = uri) {
+        thumbnailBitmapCache[uri]?.let { value = it; return@produceState }
+        value = withContext(Dispatchers.IO) {
+            val uiImage = loadIosImage(
+                uri = uri,
+                targetPixels = UIScreen.mainScreen.scale * 300.0,
+                requestContentMode = PHImageContentModeAspectFill,
+                deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat
+            ) ?: return@withContext null
+            val bmp = uiImageToImageBitmap(uiImage) ?: return@withContext null
+            if (thumbnailBitmapCache.size >= THUMBNAIL_CACHE_MAX) {
+                thumbnailBitmapCache.keys.firstOrNull()?.let { thumbnailBitmapCache.remove(it) }
+            }
+            thumbnailBitmapCache[uri] = bmp
+            bmp
+        }
     }
 
-    IOSPlatformImageView(
-        image = image,
-        modifier = modifier,
-        isPreview = false
-    )
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop,
+            alignment = androidx.compose.ui.Alignment.Center
+        )
+    } else {
+        Box(modifier = modifier.background(Color(0xFFEDEDED)))
+    }
 }
 
 @Composable
@@ -70,7 +90,8 @@ actual fun PlatformImagePreview(
             val uiImage = loadIosImage(
                 uri = uri,
                 targetPixels = UIScreen.mainScreen.scale * 1200.0,
-                requestContentMode = PHImageContentModeAspectFit
+                requestContentMode = PHImageContentModeAspectFit,
+                deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat
             ) ?: return@withContext null
             uiImageToImageBitmap(uiImage)
         }
@@ -129,6 +150,7 @@ private fun loadIosImage(
     uri: String,
     targetPixels: Double,
     requestContentMode: Long,
+    deliveryMode: Long = PHImageRequestOptionsDeliveryModeFastFormat,
 ): UIImage? {
     return if (uri.startsWith("ios-phasset://")) {
         val localId = uri.removePrefix("ios-phasset://")
@@ -137,7 +159,7 @@ private fun loadIosImage(
 
         val options = PHImageRequestOptions().apply {
             resizeMode = PHImageRequestOptionsResizeModeFast
-            deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat
+            this.deliveryMode = deliveryMode
             networkAccessAllowed = true
             synchronous = true
         }
@@ -165,7 +187,7 @@ private fun loadIosImage(
 
 @OptIn(ExperimentalForeignApi::class)
 private fun uiImageToImageBitmap(uiImage: UIImage): ImageBitmap? {
-    val jpegData = UIImageJPEGRepresentation(uiImage, 0.85) ?: return null
+    val jpegData = UIImageJPEGRepresentation(uiImage, 1.0) ?: return null
     val length = jpegData.length.toInt()
     if (length == 0) return null
     val bytes = ByteArray(length)

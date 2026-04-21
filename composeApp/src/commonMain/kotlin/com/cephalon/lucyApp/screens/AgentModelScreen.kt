@@ -428,7 +428,7 @@ fun AgentModelScreen(
             }
             if (idx >= 0) msgs.removeAt(idx)
             conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
-        }
+        }   
     }
 
     fun appendMessageToConversationOnCdi(
@@ -1423,6 +1423,8 @@ fun AgentModelScreen(
                 if (attachmentsExpanded) {
                     AgentModelAttachmentPanel(
                         recentImages = mediaAccessController.recentImages,
+                        hasMoreRecentImages = mediaAccessController.hasMoreRecentImages,
+                        onLoadMoreRecentImages = { mediaAccessController.loadMoreRecentImages() },
                         onOpenCamera = {
                             mediaAccessController.openCamera()
                         },

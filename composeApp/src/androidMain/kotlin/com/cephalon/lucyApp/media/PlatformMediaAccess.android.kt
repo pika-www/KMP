@@ -56,6 +56,7 @@ private class AndroidPlatformMediaAccessController(
     override val pickedImages: List<String>,
     override val pickedFiles: List<PickedFile>,
     override val recentImages: List<String>,
+    override val hasMoreRecentImages: Boolean,
     override val playingRecordingId: String?,
     override val audioPlaybackState: AudioPlaybackState,
     private val onOpenCamera: () -> Unit,
@@ -72,6 +73,7 @@ private class AndroidPlatformMediaAccessController(
     private val onSkipAudioPlaybackBy: (Long) -> Unit,
     private val onStopAudioPlayback: () -> Unit,
     private val onRefreshRecentImages: () -> Unit,
+    private val onLoadMoreRecentImages: () -> Unit,
     private val onReadUriToBytes: suspend (String) -> ByteArray?,
 ) : PlatformMediaAccessController {
     override fun openCamera() = onOpenCamera()
@@ -103,6 +105,8 @@ private class AndroidPlatformMediaAccessController(
 
     override fun refreshRecentImages() = onRefreshRecentImages()
 
+    override fun loadMoreRecentImages() = onLoadMoreRecentImages()
+
     override suspend fun readUriToBytes(uri: String): ByteArray? = onReadUriToBytes(uri)
 }
 
@@ -116,6 +120,7 @@ actual fun rememberPlatformMediaAccessController(
     val pickedImages = remember { mutableStateListOf<String>() }
     val pickedFiles = remember { mutableStateListOf<PickedFile>() }
     val recentImages = remember { mutableStateListOf<String>() }
+    var hasMoreRecentImages by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var currentRecordingFile by remember { mutableStateOf<File?>(null) }
@@ -567,44 +572,54 @@ actual fun rememberPlatformMediaAccessController(
         }
     }
 
-    fun loadRecentImages() {
+    val recentImagesPageSize = 24
+
+    fun loadRecentImagesPage(reset: Boolean) {
         try {
             val resolver = context.contentResolver
-            val projection = arrayOf(
-                MediaStore.Images.Media._ID
-            )
+            val projection = arrayOf(MediaStore.Images.Media._ID)
             val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
-            val uris = buildList {
-                resolver.query(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    projection,
-                    null,
-                    null,
-                    sortOrder
-                )?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                    var count = 0
-                    while (cursor.moveToNext() && count < 24) {
-                        val id = cursor.getLong(idCol)
-                        val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString())
-                        add(uri.toString())
-                        count++
-                    }
+            val offset = if (reset) 0 else recentImages.size
+            val newUris = mutableListOf<String>()
+            resolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                sortOrder
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                // Skip already loaded rows
+                if (offset > 0 && !cursor.moveToPosition(offset - 1)) {
+                    hasMoreRecentImages = false
+                    return
                 }
+                var loaded = 0
+                while (cursor.moveToNext() && loaded < recentImagesPageSize) {
+                    val id = cursor.getLong(idCol)
+                    val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString())
+                    newUris.add(uri.toString())
+                    loaded++
+                }
+                hasMoreRecentImages = loaded == recentImagesPageSize && cursor.moveToNext()
             }
-            recentImages.clear()
-            recentImages.addAll(uris)
+            if (reset) {
+                recentImages.clear()
+            }
+            recentImages.addAll(newUris)
             currentOnEvent.value(
-                if (uris.isEmpty()) {
+                if (recentImages.isEmpty()) {
                     "已授权相册读取，但未读取到近期照片。"
                 } else {
-                    "已加载 ${uris.size} 张近期照片。"
+                    "已加载 ${recentImages.size} 张照片。"
                 }
             )
         } catch (t: Throwable) {
             currentOnEvent.value("读取近期照片失败: ${t.message.orEmpty()}")
         }
     }
+
+    fun loadRecentImages() = loadRecentImagesPage(reset = true)
 
     val requestReadImagesPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -783,6 +798,7 @@ actual fun rememberPlatformMediaAccessController(
         pickedImages.size,
         pickedFiles.size,
         recentImages.size,
+        hasMoreRecentImages,
         playingRecordingId,
         audioPlaybackState
     ) {
@@ -792,6 +808,7 @@ actual fun rememberPlatformMediaAccessController(
             pickedImages = pickedImages,
             pickedFiles = pickedFiles,
             recentImages = recentImages,
+            hasMoreRecentImages = hasMoreRecentImages,
             playingRecordingId = playingRecordingId,
             audioPlaybackState = audioPlaybackState,
             onOpenCamera = {
@@ -942,6 +959,11 @@ actual fun rememberPlatformMediaAccessController(
                     runCatching {
                         context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readBytes() }
                     }.getOrNull()
+                }
+            },
+            onLoadMoreRecentImages = {
+                if (hasMoreRecentImages) {
+                    loadRecentImagesPage(reset = false)
                 }
             },
             onRefreshRecentImages = refresh@{
