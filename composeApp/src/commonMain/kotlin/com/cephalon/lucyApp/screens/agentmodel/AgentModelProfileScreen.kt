@@ -592,7 +592,7 @@ internal fun AgentModelProfileScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = ds.sw(18.dp))
+                                .padding(horizontal = ds.sw(16.dp))
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             SwitchDeviceContent(
@@ -3182,6 +3182,14 @@ private fun MyDevicesContent(
     Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 }
 
+private fun deviceTypeDisplayName(deviceType: String): String = when (deviceType) {
+    "ai_npc" -> "AI NPC"
+    "claw_pi" -> "龙虾派"
+    "cloud" -> "端脑云"
+    "claw_self" -> "其他"
+    else -> ""
+}
+
 @Composable
 private fun DeviceCard(
     device: com.cephalon.lucyApp.api.LucyDevice,
@@ -3198,10 +3206,11 @@ private fun DeviceCard(
     }
 
     // 在首次 runPingAndEmit 结果到达前，展示 "检测中..." 中性灰色，避免从"离线"瞬间跳到"在线"
+    val typeLabel = deviceTypeDisplayName(device.deviceType)
     val statusText = when {
-        isCheckingOnline -> "检测中…"
-        isOnline -> "设备在线"
-        else -> "设备离线"
+        isCheckingOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 检测中…" else "检测中…"
+        isOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备在线" else "设备在线"
+        else -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备离线" else "设备离线"
     }
     val rightText = when {
         isCheckingOnline -> "检测中…"
@@ -4054,10 +4063,11 @@ private fun SwitchDeviceItem(
     val idColor = if (isSelected) Color.White else Color(0xFF12192B)
     val statusColor = if (isSelected) Color.White.copy(alpha = 0.70f) else Color(0xFF595E6B)
     // 状态文本：在 observer 尚未 emit 时显示"检测中..."，否则按在线/离线
+    val typeLabel = deviceTypeDisplayName(device.deviceType)
     val statusText = when {
-        isCheckingOnline -> "检测中…"
-        isOnline -> "设备在线"
-        else -> "设备离线"
+        isCheckingOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 检测中…" else "检测中…"
+        isOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备在线" else "设备在线"
+        else -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备离线" else "设备离线"
     }
     val rightText = when {
         isSelected -> "当前选择"
