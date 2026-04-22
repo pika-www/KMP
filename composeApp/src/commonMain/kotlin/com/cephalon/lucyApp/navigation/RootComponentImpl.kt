@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.navigation
 
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.api.channelDeviceId
 import com.cephalon.lucyApp.auth.SessionExpiredNotifier
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import com.cephalon.lucyApp.ws.BalanceWsManager
@@ -18,6 +19,7 @@ import com.russhwolf.settings.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.filter
@@ -223,20 +225,119 @@ class RootComponentImpl(
                         }
                     }
 
-                    override fun onOpenAgentModel() {
-                        // 调用 connect 接口 → SDK 初始化绑定设备 → 跳转对话页
+                    override fun onOpenAgentModel(onLoading: (Boolean) -> Unit, onError: (String) -> Unit) {
                         scope.launch {
-                            println("RootComponent: 点击端脑云用户，开始调用 connectLucyApp()")
-                            val connectResult = authRepository.connectLucyApp()
-                            println("RootComponent: connectLucyApp 返回: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
-                            if (connectResult.isFailure) {
-                                println("RootComponent: 端脑云接入失败，不跳转")
-                                return@launch
+                            onLoading(true)
+                            try {
+                                // 1. 调用 connect 接口获取 bootstrap_mission_id
+                                println("RootComponent: 点击端脑云用户，开始调用 connectLucyApp()")
+                                val connectResult = authRepository.connectLucyApp()
+                                println("RootComponent: connectLucyApp 返回: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
+                                if (connectResult.isFailure) {
+                                    onError(connectResult.exceptionOrNull()?.message ?: "接入失败")
+                                    onLoading(false)
+                                    return@launch
+                                }
+                                val missionId = connectResult.getOrThrow()
+                                println("RootComponent: 获得 bootstrapMissionId=$missionId")
+
+                                // 2. 轮询任务列表，等待 missionId 出现在 running 列表中
+                                val maxMissionPolling = 60 // 最多 5 分钟
+                                var missionAttempt = 0
+                                while (true) {
+                                    missionAttempt++
+                                    val missionsResp = authRepository.getUserMissions()
+                                    println("RootComponent: getUserMissions [#$missionAttempt] 返回: code=${missionsResp.code}, total=${missionsResp.data?.total}, list=${missionsResp.data?.list?.map { it.id }}")
+                                    if (missionsResp.code == 20000 && missionsResp.data != null) {
+                                        val matched = missionsResp.data.list.any { it.id == missionId }
+                                        if (matched) {
+                                            println("RootComponent: missionId=$missionId 已在 running 列表中")
+                                            break
+                                        }
+                                    }
+                                    if (missionAttempt >= maxMissionPolling) {
+                                        onError("任务启动超时，请稍后重试")
+                                        onLoading(false)
+                                        return@launch
+                                    }
+                                    println("RootComponent: missionId 未就绪，5s 后第 ${missionAttempt + 1} 次轮询")
+                                    delay(5000L)
+                                }
+
+                                // 3. 查询设备绑定状态（init 时每 5s 轮询）
+                                val maxPollingAttempts = 60 // 最多轮询 5 分钟
+                                var attempt = 0
+                                while (true) {
+                                    attempt++
+                                    val statusResp = authRepository.getDeviceBindingStatus(missionId)
+                                    println("RootComponent: getDeviceBindingStatus [#$attempt] 返回: code=${statusResp.code}, data=${statusResp.data}")
+                                    when (statusResp.code) {
+                                        20000 -> {
+                                            val data = statusResp.data!!
+                                            val deviceId = data.deviceId
+                                            val bindingStatus = data.bindingStatus
+                                            println("RootComponent: deviceId=$deviceId, bindingStatus=$bindingStatus")
+
+                                            when (bindingStatus) {
+                                                "bound" -> {
+                                                    // 3. 绑定成功 → SDK 连接
+                                                    println("RootComponent: 绑定成功，开始 SDK ensureConnectedIfTokenValid()")
+                                                    sdkSessionManager.ensureConnectedIfTokenValid()
+
+                                                    // 4. 查询设备列表，匹配 device_id 获取 cdi
+                                                    val devices = authRepository.getDevices()
+                                                    val matchedDevice = devices.firstOrNull { it.id == deviceId }
+                                                    if (matchedDevice != null) {
+                                                        val cdi = matchedDevice.channelDeviceId
+                                                        println("RootComponent: 找到匹配设备 cdi=$cdi，跳转对话页")
+                                                        onLoading(false)
+                                                        navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
+                                                    } else {
+                                                        println("RootComponent: 设备列表中未找到 deviceId=$deviceId，使用默认跳转")
+                                                        onLoading(false)
+                                                        navigation.replaceAll(Config.AgentModel())
+                                                    }
+                                                    return@launch
+                                                }
+                                                "init", "rebinding" -> {
+                                                    if (attempt >= maxPollingAttempts) {
+                                                        onError("设备绑定超时，请稍后重试")
+                                                        onLoading(false)
+                                                        return@launch
+                                                    }
+                                                    println("RootComponent: 绑定状态=$bindingStatus，${5}s 后第 ${attempt + 1} 次轮询")
+                                                    delay(5000L)
+                                                    // continue polling
+                                                }
+                                                else -> {
+                                                    onError("设备尚未绑定（状态: $bindingStatus），请稍后重试")
+                                                    onLoading(false)
+                                                    return@launch
+                                                }
+                                            }
+                                        }
+                                        30001 -> {
+                                            onError("当前任务未绑定云设备")
+                                            onLoading(false)
+                                            return@launch
+                                        }
+                                        40003 -> {
+                                            onError("当前任务绑定设备关系不明确，请重新绑定")
+                                            onLoading(false)
+                                            return@launch
+                                        }
+                                        else -> {
+                                            onError(statusResp.msg.ifBlank { "查询绑定状态失败" })
+                                            onLoading(false)
+                                            return@launch
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                println("RootComponent: 端脑云接入异常: ${e.message}")
+                                onError(e.message ?: "网络连接失败")
+                                onLoading(false)
                             }
-                            println("RootComponent: 接入成功，开始 SDK ensureConnectedIfTokenValid()")
-                            val sdkResult = sdkSessionManager.ensureConnectedIfTokenValid()
-                            println("RootComponent: SDK 连接结果: ${sdkResult.isSuccess}，跳转 AgentModel")
-                            navigation.replaceAll(Config.AgentModel())
                         }
                     }
 
@@ -326,8 +427,9 @@ class RootComponentImpl(
                     override fun onOpenGuide() {
                         safePush(Config.LucyGuide)
                     }
-                    override fun onScanSuccess(cdi: String) {
+                    override fun onScanSuccess(cdi: String, onLoading: (Boolean) -> Unit) {
                         scope.launch {
+                            onLoading(true)
                             authRepository.setConnectionFlag()
                             sdkSessionManager.selectDevice(cdi)
 
@@ -350,6 +452,7 @@ class RootComponentImpl(
                                 println("[ScanBind] SDK 未连上，跳过 provision_model 与 await-online，直接跳转对话页由 AgentModel 兜底")
                             }
 
+                            onLoading(false)
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
                         }
                     }

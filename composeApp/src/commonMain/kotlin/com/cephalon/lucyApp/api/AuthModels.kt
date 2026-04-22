@@ -127,6 +127,46 @@ data class RechargeRuleItem(
 )
 
 /**
+ * GET /v1/channels/lucy-app/connect
+ */
+@Serializable
+data class ConnectLucyAppData(
+    @SerialName("bootstrap_mission_id")
+    val bootstrapMissionId: String = "",
+)
+
+/**
+ * GET /v1/user/missions?page_index=&page_size=&front_state=running
+ */
+@Serializable
+data class UserMissionsData(
+    @SerialName("page_index")
+    val pageIndex: Int = 1,
+    @SerialName("page_size")
+    val pageSize: Int = 1,
+    val total: Int = 0,
+    val list: List<UserMission> = emptyList(),
+)
+
+@Serializable
+data class UserMission(
+    val id: String = "",
+)
+
+/**
+ * GET /v1/user/missions/{id}/device-binding-status
+ */
+@Serializable
+data class DeviceBindingStatusData(
+    @SerialName("mission_id")
+    val missionId: String = "",
+    @SerialName("device_id")
+    val deviceId: String = "",
+    @SerialName("binding_status")
+    val bindingStatus: String = "",
+)
+
+/**
  * /v1/channels/lucy-app/current-user/connection-flag
  */
 @Serializable

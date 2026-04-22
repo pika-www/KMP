@@ -33,6 +33,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.platform.LocalUriHandler
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.ForgetPasswordRequest
 import org.koin.compose.koinInject
@@ -231,25 +233,37 @@ fun ForgotPasswordForm(
 
         Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-        Text(
-            text = buildAnnotatedString {
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append("登录即表示同意我们的 ")
-                }
-                withStyle(SpanStyle(color = LinkColor)) {
-                    append("《服务条款》")
-                }
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append(" 和 ")
-                }
-                withStyle(SpanStyle(color = LinkColor)) {
-                    append("《隐私政策》")
-                }
-            },
-            fontSize = ds.sp(10f),
-            fontWeight = FontWeight.Normal,
+        val uriHandler = LocalUriHandler.current
+        val termsText = buildAnnotatedString {
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append("登录即表示同意我们的 ")
+            }
+            pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/service.html")
+            withStyle(SpanStyle(color = LinkColor)) {
+                append("《服务条款》")
+            }
+            pop()
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append(" 和 ")
+            }
+            pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/privacy.html")
+            withStyle(SpanStyle(color = LinkColor)) {
+                append("《隐私政策》")
+            }
+            pop()
+        }
+        ClickableText(
+            text = termsText,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Normal,
+                textAlign = TextAlign.Center,
+            ),
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
+            onClick = { offset ->
+                termsText.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                    .firstOrNull()?.let { uriHandler.openUri(it.item) }
+            },
         )
 
         Spacer(modifier = Modifier.height(ds.sh(24.dp)))

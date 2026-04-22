@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -13,7 +14,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,8 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.api.AuthRepository
+import com.cephalon.lucyApp.components.DesignScaleProvider
+import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.scan.playScanBeep
 import com.cephalon.lucyApp.scan.QrScannerView
 import com.cephalon.lucyApp.scan.rememberCameraPermissionController
@@ -69,7 +70,7 @@ private fun parseLucyBindUrl(url: String): Pair<String, String>? {
 @Composable
 fun ScanBindChannelScreen(
     onBack: () -> Unit,
-    onScanSuccess: (cdi: String) -> Unit,
+    onScanSuccess: (cdi: String, onLoading: (Boolean) -> Unit) -> Unit,
     onOpenGuide: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -80,6 +81,7 @@ fun ScanBindChannelScreen(
     var scanState by remember { mutableStateOf(ScanState.Idle) }
     var bindErrorMsg by remember { mutableStateOf("") }
     var boundCdi by remember { mutableStateOf("") }
+    var isNavigating by remember { mutableStateOf(false) }
     val logs = remember {
         mutableStateListOf(
             "等待扫描二维码...",
@@ -91,16 +93,20 @@ fun ScanBindChannelScreen(
     LaunchedEffect(scanState) {
         if (scanState == ScanState.Success && boundCdi.isNotBlank()) {
             delay(700)
-            onScanSuccess(boundCdi)
+            onScanSuccess(boundCdi) { isNavigating = it }
         }
     }
+
+    DesignScaleProvider {
+    val ds = LocalDesignScale.current
 
     Scaffold(
         containerColor = Color.Black
     ) { padding ->
-        val horizontalGutter = 18.dp
+        val horizontalGutter = ds.sw(18.dp)
         val subtleWhite = Color.White.copy(alpha = 0.60f)
 
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -108,17 +114,17 @@ fun ScanBindChannelScreen(
                 .verticalScroll(scrollState),
         ) {
             // ── 返回按钮（使用模态窗同款 icon，暗底版） ──
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = ds.sw(12.dp)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(ds.sm(40.dp))
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.12f)),
                 ) {
@@ -126,16 +132,16 @@ fun ScanBindChannelScreen(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(ds.sm(22.dp)),
                     )
                 }
             }
 
             // ── 标题，距离 icon 44dp ──
-            Spacer(modifier = Modifier.height(44.dp))
+            Spacer(modifier = Modifier.height(ds.sh(44.dp)))
             Text(
                 text = "扫码绑定 Channel",
-                fontSize = 24.sp,
+                fontSize = ds.sp(24f),
                 fontWeight = FontWeight.Medium,
                 color = Color.White,
                 maxLines = 1,
@@ -146,10 +152,10 @@ fun ScanBindChannelScreen(
             )
 
             // ── 副标题，距离标题 4dp ──
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
             Text(
                 text = "扫描自己的OPEN CLAW 控制台生成的链接二维码",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = subtleWhite,
                 modifier = Modifier
@@ -157,13 +163,13 @@ fun ScanBindChannelScreen(
                     .padding(horizontal = horizontalGutter),
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
             // ── 扫码区域（左右铺满屏幕） ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(360.dp)
+                    .height(ds.sh(360.dp))
                     .background(Color(0xFF1A1A1A)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -214,13 +220,13 @@ fun ScanBindChannelScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(
                                 color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(26.dp)
+                                strokeWidth = ds.sm(2.dp),
+                                modifier = Modifier.size(ds.sm(26.dp))
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(ds.sh(10.dp)))
                             Text(
                                 text = "绑定中...",
-                                fontSize = 14.sp,
+                                fontSize = ds.sp(14f),
                                 color = Color.White,
                             )
                         }
@@ -229,7 +235,8 @@ fun ScanBindChannelScreen(
                     ScanState.Success -> {
                         Text(
                             text = "绑定成功",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            fontSize = ds.sp(22f),
+                            fontWeight = FontWeight.Bold,
                             color = Color(0xFF4CAF50),
                         )
                     }
@@ -238,18 +245,19 @@ fun ScanBindChannelScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = "绑定失败",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                fontSize = ds.sp(22f),
+                                fontWeight = FontWeight.Bold,
                                 color = Color(0xFFE84026),
                             )
                             if (bindErrorMsg.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
                                 Text(
                                     text = bindErrorMsg,
-                                    fontSize = 12.sp,
+                                    fontSize = ds.sp(12f),
                                     color = subtleWhite,
                                 )
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(ds.sh(10.dp)))
                             Button(
                                 onClick = {
                                     bindErrorMsg = ""
@@ -257,7 +265,7 @@ fun ScanBindChannelScreen(
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.12f))
                             ) {
-                                Text("重试", color = Color.White)
+                                Text("重试", color = Color.White, fontSize = ds.sp(14f))
                             }
                         }
                     }
@@ -265,20 +273,20 @@ fun ScanBindChannelScreen(
             }
 
             // ── 寻找二维码帮助文案，距离扫码区 32dp ──
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
             Text(
                 text = "如何找到您的OPEN CLAW 二维码",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = subtleWhite,
                 modifier = Modifier.padding(horizontal = horizontalGutter),
             )
 
             // ── 点此查看 链接，距离上方 2dp ──
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(ds.sh(2.dp)))
             Text(
                 text = "点此查看",
-                fontSize = 14.sp,
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF2191EE),
                 textDecoration = TextDecoration.Underline,
@@ -287,8 +295,26 @@ fun ScanBindChannelScreen(
                     .clickable { onOpenGuide() },
             )
 
-            Spacer(modifier = Modifier.height(26.dp))
+            Spacer(modifier = Modifier.height(ds.sh(26.dp)))
         }
+
+        // 绑定成功后跳转中 loading 遮罩
+        if (isNavigating) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.40f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { /* 拦截点击 */ },
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(color = Color.White)
+            }
+        }
+        } // Box
     }
+    } // DesignScaleProvider
 
 }

@@ -50,6 +50,9 @@ import androidios.composeapp.generated.resources.roboto_bg
 import androidx.compose.runtime.snapshotFlow
 import com.cephalon.lucyApp.components.DesignScaleProvider
 import com.cephalon.lucyApp.components.LocalDesignScale
+import androidx.compose.material3.CircularProgressIndicator
+import com.cephalon.lucyApp.components.ToastHost
+import com.cephalon.lucyApp.components.rememberToastState
 import com.cephalon.lucyApp.scan.rememberCameraPermissionController
 import com.cephalon.lucyApp.scan.rememberOpenAppSettings
 import com.cephalon.lucyApp.screens.brainbox.BrainBoxLoginSheet
@@ -100,11 +103,13 @@ fun HomeScreen(
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
     onOpenBrainBoxLoginSuccess: (cdi: String) -> Unit,
-    onOpenAgentModel: () -> Unit,
+    onOpenAgentModel: (onLoading: (Boolean) -> Unit, onError: (String) -> Unit) -> Unit,
     onOpenScanBindChannel: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var showBrainBoxLoginSheet by remember { mutableStateOf(false) }
+    var isCloudLoading by remember { mutableStateOf(false) }
+    val toastState = rememberToastState()
     val cameraPermission = rememberCameraPermissionController()
     val openAppSettings = rememberOpenAppSettings()
 
@@ -213,7 +218,10 @@ fun HomeScreen(
                             if (pagerState.currentPage == pageIndex) {
                                 when (pageIndex) {
                                     0 -> showBrainBoxLoginSheet = true
-                                    1 -> onOpenAgentModel()
+                                    1 -> if (!isCloudLoading) onOpenAgentModel(
+                                        { isCloudLoading = it },
+                                        { toastState.show(it) },
+                                    )
                                     2 -> openScanWithPermission()
                                 }
                             } else {
@@ -296,7 +304,10 @@ fun HomeScreen(
                                     if (pagerState.currentPage == pageIndex) {
                                         when (pageIndex) {
                                             0 -> showBrainBoxLoginSheet = true
-                                            1 -> onOpenAgentModel()
+                                            1 -> if (!isCloudLoading) onOpenAgentModel(
+                                                { isCloudLoading = it },
+                                                { toastState.show(it) },
+                                            )
                                             2 -> openScanWithPermission()
                                         }
                                     } else {
@@ -376,6 +387,24 @@ fun HomeScreen(
                 )
             }
         }
+
+        // 端脑云 loading 遮罩
+        if (isCloudLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.40f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { /* 拦截点击 */ },
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(color = Color.White)
+            }
+        }
+
+        ToastHost(state = toastState, modifier = Modifier.align(Alignment.TopCenter))
 
         BrainBoxLoginSheet(
             isVisible = showBrainBoxLoginSheet,

@@ -8,7 +8,7 @@ interface HomeComponent {
     fun onOpenWsTest()
     fun onOpenBrainBoxGuide()
     fun onOpenBrainBoxLoginSuccess(cdi: String)
-    fun onOpenAgentModel()
+    fun onOpenAgentModel(onLoading: (Boolean) -> Unit, onError: (String) -> Unit)
     fun onOpenScanBindChannel()
     fun onOpenNas()
 }

@@ -235,17 +235,18 @@ class AuthRepository(
 
     /**
      * 端脑云用户接入：GET /channels/lucy-app/connect
-     * 成功后写入本地连接标记
+     * 成功后写入本地连接标记，返回 bootstrap_mission_id
      */
-    suspend fun connectLucyApp(): Result<Unit> {
+    suspend fun connectLucyApp(): Result<String> {
         appLogD("AuthRepository", "connectLucyApp: 开始请求 $connectPath")
         return try {
-            val resp = authApi.get<Map<String, String>>(connectPath)
+            val resp = authApi.get<ConnectLucyAppData>(connectPath)
             appLogD("AuthRepository", "connectLucyApp: code=${resp.code}, msg=${resp.msg}, data=${resp.data}")
-            if (resp.code == 20000) {
+            if (resp.code == 20000 && resp.data != null) {
                 userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.putBoolean(it, true) }
-                appLogD("AuthRepository", "connectLucyApp: 接入成功")
-                Result.success(Unit)
+                val missionId = resp.data.bootstrapMissionId
+                appLogD("AuthRepository", "connectLucyApp: 接入成功, bootstrapMissionId=$missionId")
+                Result.success(missionId)
             } else {
                 appLogD("AuthRepository", "connectLucyApp: 接入失败 code=${resp.code} msg=${resp.msg}")
                 Result.failure(Exception(resp.msg))
@@ -254,6 +255,26 @@ class AuthRepository(
             appLogD("AuthRepository", "connectLucyApp: 异常 ${e.message}")
             Result.failure(e)
         }
+    }
+
+    /**
+     * 查询用户任务列表：GET /user/missions?page_index=&page_size=&front_state=
+     */
+    suspend fun getUserMissions(
+        pageIndex: Int = 1,
+        pageSize: Int = 1,
+        frontState: String = "running",
+    ): BaseResponse<UserMissionsData> {
+        appLogD("AuthRepository", "getUserMissions: pageIndex=$pageIndex, pageSize=$pageSize, frontState=$frontState")
+        return authApi.get<UserMissionsData>("/user/missions?page_index=$pageIndex&page_size=$pageSize&front_state=$frontState")
+    }
+
+    /**
+     * 查询云设备绑定状态：GET /user/missions/{id}/device-binding-status
+     */
+    suspend fun getDeviceBindingStatus(missionId: String): BaseResponse<DeviceBindingStatusData> {
+        appLogD("AuthRepository", "getDeviceBindingStatus: missionId=$missionId")
+        return authApi.get<DeviceBindingStatusData>("/user/missions/$missionId/device-binding-status")
     }
 
     // ---- Lucy App 连接标记 ----

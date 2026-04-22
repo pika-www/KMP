@@ -91,6 +91,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.account_bg
+import androidios.composeapp.generated.resources.cep_bg
+import androidios.composeapp.generated.resources.tc_bg
+import androidios.composeapp.generated.resources.other_bg
 import androidios.composeapp.generated.resources.ic_device_storage
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
@@ -1325,18 +1328,19 @@ private fun BrainPowerBalanceCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.01f),
-                        Color.White.copy(alpha = 0.10f),
-                    ),
-                ),
+            .border(
+                width = 0.5.dp,
+                color = Color.White.copy(alpha = 0.06f), // ⭐ 透明度
+                shape = cardShape
             )
-            .border(width = 0.5.dp, color = Color(0xFFFF5800), shape = cardShape)
-            .padding(ds.sm(20.dp)),
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Image(
+            painter = painterResource(Res.drawable.cep_bg),
+            contentDescription = null,
+            modifier = Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Column(modifier = Modifier.fillMaxWidth().padding(ds.sm(20.dp))) {
             // ── 顶部行：余额 + 充值按钮 ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1692,7 +1696,7 @@ private fun BrainPowerRulesDialog(
             .fillMaxWidth()
             .padding(horizontal = ds.sw(20.dp))
             .clip(cardShape)
-            .background(Color.White.copy(alpha = 0.10f))
+            .background(Color(0xFF1A1A1A))
             .border(width = 0.5.dp, color = Color.White, shape = cardShape)
             .clickable(
                 indication = null,
@@ -2189,29 +2193,32 @@ private fun DarkFeaturedPackageCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.01f),
-                        Color.White.copy(alpha = 0.10f),
-                    ),
-                ),
+            .border(
+                width = 0.5.dp,
+                color = Color.White.copy(alpha = 0.06f),
+                shape = cardShape,
             )
-            .border(width = 0.5.dp, color = Color(0xFFFF5800), shape = cardShape)
             .clickable(
                 enabled = enabled,
                 indication = null,
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-            ) { onClick() }
-            .padding(
-                start = ds.sw(20.dp),
-                end = ds.sw(20.dp),
-                top = ds.sh(12.dp),
-                bottom = ds.sh(28.dp),
-            ),
+            ) { onClick() },
     ) {
+        Image(
+            painter = painterResource(Res.drawable.tc_bg),
+            contentDescription = null,
+            modifier = Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop,
+        )
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = ds.sw(20.dp),
+                    end = ds.sw(20.dp),
+                    top = ds.sh(12.dp),
+                    bottom = ds.sh(28.dp),
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 左侧信息
@@ -2234,13 +2241,14 @@ private fun DarkFeaturedPackageCard(
                     }
                     Spacer(modifier = Modifier.height(ds.sh(2.dp)))
                 }
-                // 数字 + 脑力值（同一行不换行）
+                // 数字 + 脑力值（同一行，基线对齐）
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = total,
                         fontSize = ds.sp(32f),
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White,
+                        modifier = Modifier.alignByBaseline(),
                     )
                     Spacer(modifier = Modifier.width(ds.sw(4.dp)))
                     Text(
@@ -2248,7 +2256,7 @@ private fun DarkFeaturedPackageCard(
                         fontSize = ds.sp(12f),
                         fontWeight = FontWeight.Normal,
                         color = Color.White,
-                        modifier = Modifier.padding(bottom = ds.sh(4.dp)),
+                        modifier = Modifier.alignByBaseline(),
                     )
                 }
                 Spacer(modifier = Modifier.height(ds.sh(4.dp)))
@@ -2321,7 +2329,7 @@ private fun DarkGridPackageCard(
         Spacer(modifier = Modifier.height(ds.sh(4.dp)))
         // 基础
         Text(
-            text = "基础 ${base}+${gift}",
+            text = "基础 ${base}+${gift} 奖励",
             fontSize = ds.sp(12f),
             fontWeight = FontWeight.Normal,
             color = Color.White.copy(alpha = 0.60f),

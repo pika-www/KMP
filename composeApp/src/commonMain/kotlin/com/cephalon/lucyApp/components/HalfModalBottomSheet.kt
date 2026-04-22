@@ -134,7 +134,7 @@ fun HalfModalBottomSheet(
                 enter = slideInVertically(
                     initialOffsetY = { it },
                     animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        dampingRatio = Spring.DampingRatioNoBouncy,
                         stiffness = Spring.StiffnessMediumLow
                     )
                 ) + fadeIn(animationSpec = tween(durationMillis = 150)),
