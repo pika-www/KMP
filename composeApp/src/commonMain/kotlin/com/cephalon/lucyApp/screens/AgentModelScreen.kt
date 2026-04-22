@@ -119,10 +119,15 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.text.style.TextOverflow
@@ -1501,100 +1506,39 @@ fun AgentModelScreen(
         }
     }
 
+    // 详情页过渡动画参数
+    val detailEnterSlide = slideInHorizontally(
+        animationSpec = tween(220, easing = FastOutSlowInEasing)
+    ) { it / 5 } + fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing))
+    val detailExitSlide = slideOutHorizontally(
+        animationSpec = tween(200, easing = FastOutSlowInEasing)
+    ) { it / 5 } + fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing))
+    val imageEnter = fadeIn(animationSpec = tween(260)) + scaleIn(
+        initialScale = 0.92f, animationSpec = tween(260, easing = FastOutSlowInEasing)
+    )
+    val imageExit = fadeOut(animationSpec = tween(220)) + scaleOut(
+        targetScale = 0.92f, animationSpec = tween(220, easing = FastOutSlowInEasing)
+    )
+
+    // remember snapshot：AnimatedVisibility exit 动画期间 state 已被清空，
+    // 需要缓存最后一次非 null 的值，让退场动画仍能渲染内容。
+    val rememberedChatImages = remember { mutableStateOf<List<NasImageItem>>(emptyList()) }
+    val rememberedChatImageId = remember { mutableStateOf<String?>(null) }
+    val rememberedChatAudio = remember { mutableStateOf<NasAudioItem?>(null) }
+    val rememberedChatDocument = remember { mutableStateOf<NasDocumentItem?>(null) }
+    val rememberedRecordingAudio = remember { mutableStateOf<NasAudioItem?>(null) }
+
+    if (selectedChatImages.isNotEmpty()) rememberedChatImages.value = selectedChatImages
+    if (selectedChatImageId != null) rememberedChatImageId.value = selectedChatImageId
+    if (selectedChatAudio != null) rememberedChatAudio.value = selectedChatAudio
+    if (selectedChatDocument != null) rememberedChatDocument.value = selectedChatDocument
+    if (selectedRecordingAudio != null) rememberedRecordingAudio.value = selectedRecordingAudio
+
     DesignScaleProvider {
     Box(modifier = Modifier.fillMaxSize()) {
-    if (selectedChatImageId != null && selectedChatImages.isNotEmpty()) {
-        NasImageDetailScreen(
-            images = selectedChatImages,
-            initialImageId = selectedChatImageId!!,
-            targetCdi = currentCdi.orEmpty(),
-            onBack = {
-                selectedChatImageId = null
-                selectedChatImages = emptyList()
-            },
-            onShare = {},
-            onDownload = { currentImage ->
-                currentMessages
-                    .filterIsInstance<ChatItem.Assistant>()
-                    .flatMap { it.attachments }
-                    .firstOrNull { it.blobRef == currentImage.path }
-                    ?.let(::handleAttachmentDownload)
-            },
-            onDelete = {},
-            isChatMode = true,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (selectedChatAudio != null) {
-        val currentChatAudio = selectedChatAudio!!
-        NasAudioDetailScreen(
-            audio = currentChatAudio,
-            targetCdi = currentCdi.orEmpty(),
-            mediaController = mediaAccessController,
-            onBack = {
-                mediaAccessController.stopAudioPlayback()
-                selectedChatAudio = null
-            },
-            onShare = {},
-            onDownload = {
-                currentMessages
-                    .filterIsInstance<ChatItem.Assistant>()
-                    .flatMap { it.attachments }
-                    .firstOrNull { it.blobRef == currentChatAudio.path }
-                    ?.let(::handleAttachmentDownload)
-            },
-            onDelete = {},
-            isChatMode = true,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (selectedChatDocument != null) {
-        val currentChatDocument = selectedChatDocument!!
-        NasDocumentDetailScreen(
-            document = currentChatDocument,
-            targetCdi = currentCdi.orEmpty(),
-            onBack = { selectedChatDocument = null },
-            onShare = {},
-            onDownload = {
-                currentMessages
-                    .filterIsInstance<ChatItem.Assistant>()
-                    .flatMap { it.attachments }
-                    .firstOrNull { it.blobRef == currentChatDocument.path }
-                    ?.let(::handleAttachmentDownload)
-            },
-            onDelete = {},
-            isChatMode = true,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (selectedRecordingAudio != null) {
-        val currentRecordingAudio = selectedRecordingAudio!!
-        NasAudioDetailScreen(
-            audio = currentRecordingAudio,
-            targetCdi = currentCdi.orEmpty(),
-            mediaController = mediaAccessController,
-            onBack = {
-                mediaAccessController.stopAudioPlayback()
-                selectedRecordingAudio = null
-            },
-            onShare = {},
-            onDownload = {
-                coroutineScope.launch {
-                    toastMessage = "正在下载…"
-                    runCatching {
-                        val bytes = mediaAccessController.readUriToBytes(currentRecordingAudio.path)
-                            ?: error("读取录音失败")
-                        platformSaveFile(bytes, currentRecordingAudio.name, currentRecordingAudio.type)
-                    }.onSuccess {
-                        toastMessage = "下载成功"
-                    }.onFailure { e ->
-                        toastMessage = "保存失败: ${e.message}"
-                    }
-                }
-            },
-            onDelete = {},
-            isChatMode = false,
-            resolveAudioFile = { currentRecordingAudio.path },
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (previewState == null) {
+
+    // ── 主聊天始终渲染 ──
+    if (previewState == null) {
         Scaffold(
             containerColor = Color(0xFFF5F5F7),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1975,6 +1919,135 @@ fun AgentModelScreen(
         }
 
     } // end if previewState == null
+
+    // ── 图片详情 (淡入 + 缩放) ──
+    AnimatedVisibility(
+        visible = selectedChatImageId != null && selectedChatImages.isNotEmpty(),
+        enter = imageEnter,
+        exit = imageExit,
+    ) {
+        val imgs = rememberedChatImages.value
+        val imgId = rememberedChatImageId.value
+        if (imgs.isNotEmpty() && imgId != null) {
+            NasImageDetailScreen(
+                images = imgs,
+                initialImageId = imgId,
+                targetCdi = currentCdi.orEmpty(),
+                onBack = {
+                    selectedChatImageId = null
+                    selectedChatImages = emptyList()
+                },
+                onShare = {},
+                onDownload = { currentImage ->
+                    currentMessages
+                        .filterIsInstance<ChatItem.Assistant>()
+                        .flatMap { it.attachments }
+                        .firstOrNull { it.blobRef == currentImage.path }
+                        ?.let(::handleAttachmentDownload)
+                },
+                onDelete = {},
+                isChatMode = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    // ── 音频详情 (从右侧滑入) ──
+    AnimatedVisibility(
+        visible = selectedChatAudio != null,
+        enter = detailEnterSlide,
+        exit = detailExitSlide,
+    ) {
+        val chatAudio = rememberedChatAudio.value
+        if (chatAudio != null) {
+            NasAudioDetailScreen(
+                audio = chatAudio,
+                targetCdi = currentCdi.orEmpty(),
+                mediaController = mediaAccessController,
+                onBack = {
+                    mediaAccessController.stopAudioPlayback()
+                    selectedChatAudio = null
+                },
+                onShare = {},
+                onDownload = {
+                    currentMessages
+                        .filterIsInstance<ChatItem.Assistant>()
+                        .flatMap { it.attachments }
+                        .firstOrNull { it.blobRef == chatAudio.path }
+                        ?.let(::handleAttachmentDownload)
+                },
+                onDelete = {},
+                isChatMode = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    // ── 文档详情 (从右侧滑入) ──
+    AnimatedVisibility(
+        visible = selectedChatDocument != null,
+        enter = detailEnterSlide,
+        exit = detailExitSlide,
+    ) {
+        val chatDoc = rememberedChatDocument.value
+        if (chatDoc != null) {
+            NasDocumentDetailScreen(
+                document = chatDoc,
+                targetCdi = currentCdi.orEmpty(),
+                onBack = { selectedChatDocument = null },
+                onShare = {},
+                onDownload = {
+                    currentMessages
+                        .filterIsInstance<ChatItem.Assistant>()
+                        .flatMap { it.attachments }
+                        .firstOrNull { it.blobRef == chatDoc.path }
+                        ?.let(::handleAttachmentDownload)
+                },
+                onDelete = {},
+                isChatMode = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    // ── 录音详情 (从右侧滑入) ──
+    AnimatedVisibility(
+        visible = selectedRecordingAudio != null,
+        enter = detailEnterSlide,
+        exit = detailExitSlide,
+    ) {
+        val recAudio = rememberedRecordingAudio.value
+        if (recAudio != null) {
+            NasAudioDetailScreen(
+                audio = recAudio,
+                targetCdi = currentCdi.orEmpty(),
+                mediaController = mediaAccessController,
+                onBack = {
+                    mediaAccessController.stopAudioPlayback()
+                    selectedRecordingAudio = null
+                },
+                onShare = {},
+                onDownload = {
+                    coroutineScope.launch {
+                        toastMessage = "正在下载…"
+                        runCatching {
+                            val bytes = mediaAccessController.readUriToBytes(recAudio.path)
+                                ?: error("读取录音失败")
+                            platformSaveFile(bytes, recAudio.name, recAudio.type)
+                        }.onSuccess {
+                            toastMessage = "下载成功"
+                        }.onFailure { e ->
+                            toastMessage = "保存失败: ${e.message}"
+                        }
+                    }
+                },
+                onDelete = {},
+                isChatMode = false,
+                resolveAudioFile = { recAudio.path },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
 
     // 搜索页（侧边栏）- 保持隐藏
     if (showSearchPage) {
