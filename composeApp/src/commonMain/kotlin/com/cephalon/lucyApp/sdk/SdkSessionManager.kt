@@ -272,55 +272,14 @@ class SdkSessionManager(
         )
     }
 
-    private data class AssistantFinalRecordResult(
-        val aggregate: AssistantFinalAggregate,
-        val isNewChunk: Boolean,
-    )
-
-    private fun recordAssistantFinalChunk(msgId: String, event: NpcMachineEvent): AssistantFinalRecordResult {
-        val chunkKey = event.timestamp?.toString() ?: "no-ts-${assistantFinalNoTimestampCounter++}"
-        val chunks = assistantFinalChunks.getOrPut(msgId) { linkedMapOf() }
-        val existing = chunks[chunkKey]
-        if (existing != null) {
-            return AssistantFinalRecordResult(
-                aggregate = buildAssistantFinalAggregate(msgId),
-                isNewChunk = false,
-            )
+    private fun rememberAssistantFinalEvent(msgId: String, event: NpcMachineEvent): Boolean {
+        val eventKey = buildCompletedEventKey(msgId, event)
+        val seenKeys = assistantFinalEventKeys.getOrPut(msgId) { linkedSetOf() }
+        if (!seenKeys.add(eventKey)) return false
+        while (seenKeys.size > ASSISTANT_FINAL_KEYS_PER_MESSAGE_MAX_SIZE) {
+            seenKeys.remove(seenKeys.first())
         }
-        chunks[chunkKey] = AssistantFinalChunk(
-            key = chunkKey,
-            timestamp = event.timestamp,
-            text = event.text,
-            attachments = event.attachments,
-        )
-        return AssistantFinalRecordResult(
-            aggregate = buildAssistantFinalAggregate(msgId),
-            isNewChunk = true,
-        )
-    }
-
-    private fun buildAssistantFinalAggregate(msgId: String): AssistantFinalAggregate {
-        val chunks = assistantFinalChunks[msgId].orEmpty().values
-        val sortedChunks = chunks.sortedWith(
-            compareBy<AssistantFinalChunk> { it.timestamp ?: Long.MAX_VALUE }
-                .thenBy { it.key },
-        )
-        val aggregatedText = sortedChunks
-            .mapNotNull { it.text?.trimEnd()?.takeIf { text -> text.isNotBlank() } }
-            .joinToString(separator = "\n\n")
-        val attachments = linkedSetOf<MediaAttachment>()
-        sortedChunks.forEach { chunk ->
-            chunk.attachments.forEach { attachment ->
-                attachments.add(attachment)
-            }
-        }
-        val latestTimestamp = sortedChunks.maxOfOrNull { it.timestamp ?: Long.MIN_VALUE }
-            ?.takeIf { it != Long.MIN_VALUE }
-        return AssistantFinalAggregate(
-            text = aggregatedText,
-            attachments = attachments.toList(),
-            latestTimestamp = latestTimestamp,
-        )
+        return true
     }
 
     private fun restartAssistantFinalCompletionTimer(msgId: String, isLatest: Boolean) {
@@ -328,18 +287,11 @@ class SdkSessionManager(
         assistantFinalCompletionJobs[msgId] = scope.launch {
             delay(ASSISTANT_FINAL_SETTLE_DELAY_MS)
             assistantFinalCompletionJobs.remove(msgId)
-            val aggregate = buildAssistantFinalAggregate(msgId)
             updateReplyState(msgId) { state ->
                 state.copy(
-                    text = aggregate.text.ifBlank { state.text },
                     streaming = false,
                     streamingStatusText = null,
-                    attachments = aggregate.attachments.ifEmpty { state.attachments },
-                    timestamp = aggregate.latestTimestamp ?: state.timestamp,
                 )
-            }
-            if (isLatest && aggregate.text.isNotBlank()) {
-                _assistantReplyText.value = aggregate.text
             }
             completeRequest(msgId, msgId == _latestRequestId, "对话结束(assistant.final settle)")
         }
@@ -429,9 +381,8 @@ class SdkSessionManager(
     private val _npcReplyEvents = MutableSharedFlow<NpcReplyEvent>(extraBufferCapacity = 64)
     val npcReplyEvents: SharedFlow<NpcReplyEvent> = _npcReplyEvents.asSharedFlow()
 
-    private val assistantFinalChunks = mutableMapOf<String, MutableMap<String, AssistantFinalChunk>>()
+    private val assistantFinalEventKeys = mutableMapOf<String, LinkedHashSet<String>>()
     private val assistantFinalCompletionJobs = mutableMapOf<String, Job>()
-    private var assistantFinalNoTimestampCounter = 0L
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
@@ -696,8 +647,8 @@ class SdkSessionManager(
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
-            assistantFinalCompletionJobs.remove(outgoingMessageId)?.cancel()
-            assistantFinalChunks.remove(outgoingMessageId)
+                assistantFinalCompletionJobs.remove(outgoingMessageId)?.cancel()
+                assistantFinalEventKeys.remove(outgoingMessageId)
             _activeRequestIds.update { it + outgoingMessageId }
             _replyStateMap.update { it + (outgoingMessageId to ReplyState()) }
             _latestRequestId = outgoingMessageId
@@ -1275,7 +1226,7 @@ class SdkSessionManager(
                     val activeIds = _activeRequestIds.value
                     val hasSourceId = !incomingSourceMessageId.isNullOrBlank()
                     val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
-                    val completedEventKey = if (hasSourceId && machineEvent != null) buildCompletedEventKey(incomingSourceMessageId!!, machineEvent) else null
+                    val completedEventKey = if (hasSourceId && machineEvent != null) buildCompletedEventKey(incomingSourceMessageId, machineEvent) else null
 
                     if (hasSourceId && !sourceMatched) {
                         // 已完成后的完全重复事件 → 直接丢弃；不同 timestamp / 内容的事件继续放行。
@@ -1287,22 +1238,21 @@ class SdkSessionManager(
                         if (machineEvent != null) {
                             completedEventKey?.let(::rememberCompletedEventKey)
                             if (machineEvent.type == "assistant.final") {
-                                val aggregate = recordAssistantFinalChunk(incomingSourceMessageId ?: "", machineEvent).aggregate
-                                appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成但收到新的 assistant.final，按 timestamp 聚合后转发 latestTimestamp=${aggregate.latestTimestamp}")
+                                appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成但收到新的 assistant.final，作为独立 final 转发")
                                 _npcReplyEvents.tryEmit(NpcReplyEvent(
-                                    messageId = incomingSourceMessageId ?: "",
+                                    messageId = incomingSourceMessageId,
                                     type = machineEvent.type,
-                                    text = aggregate.text,
+                                    text = machineEvent.text,
                                     eventId = machineEvent.eventId,
                                     toolName = machineEvent.toolName,
-                                    attachments = aggregate.attachments,
-                                    timestamp = aggregate.latestTimestamp,
+                                    attachments = machineEvent.attachments,
+                                    timestamp = machineEvent.timestamp,
                                 ))
                                 return@startUserChannelConsumer
                             }
                             appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，转发到 npcReplyEvents type=${machineEvent.type}")
                             _npcReplyEvents.tryEmit(NpcReplyEvent(
-                                messageId = incomingSourceMessageId ?: "",
+                                messageId = incomingSourceMessageId,
                                 type = machineEvent.type,
                                 text = machineEvent.text,
                                 eventId = machineEvent.eventId,
@@ -1448,8 +1398,7 @@ class SdkSessionManager(
         _replyStateMap.value = emptyMap()
         assistantFinalCompletionJobs.values.forEach { it.cancel() }
         assistantFinalCompletionJobs.clear()
-        assistantFinalChunks.clear()
-        assistantFinalNoTimestampCounter = 0L
+        assistantFinalEventKeys.clear()
         pendingNasRegisterRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
@@ -1858,32 +1807,31 @@ class SdkSessionManager(
             }
 
             "assistant.final" -> {
-                val recordResult = recordAssistantFinalChunk(msgId, event)
-                val aggregate = recordResult.aggregate
+                val isNewFinalEvent = rememberAssistantFinalEvent(msgId, event)
                 emitNpcReplyEvent(
                     messageId = msgId,
                     type = event.type,
-                    text = aggregate.text,
+                    text = event.text,
                     eventId = event.eventId,
                     toolName = event.toolName,
-                    attachments = aggregate.attachments,
-                    timestamp = aggregate.latestTimestamp,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
                 )
                 updateReplyState(msgId) { state ->
                     state.copy(
-                        text = aggregate.text.ifBlank { state.text },
+                        text = event.text ?: state.text,
                         streaming = true,
                         streamingStatusText = null,
-                        attachments = aggregate.attachments.ifEmpty { state.attachments },
-                        timestamp = aggregate.latestTimestamp ?: state.timestamp,
+                        attachments = event.attachments.ifEmpty { state.attachments },
+                        timestamp = event.timestamp ?: state.timestamp,
                     )
                 }
                 if (isLatest) {
-                    if (aggregate.text.isNotBlank()) _assistantReplyText.value = aggregate.text
+                    if (!event.text.isNullOrBlank()) _assistantReplyText.value = event.text
                     _assistantReplyStreaming.value = true
                     _streamingStatusText.value = null
                 }
-                if (recordResult.isNewChunk) {
+                if (isNewFinalEvent) {
                     restartAssistantFinalCompletionTimer(msgId, isLatest)
                 } else {
                     appLogD(TAG, "[Event] assistant.final 重复推送已忽略，不重置 settle 计时 msgId=$msgId timestamp=${event.timestamp}")
@@ -2310,6 +2258,7 @@ class SdkSessionManager(
     companion object {
         private const val TAG = "SdkSessionManager"
         private const val BACKGROUND_DISCONNECT_DELAY_MS = 5_000L
+        private const val ASSISTANT_FINAL_KEYS_PER_MESSAGE_MAX_SIZE = 100
         private const val ASSISTANT_FINAL_SETTLE_DELAY_MS = 3_000L
         private const val RECONNECT_DELAY_MS = 3_000L
         private const val TOKEN_RECONNECT_DELAY_MS = 2_000L
@@ -2506,19 +2455,6 @@ data class ReplyState(
     val attachments: List<MediaAttachment> = emptyList(),
     val errorText: String? = null,
     val timestamp: Long? = null,
-)
-
-private data class AssistantFinalChunk(
-    val key: String,
-    val timestamp: Long?,
-    val text: String?,
-    val attachments: List<MediaAttachment>,
-)
-
-private data class AssistantFinalAggregate(
-    val text: String,
-    val attachments: List<MediaAttachment>,
-    val latestTimestamp: Long?,
 )
 
 enum class SdkConnectionState {

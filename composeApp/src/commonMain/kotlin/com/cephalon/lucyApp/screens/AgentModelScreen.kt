@@ -363,6 +363,7 @@ fun AgentModelScreen(
     // 必须声明在使用它的 helper 函数（upsert/remove/append）之前 ——
     // Kotlin 局部声明不支持前向引用。
     val messageIdToCdi = remember { mutableStateMapOf<String, String>() }
+    val messageIdToConversationId = remember { mutableStateMapOf<String, String>() }
 
     fun updateConversation(
         conversationId: String?,
@@ -433,11 +434,20 @@ fun AgentModelScreen(
         val targetCdi = messageIdToCdi[messageId]
         mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
             val msgs = conversation.messages.toMutableList()
-            // 1. 按 messageId 查找
-            var idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == messageId }
+            // 1. 优先更新仍在流式中的同 messageId assistant，避免覆盖已经完成的历史 final。
+            var idx = msgs.indexOfLast {
+                it is ChatItem.Assistant &&
+                    it.messageId == messageId &&
+                    it.isStreaming
+            }
+            // 2. 其次更新尚未绑定 messageId 的空占位符。
             // 2. 兜底：刚添加的占位符（messageId 尚未回填）
             if (idx < 0) {
-                idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank() }
+                idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == null && it.text.isBlank() }
+            }
+            // 3. 最后才更新最后一条同 messageId assistant，用于历史恢复 / 延迟到达的非 final 事件。
+            if (idx < 0) {
+                idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == messageId }
             }
             if (idx >= 0) {
                 msgs[idx] = transform(msgs[idx] as ChatItem.Assistant)
@@ -446,6 +456,101 @@ fun AgentModelScreen(
                 msgs.add(transform(ChatItem.Assistant(text = "", messageId = messageId)))
                 println("[Event] updateAssistantMessage 未找到匹配消息，创建新 assistant msgId=$messageId")
             }
+            conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+        }
+    }
+
+    fun buildAssistantFinalEntryId(event: NpcReplyEvent): String {
+        val explicitEventId = event.eventId?.trim()?.takeIf { it.isNotEmpty() }
+        if (explicitEventId != null) return "assistant-final-${event.messageId}-$explicitEventId"
+
+        val attachmentToken = event.attachments.joinToString(separator = "|") {
+            listOf(it.blobRef, it.contentType.orEmpty(), it.fileName.orEmpty()).joinToString(separator = ":")
+        }
+        val fallbackToken = listOf(
+            event.timestamp?.toString().orEmpty(),
+            event.text.orEmpty(),
+            attachmentToken,
+        ).joinToString(separator = "#")
+        return "assistant-final-${event.messageId}-${fallbackToken.hashCode().toUInt().toString(16)}"
+    }
+
+    fun upsertAssistantFinalMessage(
+        conversationId: String?,
+        sourceMessageId: String,
+        event: NpcReplyEvent,
+    ) {
+        val targetCdi = messageIdToCdi[sourceMessageId]
+        val finalAssistantId = buildAssistantFinalEntryId(event)
+        mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
+            val msgs = conversation.messages.toMutableList()
+            val existingFinalIdx = msgs.indexOfLast {
+                it is ChatItem.Assistant && it.assistantId == finalAssistantId
+            }
+            val streamingIdx = if (existingFinalIdx >= 0) {
+                -1
+            } else {
+                msgs.indexOfLast {
+                    it is ChatItem.Assistant &&
+                        it.messageId == sourceMessageId &&
+                        (it.isStreaming || it.text.isBlank())
+                }
+            }
+
+            val nextMessage =
+                when {
+                    existingFinalIdx >= 0 -> {
+                        val current = msgs[existingFinalIdx] as ChatItem.Assistant
+                        current.copy(
+                            text = event.text ?: current.text,
+                            messageId = sourceMessageId,
+                            attachments = if (event.attachments.isNotEmpty()) event.attachments else current.attachments,
+                            timestamp = event.timestamp ?: current.timestamp,
+                            isStreaming = false,
+                            streamEvents = current.streamEvents.markAllInactive().let { events ->
+                                if (events.any { it.type == "reasoning" }) {
+                                    events.addOrUpdate(StreamEvent("reasoning", "done"))
+                                } else {
+                                    events
+                                }
+                            }.addOrUpdate(StreamEvent("finish", "Finish")),
+                        )
+                    }
+                    streamingIdx >= 0 -> {
+                        val current = msgs[streamingIdx] as ChatItem.Assistant
+                        current.copy(
+                            assistantId = finalAssistantId,
+                            text = event.text ?: current.text,
+                            messageId = sourceMessageId,
+                            attachments = if (event.attachments.isNotEmpty()) event.attachments else current.attachments,
+                            timestamp = event.timestamp ?: current.timestamp,
+                            isStreaming = false,
+                            streamEvents = current.streamEvents.markAllInactive().let { events ->
+                                if (events.any { it.type == "reasoning" }) {
+                                    events.addOrUpdate(StreamEvent("reasoning", "done"))
+                                } else {
+                                    events
+                                }
+                            }.addOrUpdate(StreamEvent("finish", "Finish")),
+                        )
+                    }
+                    else -> ChatItem.Assistant(
+                        assistantId = finalAssistantId,
+                        text = event.text.orEmpty(),
+                        messageId = sourceMessageId,
+                        attachments = event.attachments,
+                        timestamp = event.timestamp,
+                        isStreaming = false,
+                        streamEvents = listOf(StreamEvent("finish", "Finish")),
+                    )
+                }
+
+            when {
+                existingFinalIdx >= 0 -> msgs[existingFinalIdx] = nextMessage
+                streamingIdx >= 0 -> msgs[streamingIdx] = nextMessage
+                else -> msgs.add(nextMessage)
+            }
+
             conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
         }
     }
@@ -882,10 +987,12 @@ fun AgentModelScreen(
                 }
             }
             val convId = if (msgId.isNotBlank()) {
-                activeStreamingRequests[msgId] ?: selectedConversationId
+                activeStreamingRequests[msgId]
+                    ?: messageIdToConversationId[msgId]
+                    ?: selectedConversationId
             } else {
                 selectedConversationId
-            } ?: return@collect
+            }
 
             println("[Event] 收到事件 type=${event.type}, msgId=$msgId, convId=$convId, textLen=${event.text?.length ?: 0}, attachments=${event.attachments.size}")
 
@@ -977,27 +1084,9 @@ fun AgentModelScreen(
                         println("[Stop] 收到首个 assistant.final msgId=$msgId，恢复发送按钮")
                         pendingStopMessageIds.clear()
                     }
-                    updateAssistantMessage(convId, msgId) { a ->
-                        val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
-                            if (events.any { it.type == "reasoning" }) {
-                                events.addOrUpdate(StreamEvent("reasoning", "done"))
-                            } else {
-                                events
-                            }
-                        }
-                        a.copy(
-                            text = event.text ?: a.text,
-                            messageId = msgId,
-                            attachments = if (event.attachments.isNotEmpty()) event.attachments else a.attachments,
-                            timestamp = event.timestamp ?: a.timestamp,
-                            isStreaming = false,
-                            streamEvents = completedStreamEvents
-                                .addOrUpdate(StreamEvent("finish", "Finish")),
-                        )
-                    }
+                    upsertAssistantFinalMessage(convId, msgId, event)
                     activeStreamingRequests.remove(msgId)
-                    messageIdToCdi.remove(msgId)
-                    println("[Event] assistant.final 聚合更新 msgId=$msgId, convId=$convId, waitingSettle=true")
+                    println("[Event] assistant.final 独立落消息 msgId=$msgId, convId=$convId, eventId=${event.eventId}")
                 }
                 "error" -> {
                     updateAssistantMessage(convId, msgId) { a ->
@@ -1021,7 +1110,6 @@ fun AgentModelScreen(
                     )
                     println("[Event] error msgId=$msgId, convId=$convId, error=${event.text}")
                     activeStreamingRequests.remove(msgId)
-                    messageIdToCdi.remove(msgId)
                 }
             }
         }
@@ -1159,7 +1247,7 @@ fun AgentModelScreen(
             println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, localCount=${localMediaAttachments.size}, nasCount=${nasAttachments.size}, sendingCdi=$sendingCdi")
             appendMessageToConversation(
                 targetConversationId,
-                ChatItem.Assistant("")
+                ChatItem.Assistant(text = "")
             )
             coroutineScope.launch {
                 println("[Chat] ensureConnectedIfTokenValid 开始...")
@@ -1315,6 +1403,9 @@ fun AgentModelScreen(
                     if (sendingCdi != null) {
                         messageIdToCdi[messageId] = sendingCdi
                     }
+                    if (targetConversationId != null) {
+                        messageIdToConversationId[messageId] = targetConversationId
+                    }
 
                     // 回填用户消息 + Assistant 占位符的 messageId；同样按 sendingCdi 路由：
                     // 当前设备还是它就走内存，不是就直接落到它的磁盘存档。
@@ -1344,7 +1435,8 @@ fun AgentModelScreen(
                         }
                         println("[Chat] 回填 messageId: userIdx=$userIdx, assistantIdx=$assistantIdx, totalMsgs=${msgs.size}")
                         if (assistantIdx >= 0) {
-                            msgs[assistantIdx] = ChatItem.Assistant("", messageId)
+                            val placeholder = msgs[assistantIdx] as ChatItem.Assistant
+                            msgs[assistantIdx] = placeholder.copy(messageId = messageId)
                         }
                         conv.copy(messages = msgs)
                     }

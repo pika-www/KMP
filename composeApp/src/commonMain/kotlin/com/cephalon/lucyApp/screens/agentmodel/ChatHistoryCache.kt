@@ -18,6 +18,7 @@ private val cacheJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable
 private data class SerializableChatItem(
     val type: String,
+    val assistantId: String? = null,
     val text: String? = null,
     val messageId: String? = null,
     val attachmentUris: List<String>? = null,
@@ -54,6 +55,7 @@ private data class SerializableChatHistory(
 private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
     is ChatItem.Assistant -> SerializableChatItem(
         type = "assistant",
+        assistantId = assistantId,
         text = text,
         messageId = messageId,
         mediaBlobRefs = attachments.map { it.blobRef }.ifEmpty { null },
@@ -97,7 +99,15 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
         val events = streamEventTypes?.mapIndexed { i, t ->
             StreamEvent(type = t, label = streamEventLabels?.getOrNull(i) ?: "", isActive = false)
         } ?: emptyList()
-        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments, timestamp = timestamp, streamEvents = events, reasoningText = reasoningText)
+        ChatItem.Assistant(
+            assistantId = assistantId ?: generateAssistantEntryId(),
+            text = text ?: "",
+            messageId = messageId,
+            attachments = mediaAttachments,
+            timestamp = timestamp,
+            streamEvents = events,
+            reasoningText = reasoningText,
+        )
     }
     "user" -> ChatItem.User(text = text ?: "", messageId = messageId)
     "user_attachments" -> {

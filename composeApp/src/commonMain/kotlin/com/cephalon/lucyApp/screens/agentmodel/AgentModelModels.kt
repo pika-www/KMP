@@ -3,6 +3,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.sdk.MediaAttachment
+import com.cephalon.lucyApp.time.currentTimeMillis
 
 internal sealed class AttachmentUploadState {
     data object Uploading : AttachmentUploadState()
@@ -55,6 +56,7 @@ internal sealed class ChatItem {
     abstract val messageId: String?
 
     data class Assistant(
+        val assistantId: String = generateAssistantEntryId(),
         val text: String,
         override val messageId: String? = null,
         val attachments: List<MediaAttachment> = emptyList(),
@@ -90,6 +92,9 @@ internal sealed class ChatItem {
         override val messageId: String? = null
     }
 }
+
+internal fun generateAssistantEntryId(): String =
+    "assistant-${currentTimeMillis()}-${kotlin.random.Random.nextLong().toString(16)}"
 
 internal data class ConversationItem(
     val id: String,
