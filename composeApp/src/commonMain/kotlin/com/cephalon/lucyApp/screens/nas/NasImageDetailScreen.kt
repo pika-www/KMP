@@ -228,7 +228,18 @@ internal fun NasImageDetailScreen(
                     ),
                     color = foregroundColor,
                 )
-                Spacer(modifier = Modifier.width(ds.sm(36.dp)))
+                NasDetailGlassCircleButton(
+                    size = ds.sm(36.dp),
+                    isLight = true,
+                    onClick = { onDownload(currentImage) }
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_download),
+                        contentDescription = "下载",
+                        tint = foregroundColor,
+                        modifier = Modifier.size(ds.sm(16.dp))
+                    )
+                }
             } else {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
@@ -263,31 +274,17 @@ internal fun NasImageDetailScreen(
             }
         }
 
-        // 底部浮层：发送脑花 | 下载
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(16.dp)),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            if (isChatMode) {
-                Spacer(modifier = Modifier.width(ds.sm(48.dp)))
-                NasDetailGlassCircleButton(
-                    size = ds.sm(48.dp),
-                    isLight = true,
-                    onClick = { onDownload(currentImage) }
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_download),
-                        contentDescription = "下载",
-                        tint = foregroundColor,
-                        modifier = Modifier.size(ds.sm(20.dp))
-                    )
-                }
-            } else {
+        // 底部浮层：发送脑花 | 下载（仅 NAS 模式）
+        if (!isChatMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(16.dp)),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Surface(
                     modifier = Modifier
                         .width(ds.sm(140.dp))
