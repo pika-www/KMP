@@ -17,6 +17,8 @@ import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.layout.fillMaxSize
 import com.arkivanov.decompose.extensions.compose.stack.Children
+import com.arkivanov.decompose.extensions.compose.stack.animation.slide
+import com.arkivanov.decompose.extensions.compose.stack.animation.stackAnimation
 import com.arkivanov.decompose.Child
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.sdk.SdkSessionManager
@@ -127,7 +129,10 @@ fun App(
                 )
             }
 
-            Children(stack = root.stack) { child: Child.Created<*, RootComponent.Child> ->
+            Children(
+                stack = root.stack,
+                animation = stackAnimation(slide())
+            ) { child: Child.Created<*, RootComponent.Child> ->
                 when (val instance = child.instance) {
                     is RootComponent.Child.Login -> {
                         LoginScreen(

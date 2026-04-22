@@ -4,6 +4,13 @@ import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_share
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -148,6 +155,21 @@ fun NasScreen(onBack: () -> Unit) {
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
+    val detailEnter = slideInHorizontally(
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        initialOffsetX = { it / 3 }
+    ) + fadeIn(animationSpec = tween(durationMillis = 240))
+    val detailExit = slideOutHorizontally(
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        targetOffsetX = { it / 3 }
+    ) + fadeOut(animationSpec = tween(durationMillis = 180))
+    val rememberedSelectedImage = remember { mutableStateOf<NasImageItem?>(null) }
+    val rememberedSelectedAudio = remember { mutableStateOf<NasAudioItem?>(null) }
+    val rememberedSelectedDocument = remember { mutableStateOf<NasDocumentItem?>(null) }
+
+    if (selectedImage != null) rememberedSelectedImage.value = selectedImage
+    if (selectedAudio != null) rememberedSelectedAudio.value = selectedAudio
+    if (selectedDocument != null) rememberedSelectedDocument.value = selectedDocument
 
     fun appendUploadTasks(tasks: List<NasUploadTaskItem>) {
         NasUploadTaskStore.append(tasks)
@@ -666,84 +688,6 @@ fun NasScreen(onBack: () -> Unit) {
     }
 
     PlatformBackHandler(onBack = ::handleNasBack)
-
-    // 如果选中了图片，显示详情页
-    selectedImage?.let { image ->
-        NasImageDetailScreen(
-            images = allImages,
-            initialImageId = image.id,
-            targetCdi = targetCdi,
-            onBack = ::handleNasBack,
-            onShare = { currentImage ->
-                println("分享图片: ${currentImage.name}")
-                // TODO: 实现分享功能
-            },
-            onDownload = { currentImage ->
-                downloadNasFile(
-                    fileId = currentImage.fileId,
-                    fileName = currentImage.name,
-                    mimeType = currentImage.name.toMimeType(),
-                )
-            },
-            onDelete = { currentImage ->
-                deleteNasFile(currentImage.fileId, NasCategory.Photos)
-                selectedImage = null
-            }
-        )
-        return
-    }
-
-    // 如果选中了音频，显示详情页
-    selectedAudio?.let { audio ->
-        NasAudioDetailScreen(
-            audio = audio,
-            targetCdi = targetCdi,
-            mediaController = mediaController,
-            onBack = ::handleNasBack,
-            onShare = {
-                println("分享音频: ${audio.name}")
-                // TODO: 实现分享功能
-            },
-            onDownload = {
-                downloadNasFile(
-                    fileId = audio.fileId,
-                    fileName = audio.name,
-                    mimeType = audio.name.toMimeType(),
-                )
-            },
-            onDelete = {
-                deleteNasFile(audio.fileId, NasCategory.Recordings)
-                mediaController.stopAudioPlayback()
-                selectedAudio = null
-            }
-        )
-        return
-    }
-
-    // 如果选中了文档，显示详情页
-    selectedDocument?.let { document ->
-        NasDocumentDetailScreen(
-            document = document,
-            targetCdi = targetCdi,
-            onBack = ::handleNasBack,
-            onShare = {
-                println("分享文档: ${document.name}")
-                // TODO: 实现分享功能
-            },
-            onDownload = {
-                downloadNasFile(
-                    fileId = document.fileId,
-                    fileName = document.name,
-                    mimeType = document.name.toMimeType(),
-                )
-            },
-            onDelete = {
-                deleteNasFile(document.fileId, NasCategory.Documents)
-                selectedDocument = null
-            }
-        )
-        return
-    }
 
     val isCurrentSelectionMode = when (selectedCategory) {
         NasCategory.Photos -> isPhotoSelectionMode
@@ -1338,6 +1282,96 @@ fun NasScreen(onBack: () -> Unit) {
             tasks = uploadTasks,
             onDismiss = { NasUploadTaskStore.showDialog = false }
         )
+    }
+
+    AnimatedVisibility(
+        visible = selectedImage != null,
+        enter = detailEnter,
+        exit = detailExit,
+    ) {
+        val image = rememberedSelectedImage.value
+        if (image != null) {
+            NasImageDetailScreen(
+                images = allImages,
+                initialImageId = image.id,
+                targetCdi = targetCdi,
+                onBack = ::handleNasBack,
+                onShare = { currentImage ->
+                    println("分享图片: ${currentImage.name}")
+                },
+                onDownload = { currentImage ->
+                    downloadNasFile(
+                        fileId = currentImage.fileId,
+                        fileName = currentImage.name,
+                        mimeType = currentImage.name.toMimeType(),
+                    )
+                },
+                onDelete = { currentImage ->
+                    deleteNasFile(currentImage.fileId, NasCategory.Photos)
+                    selectedImage = null
+                }
+            )
+        }
+    }
+
+    AnimatedVisibility(
+        visible = selectedAudio != null,
+        enter = detailEnter,
+        exit = detailExit,
+    ) {
+        val audio = rememberedSelectedAudio.value
+        if (audio != null) {
+            NasAudioDetailScreen(
+                audio = audio,
+                targetCdi = targetCdi,
+                mediaController = mediaController,
+                onBack = ::handleNasBack,
+                onShare = {
+                    println("分享音频: ${audio.name}")
+                },
+                onDownload = {
+                    downloadNasFile(
+                        fileId = audio.fileId,
+                        fileName = audio.name,
+                        mimeType = audio.name.toMimeType(),
+                    )
+                },
+                onDelete = {
+                    deleteNasFile(audio.fileId, NasCategory.Recordings)
+                    mediaController.stopAudioPlayback()
+                    selectedAudio = null
+                }
+            )
+        }
+    }
+
+    AnimatedVisibility(
+        visible = selectedDocument != null,
+        enter = detailEnter,
+        exit = detailExit,
+    ) {
+        val document = rememberedSelectedDocument.value
+        if (document != null) {
+            NasDocumentDetailScreen(
+                document = document,
+                targetCdi = targetCdi,
+                onBack = ::handleNasBack,
+                onShare = {
+                    println("分享文档: ${document.name}")
+                },
+                onDownload = {
+                    downloadNasFile(
+                        fileId = document.fileId,
+                        fileName = document.name,
+                        mimeType = document.name.toMimeType(),
+                    )
+                },
+                onDelete = {
+                    deleteNasFile(document.fileId, NasCategory.Documents)
+                    selectedDocument = null
+                }
+            )
+        }
     }
 
     previewImage?.let { image ->
