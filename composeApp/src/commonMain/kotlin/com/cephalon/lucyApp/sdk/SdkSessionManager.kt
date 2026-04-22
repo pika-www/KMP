@@ -315,6 +315,14 @@ class SdkSessionManager(
         userKeyOf(KEY_SELECTED_DEVICE_CDI)?.let { settings.remove(it) }
     }
 
+    private var blobRelayConfiguredForProcess: Boolean = false
+
+    private fun ensureBlobRelayConfiguredForProcess() {
+        if (blobRelayConfiguredForProcess) return
+        blobRelayConfiguredForProcess = true
+        runCatching { configurePlatformBlobRelay() }
+    }
+
     private val blobTransfer by lazy { createPlatformBlobTransfer() }
     private val blobBytesCache = linkedMapOf<String, ByteArray>()
     private val blobRefDebugCache = linkedMapOf<String, BlobRefDebugInfo?>()
@@ -553,6 +561,7 @@ class SdkSessionManager(
     }
 
     private suspend fun ensureConnectedIfTokenValidLocked(): Result<Unit> {
+            ensureBlobRelayConfiguredForProcess()
             if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
                 val observersActive = areObserversActive()
                 appLogD(TAG, "SDK 已连接(复用), userId=${session!!.userId}, observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}, consumerJob=${consumerJob?.isActive}, nasConsumerJob=${nasConsumerJob?.isActive}, deviceObserverJob=${deviceObserverJob?.isActive}")
@@ -759,6 +768,14 @@ class SdkSessionManager(
                     ),
                 )
         }.onSuccess { outcome ->
+            val firstBlobRef = outcome.sentItems.firstOrNull()?.blobRef
+            if (!firstBlobRef.isNullOrBlank()) {
+                val debug = parseBlobRefDebugInfo(firstBlobRef)
+                appLogD(
+                    TAG,
+                    "[BlobSend] 解析发送侧 blobRef relayUrl=${debug?.relayUrl ?: "none"} blobRef=${firstBlobRef.take(40)}",
+                )
+            }
             appLogD(
                 TAG,
                 "批量传输成功 target=${deviceKind.name} cdi=$resolvedTargetCdi status=${outcome.done.status} items=${outcome.done.items.size}",

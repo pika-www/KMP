@@ -9,7 +9,20 @@ import platform.Foundation.NSUserDomainMask
 import platform.posix.setenv
 
 @OptIn(ExperimentalForeignApi::class)
+private fun configureBlobRelayEnv() {
+    // Keep both keys in sync for compatibility with Rust core.
+    val secs = "20"
+    setenv("LUCY_BLOB_IROH_RELAY_FALLBACK_TIMEOUT_SECS", secs, 1)
+    setenv("lucy.blob.iroh_relay.fallback_timeout_secs", secs, 1)
+}
+
+internal actual fun configurePlatformBlobRelay() {
+    configureBlobRelayEnv()
+}
+
+@OptIn(ExperimentalForeignApi::class)
 private val blobTransfer: BlobTransfer by lazy {
+    configurePlatformBlobRelay()
     val caches = (NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, true)
         .firstOrNull() as? String) ?: ""
     val storeDir = "$caches/lucy_blob"
@@ -23,6 +36,7 @@ internal actual suspend fun platformUploadBlob(data: ByteArray, entryName: Strin
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual fun createPlatformBlobTransfer(): BlobTransfer {
+    configurePlatformBlobRelay()
     val caches = (NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, true)
         .firstOrNull() as? String) ?: ""
     val storeDir = "$caches/lucy_blob"
