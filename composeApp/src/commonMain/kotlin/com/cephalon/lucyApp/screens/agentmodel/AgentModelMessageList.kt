@@ -159,7 +159,7 @@ internal fun AgentModelMessageList(
         }) { index, item ->
             when (item) {
                 is ChatItem.Assistant -> {
-                    val isThinkingActive = isStopMode && item.messageId != null && item.messageId in activeThinkingMessageIds
+                    val isThinkingActive = item.messageId != null && item.messageId in activeThinkingMessageIds
                     val shouldHideStatusBubble = item.messageId != null && item.messageId in hiddenStatusMessageIds
                     Column(modifier = Modifier.fillMaxWidth(0.8f)) {
                         // ── 可折叠思考状态气泡 ──

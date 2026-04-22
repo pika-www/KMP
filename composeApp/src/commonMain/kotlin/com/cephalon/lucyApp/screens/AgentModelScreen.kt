@@ -664,6 +664,7 @@ fun AgentModelScreen(
     val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
     val pendingStopMessageIds = remember { mutableStateListOf<String>() }
     val hiddenStopReplyMessageIds = remember { mutableStateListOf<String>() }
+    val discardedReplyMessageIds = remember { mutableStateListOf<String>() }
     val processedEventIds = remember { mutableStateListOf<String>() }
     var toastMessage by remember { mutableStateOf<String?>(null) }
     val audioBlobCacheMap = remember { mutableStateMapOf<String, String>() }
@@ -944,6 +945,10 @@ fun AgentModelScreen(
         sdkSessionManager.npcReplyEvents.collect { event ->
             val msgId = event.messageId
             val eventId = event.eventId?.trim().orEmpty()
+            if (msgId.isNotBlank() && msgId in discardedReplyMessageIds) {
+                println("[Stop] 丢弃已暂停回复的事件 type=${event.type} msgId=$msgId")
+                return@collect
+            }
             val isStopReply = msgId.isNotBlank() && msgId in hiddenStopReplyMessageIds
             if (isStopReply && pendingStopMessageIds.remove(msgId)) {
                 println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
@@ -1458,6 +1463,15 @@ fun AgentModelScreen(
 
     val sendStopMessage = Unit@{
         if (!isStopMode) return@Unit
+        val activeReplyMessageId = activeStreamingRequests.keys.lastOrNull()
+        if (activeReplyMessageId.isNullOrBlank()) return@Unit
+        activeStreamingRequests.remove(activeReplyMessageId)
+        discardedReplyMessageIds.remove(activeReplyMessageId)
+        discardedReplyMessageIds.add(activeReplyMessageId)
+        if (discardedReplyMessageIds.size > 50) {
+            discardedReplyMessageIds.removeAt(0)
+        }
+        println("[Stop] 标记丢弃回复 source_message_id=$activeReplyMessageId")
         val targetCdi = currentCdi
         if (targetCdi == null || targetCdi !in onlineDeviceCdis) {
             toastMessage = "设备不在线，请等待设备上线后重试"
