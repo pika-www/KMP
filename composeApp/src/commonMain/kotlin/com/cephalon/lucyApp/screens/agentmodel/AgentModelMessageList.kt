@@ -846,11 +846,13 @@ private fun ThinkingBubble(
     streamingStatusText: String?,
     ds: com.cephalon.lucyApp.components.DesignScale,
 ) {
-    var expanded by remember { mutableStateOf(true) }
+    var expanded by remember { mutableStateOf(false) }
 
-    // 对话结束后自动折叠
+    // 流式思考中自动展开，结束后自动折叠
     LaunchedEffect(isStreaming) {
-        if (!isStreaming && events.isNotEmpty()) {
+        if (isStreaming) {
+            expanded = true
+        } else if (events.isNotEmpty()) {
             expanded = false
         }
     }
