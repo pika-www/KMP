@@ -133,6 +133,7 @@ class RootComponentImpl(
                         scope.launch {
                             authRepository.getUserInfo()
                             authRepository.getModelConfig()
+                            try { authRepository.claimDailyRewardIfNeeded() } catch (_: Exception) { }
                             // 关键 1：先失效上一轮账号在本地残留的 connection_flag 缓存，
                             //        强制 checkConnectionFlag() 走一次网络，避免被旧值误判。
                             authRepository.invalidateConnectionFlagCache()
