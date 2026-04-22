@@ -443,24 +443,10 @@ class RootComponentImpl(
                             authRepository.setConnectionFlag()
                             sdkSessionManager.selectDevice(cdi)
 
-                            // 扫码绑定 = BLE/OTP 绑定的另一个入口，流程对齐 onOpenBrainBoxLoginSuccess：
-                            // 先连 SDK → 下发 provision_model → 等 cdi 上线 → 再跳转。
-                            println("[ScanBind] 绑定后连接 SDK...")
+                            // 本地部署扫码绑定：只连 SDK，不下发 provision_model，直接进入对话页
+                            println("[ScanBind] 本地部署绑定，连接 SDK...")
                             val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
                             println("[ScanBind] SDK 连接结果: ${connectResult.isSuccess}")
-
-                            if (connectResult.isSuccess) {
-                                pushProvisionModelToNewDevice(cdi)
-                                println("[ScanBind] 等待 cdi=$cdi 出现在 runPingAndEmit 结果中...")
-                                val onlineResult = awaitCdiOnline(cdi)
-                                if (onlineResult.isSuccess) {
-                                    println("[ScanBind] cdi=$cdi 已上线，跳转对话页")
-                                } else {
-                                    println("[ScanBind] 等待 cdi=$cdi 上线超时：${onlineResult.exceptionOrNull()?.message}，仍然跳转对话页由 AgentModel 兜底等待")
-                                }
-                            } else {
-                                println("[ScanBind] SDK 未连上，跳过 provision_model 与 await-online，直接跳转对话页由 AgentModel 兜底")
-                            }
 
                             onLoading(false)
                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
