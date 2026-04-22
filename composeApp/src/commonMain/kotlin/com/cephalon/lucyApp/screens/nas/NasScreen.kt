@@ -416,6 +416,14 @@ fun NasScreen(onBack: () -> Unit) {
                     items = uploadPayloads,
                     deviceKind = FileTransferDeviceKind.Nas,
                     onProgress = { frame ->
+                        println(
+                            "[NasUpload] onProgress " +
+                                "v=${frame.v} phase=${frame.phase} transferId=${frame.transferId} " +
+                                "completedEntries=${frame.completedEntries}/${frame.totalEntries} " +
+                                "currentEntryId=${frame.currentEntryId} " +
+                                "currentBytesFetched=${frame.currentBytesFetched} overallBytesFetched=${frame.overallBytesFetched} " +
+                                "currentPctApprox=${frame.currentPctApprox} overallPctApprox=${frame.overallPctApprox}"
+                        )
                         val orderedIds = uploadPayloads.map { it.entryId }
                         val byteSizeMap = uploadPayloads.associate { it.entryId to it.bytes.size.toLong() }
                         val completedCount = frame.completedEntries.coerceIn(0, orderedIds.size)
