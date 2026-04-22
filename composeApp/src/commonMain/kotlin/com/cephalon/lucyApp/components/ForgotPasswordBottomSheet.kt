@@ -62,46 +62,43 @@ fun ForgotPasswordForm(
     val canSubmit = account.isNotBlank() && code.isNotBlank() && pwd.isNotBlank() && confirmPwd.isNotBlank() && !isLoading &&
         pwdErr == null && confirmPwdErr == null
 
+    val normalizePhone: () -> String? = {
+        val raw = account.trim().replace(" ", "")
+        val withoutPrefix = when {
+            raw.startsWith("+86") -> raw.removePrefix("+86")
+            raw.startsWith("86") && raw.length > 11 -> raw.removePrefix("86")
+            else -> raw
+        }
+        withoutPrefix.trim().takeIf { Regex("^1\\d{10}$").matches(it) }
+    }
+
     val performReset: () -> Unit = performReset@{
         if (!canSubmit) return@performReset
-        isLoading = true
-        val input = account.trim()
-        val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
-        val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
-            if (Regex("^1\\d{10}$").matches(v)) v else null
-        }
-        val isEmail = normalizedEmail != null
-        val normalizedAccount = normalizedEmail ?: normalizedPhone
-        if (normalizedAccount == null) {
-            isLoading = false
-            showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
+        val phone = normalizePhone()
+        if (phone == null) {
+            showError("请输入正确的11位手机号")
             return@performReset
         }
-        val accountType = if (isEmail) "email" else "phone"
-
+        isLoading = true
         scope.launch {
             try {
-                val existsResponse = if (isEmail) {
-                    authRepository.isEmailExist(normalizedAccount)
-                } else {
-                    authRepository.isPhoneExist(normalizedAccount)
-                }
+                val existsResponse = authRepository.isPhoneExist(phone)
                 if (existsResponse.code == 20000) {
                     val exists = existsResponse.data?.isExist ?: false
                     if (!exists) {
                         isLoading = false
-                        showError("该账号未注册")
+                        showError("该手机号未注册")
                         return@launch
                     }
                 }
 
                 val response = authRepository.forgetPassword(
                     ForgetPasswordRequest(
-                        account = normalizedAccount,
+                        account = phone,
                         code = code,
                         pwd = pwd,
                         confirmPwd = confirmPwd,
-                        type = accountType
+                        type = "phone"
                     )
                 )
                 isLoading = false
@@ -134,12 +131,11 @@ fun ForgotPasswordForm(
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            AccountInput(
+            PhoneOnlyInput(
                 value = account,
                 onValueChange = { account = it },
                 enabled = !isLoading,
                 imeAction = ImeAction.Next,
-                onValidationError = { msg -> showError(msg) }
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -150,39 +146,23 @@ fun ForgotPasswordForm(
                 enabled = !isLoading,
                 imeAction = ImeAction.Next,
                 onSendCode = { startTimer ->
-                    val input = account.trim()
-                    val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
-                    val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
-                        if (Regex("^1\\d{10}$").matches(v)) v else null
-                    }
-                    val isEmail = normalizedEmail != null
-                    val normalizedAccount = normalizedEmail ?: normalizedPhone
-                    if (normalizedAccount == null) {
-                        showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
+                    val phone = normalizePhone()
+                    if (phone == null) {
+                        showError("请输入正确的11位手机号")
                         return@CodeInput
                     }
-
                     scope.launch {
                         isLoading = true
-                        val existsResponse = if (isEmail) {
-                            authRepository.isEmailExist(normalizedAccount)
-                        } else {
-                            authRepository.isPhoneExist(normalizedAccount)
-                        }
+                        val existsResponse = authRepository.isPhoneExist(phone)
                         if (existsResponse.code == 20000) {
                             val exists = existsResponse.data?.isExist ?: false
                             if (!exists) {
                                 isLoading = false
-                                showError("该账号未注册")
+                                showError("该手机号未注册")
                                 return@launch
                             }
                         }
-
-                        val response = if (isEmail) {
-                            authRepository.getCode(email = normalizedAccount, actionType = "modify", appType = "lucy")
-                        } else {
-                            authRepository.getCode(phone = normalizedAccount, actionType = "modify", appType = "lucy")
-                        }
+                        val response = authRepository.getCode(phone = phone, actionType = "modify", appType = "lucy")
                         isLoading = false
                         if (response.code == 20000) {
                             startTimer()

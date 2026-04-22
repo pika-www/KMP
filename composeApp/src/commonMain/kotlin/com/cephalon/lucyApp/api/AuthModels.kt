@@ -331,6 +331,17 @@ data class ModelItem(
     val isDefault: Boolean = false,
 )
 
+/**
+ * GET /v1/channels/lucy-app/taobao-link
+ */
+@Serializable
+data class TaobaoLinkData(
+    @SerialName("ai_npc")
+    val aiNpc: String = "",
+    @SerialName("long_xia_pai")
+    val longXiaPai: String = "",
+)
+
 object AuthInput {
     fun isEmail(input: String): Boolean = input.contains('@')
 

@@ -86,8 +86,6 @@ fun LoginSheetContent(
     onVerifyCodeChange: (String) -> Unit,
     isLoading: Boolean,
     canSubmit: Boolean,
-    normalizedAccount: String,
-    isAccountEmail: Boolean,
     onBackClick: () -> Unit,
     onFocusLostValidate: () -> Unit,
     onForgotClick: (() -> Unit)?,
@@ -95,8 +93,6 @@ fun LoginSheetContent(
     onSendCode: (startTimer: () -> Unit) -> Unit,
     toastState: ToastState,
     isRegisterPage: Boolean = false,
-    registerPhone: String = "",
-    onRegisterPhoneChange: (String) -> Unit = {},
     canSendCode: Boolean = true,
     isAccountRegistered: Boolean = false,
     onGotoLoginFromRegister: () -> Unit = {},
@@ -207,8 +203,7 @@ fun LoginSheetContent(
                 }
             } else if (isRegisterPage) {
                 // ===== 注册页 =====
-                // 账号输入（手机号/邮箱）
-                AccountInput(
+                PhoneOnlyInput(
                     value = username,
                     onValueChange = onUsernameChange,
                     enabled = !isLoading,
@@ -218,25 +213,7 @@ fun LoginSheetContent(
                         }
                         hadFocus = focusState.isFocused
                     },
-                    onValidationError = { toastState.show(it) },
                 )
-
-                // 邮箱注册时，显示额外的手机号输入框
-                AnimatedVisibility(
-                    visible = isAccountEmail,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
-                ) {
-                    Column {
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                        PhoneOnlyInput(
-                            value = registerPhone,
-                            onValueChange = onRegisterPhoneChange,
-                            enabled = !isLoading,
-                            label = "请输入手机号",
-                        )
-                    }
-                }
 
                 Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                 CodeInput(
@@ -264,25 +241,7 @@ fun LoginSheetContent(
                 )
             } else {
                 // ===== 密码登录模式 =====
-                // 邮箱未注册时，在账号上方显示手机号输入框
-                AnimatedVisibility(
-                    visible = needsRegister && isAccountEmail,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
-                ) {
-                    Column {
-                        PhoneOnlyInput(
-                            value = registerPhone,
-                            onValueChange = onRegisterPhoneChange,
-                            enabled = !isLoading,
-                            label = "请输入手机号",
-                        )
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                    }
-                }
-
-                // 账号输入（手机号/邮箱）
-                AccountInput(
+                PhoneOnlyInput(
                     value = username,
                     onValueChange = onUsernameChange,
                     enabled = !isLoading,
@@ -292,7 +251,6 @@ fun LoginSheetContent(
                         }
                         hadFocus = focusState.isFocused
                     },
-                    onValidationError = { toastState.show(it) },
                 )
 
                 // 密码登录 — 未注册时动画弹出验证码（账号后面）

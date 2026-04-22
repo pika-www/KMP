@@ -341,6 +341,13 @@ class AuthRepository(
         }
     }
 
+    // ---- 淘宝链接 ----
+
+    suspend fun getTaobaoLinks(): TaobaoLinkData? {
+        val resp = authApi.get<TaobaoLinkData>("/channels/lucy-app/taobao-link")
+        return if (resp.code == 20000) resp.data else null
+    }
+
     // ---- 模型配置 ----
 
     private val modelConfigJson = Json { ignoreUnknownKeys = true }

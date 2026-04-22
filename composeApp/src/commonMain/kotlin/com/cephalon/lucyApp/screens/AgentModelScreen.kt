@@ -652,6 +652,7 @@ fun AgentModelScreen(
     var showRechargePage by remember { mutableStateOf(false) }
     var showRechargePackagePage by remember { mutableStateOf(false) }
     var showNasNotSupportedDialog by remember { mutableStateOf(false) }
+    var taobaoLinkUrl by remember { mutableStateOf<String?>(null) }
     var showSearchPage by remember { mutableStateOf(false) }
     var emptyViewState by remember { mutableStateOf(0) }
     val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
@@ -1901,6 +1902,10 @@ fun AgentModelScreen(
                 }
 
                 if (showNasNotSupportedDialog) {
+                    LaunchedEffect(Unit) {
+                        val links = authRepository.getTaobaoLinks()
+                        taobaoLinkUrl = links?.aiNpc?.takeIf { it.isNotBlank() }
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1915,7 +1920,8 @@ fun AgentModelScreen(
                             onDismiss = { showNasNotSupportedDialog = false },
                             onBuy = {
                                 showNasNotSupportedDialog = false
-                                uriHandler.openUri("https://item.taobao.com/item.htm?ft=t&id=1041156653398")
+                                val url = taobaoLinkUrl ?: ""
+                                uriHandler.openUri(url)
                             }
                         )
                     }

@@ -111,8 +111,8 @@ fun HalfModalBottomSheet(
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedVisibility(
             visibleState = visibleState,
-            enter = fadeIn(animationSpec = tween(delayMillis = 90, durationMillis = 220)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 140))
+            enter = fadeIn(animationSpec = tween(durationMillis = 200)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 160))
         ) {
             Box(
                 modifier = Modifier
@@ -133,8 +133,11 @@ fun HalfModalBottomSheet(
                 visibleState = visibleState,
                 enter = slideInVertically(
                     initialOffsetY = { it },
-                    animationSpec = tween(delayMillis = 90, durationMillis = 360)
-                ) + fadeIn(animationSpec = tween(delayMillis = 90, durationMillis = 160)),
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeIn(animationSpec = tween(durationMillis = 150)),
                 exit = slideOutVertically(
                     targetOffsetY = { it },
                     animationSpec = spring(
