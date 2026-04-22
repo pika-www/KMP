@@ -601,6 +601,7 @@ internal fun AgentModelProfileScreen(
                             SwitchDeviceContent(
                                 devices = switchDeviceList,
                                 pendingCdi = pendingCdi,
+                                currentCdi = switchDeviceCurrentCdi,
                                 onDeviceClicked = { selectedDevice ->
                                     pendingCdi = selectedDevice.channelDeviceId
                                 },
@@ -3220,16 +3221,6 @@ private fun DeviceCard(
         isOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备在线" else "设备在线"
         else -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备离线" else "设备离线"
     }
-    val rightText = when {
-        isCheckingOnline -> "检测中…"
-        isOnline -> "已连接"
-        else -> "离线"
-    }
-    val rightColor = when {
-        isCheckingOnline -> Color(0xFF999999)
-        isOnline -> Color(0xFF1A73E9)
-        else -> Color(0xFFCC3333)
-    }
 
     // ── 设备盒子 ──
     // padding 15/16/17、圆角 16、1dp 白边、阴影（无纯色底，透出容器背景）
@@ -3283,16 +3274,6 @@ private fun DeviceCard(
                 color = Color(0xFF595E6B),
             )
         }
-
-        // 右侧连接状态
-        Text(
-            text = rightText,
-            fontSize = ds.sp(12f),
-            fontWeight = FontWeight.Normal,
-            lineHeight = ds.sp(16f),
-            color = rightColor,
-            textAlign = TextAlign.End,
-        )
     }
 
     Spacer(modifier = Modifier.height(ds.sh(20.dp)))
@@ -3383,6 +3364,7 @@ private fun DeviceActionButton(
 private fun SwitchDeviceContent(
     devices: List<com.cephalon.lucyApp.api.LucyDevice>,
     pendingCdi: String,
+    currentCdi: String,
     onDeviceClicked: (com.cephalon.lucyApp.api.LucyDevice) -> Unit,
 ) {
     val ds = LocalDesignScale.current
@@ -3402,10 +3384,12 @@ private fun SwitchDeviceContent(
         devices.forEachIndexed { index, device ->
             val deviceCdi = device.channelDeviceId
             val isSelected = deviceCdi.isNotEmpty() && deviceCdi == pendingCdi
+            val isCurrent = deviceCdi.isNotEmpty() && deviceCdi == currentCdi
             val isOnline = deviceCdi.isNotEmpty() && deviceCdi in onlineCdis
             SwitchDeviceItem(
                 device = device,
                 isSelected = isSelected,
+                isCurrent = isCurrent,
                 isOnline = isOnline,
                 isCheckingOnline = isCheckingOnline,
                 onClick = { onDeviceClicked(device) }
@@ -4041,6 +4025,7 @@ private suspend fun configureDeviceWifi(
 private fun SwitchDeviceItem(
     device: com.cephalon.lucyApp.api.LucyDevice,
     isSelected: Boolean,
+    isCurrent: Boolean,
     isOnline: Boolean,
     isCheckingOnline: Boolean = false,
     onClick: () -> Unit,
@@ -4076,17 +4061,6 @@ private fun SwitchDeviceItem(
         isCheckingOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 检测中…" else "检测中…"
         isOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备在线" else "设备在线"
         else -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备离线" else "设备离线"
-    }
-    val rightText = when {
-        isSelected -> "当前选择"
-        isCheckingOnline -> "检测中…"
-        isOnline -> "已连接"
-        else -> "离线"
-    }
-    val rightColor = when {
-        isSelected -> Color.White
-        isCheckingOnline -> Color(0xFF999999)
-        else -> Color(0xFF1A73E9)
     }
     // 选中态图标盒变为白色，图标 tint 变为深色 #1F2535（与设计稿 SVG fill 一致）
     val iconBoxColor = if (isSelected) Color.White else Color(0xFF1F2535)
@@ -4127,14 +4101,26 @@ private fun SwitchDeviceItem(
 
         // 设备 ID + 在线状态
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = deviceIdDisplay,
-                fontSize = ds.sp(18f),
-                fontWeight = FontWeight.Medium,
-                color = idColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isCurrent) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(8.dp))
+                            .background(Color(0xFF19D166), CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                }
+                Text(
+                    text = deviceIdDisplay,
+                    fontSize = ds.sp(18f),
+                    fontWeight = FontWeight.Medium,
+                    color = idColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(modifier = Modifier.height(ds.sh(4.dp)))
             Text(
                 text = statusText,
@@ -4143,16 +4129,6 @@ private fun SwitchDeviceItem(
                 color = statusColor,
             )
         }
-
-        // 右侧状态标签（选中时显示 “当前选择”）
-        Text(
-            text = rightText,
-            fontSize = ds.sp(12f),
-            fontWeight = FontWeight.Normal,
-            lineHeight = ds.sp(16f),
-            color = rightColor,
-            textAlign = TextAlign.End,
-        )
     }
 }
 
