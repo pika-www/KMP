@@ -152,6 +152,14 @@ private fun mergeStreamingAssistantText(existing: String, incoming: String): Str
     return existing + incoming
 }
 
+private fun mergeIndependentFinalText(existing: String, incoming: String): String {
+    val trimmedIncoming = incoming.trim()
+    if (trimmedIncoming.isBlank()) return existing
+    if (existing.isBlank()) return trimmedIncoming
+    if (existing.contains(trimmedIncoming)) return existing
+    return existing.trimEnd() + "\n\n" + trimmedIncoming
+}
+
 private fun List<StreamEvent>.addOrUpdate(event: StreamEvent): List<StreamEvent> {
     if (event.type == "tool") {
         // 工具事件按 label 去重
@@ -364,6 +372,7 @@ fun AgentModelScreen(
     // Kotlin 局部声明不支持前向引用。
     val messageIdToCdi = remember { mutableStateMapOf<String, String>() }
     val messageIdToConversationId = remember { mutableStateMapOf<String, String>() }
+    val messageIdToReplyHostAssistantId = remember { mutableStateMapOf<String, String>() }
 
     fun updateConversation(
         conversationId: String?,
@@ -460,95 +469,65 @@ fun AgentModelScreen(
         }
     }
 
-    fun buildAssistantFinalEntryId(event: NpcReplyEvent): String {
-        val explicitEventId = event.eventId?.trim()?.takeIf { it.isNotEmpty() }
-        if (explicitEventId != null) return "assistant-final-${event.messageId}-$explicitEventId"
-
-        val attachmentToken = event.attachments.joinToString(separator = "|") {
-            listOf(it.blobRef, it.contentType.orEmpty(), it.fileName.orEmpty()).joinToString(separator = ":")
-        }
-        val fallbackToken = listOf(
-            event.timestamp?.toString().orEmpty(),
-            event.text.orEmpty(),
-            attachmentToken,
-        ).joinToString(separator = "#")
-        return "assistant-final-${event.messageId}-${fallbackToken.hashCode().toUInt().toString(16)}"
-    }
-
     fun upsertAssistantFinalMessage(
         conversationId: String?,
         sourceMessageId: String,
         event: NpcReplyEvent,
     ) {
         val targetCdi = messageIdToCdi[sourceMessageId]
-        val finalAssistantId = buildAssistantFinalEntryId(event)
         mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
             val msgs = conversation.messages.toMutableList()
-            val existingFinalIdx = msgs.indexOfLast {
-                it is ChatItem.Assistant && it.assistantId == finalAssistantId
-            }
-            val streamingIdx = if (existingFinalIdx >= 0) {
-                -1
-            } else {
-                msgs.indexOfLast {
-                    it is ChatItem.Assistant &&
-                        it.messageId == sourceMessageId &&
-                        (it.isStreaming || it.text.isBlank())
-                }
-            }
-
-            val nextMessage =
+            val replyHostAssistantId = messageIdToReplyHostAssistantId[sourceMessageId]
+            val replyHostIdx =
+                replyHostAssistantId
+                    ?.let { hostId ->
+                        msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.assistantId == hostId
+                        }
+                    }
+                    ?: -1
+            val targetIdx =
                 when {
-                    existingFinalIdx >= 0 -> {
-                        val current = msgs[existingFinalIdx] as ChatItem.Assistant
-                        current.copy(
-                            text = event.text ?: current.text,
-                            messageId = sourceMessageId,
-                            attachments = if (event.attachments.isNotEmpty()) event.attachments else current.attachments,
-                            timestamp = event.timestamp ?: current.timestamp,
-                            isStreaming = false,
-                            streamEvents = current.streamEvents.markAllInactive().let { events ->
-                                if (events.any { it.type == "reasoning" }) {
-                                    events.addOrUpdate(StreamEvent("reasoning", "done"))
-                                } else {
-                                    events
-                                }
-                            }.addOrUpdate(StreamEvent("finish", "Finish")),
-                        )
-                    }
-                    streamingIdx >= 0 -> {
-                        val current = msgs[streamingIdx] as ChatItem.Assistant
-                        current.copy(
-                            assistantId = finalAssistantId,
-                            text = event.text ?: current.text,
-                            messageId = sourceMessageId,
-                            attachments = if (event.attachments.isNotEmpty()) event.attachments else current.attachments,
-                            timestamp = event.timestamp ?: current.timestamp,
-                            isStreaming = false,
-                            streamEvents = current.streamEvents.markAllInactive().let { events ->
-                                if (events.any { it.type == "reasoning" }) {
-                                    events.addOrUpdate(StreamEvent("reasoning", "done"))
-                                } else {
-                                    events
-                                }
-                            }.addOrUpdate(StreamEvent("finish", "Finish")),
-                        )
-                    }
-                    else -> ChatItem.Assistant(
-                        assistantId = finalAssistantId,
-                        text = event.text.orEmpty(),
-                        messageId = sourceMessageId,
-                        attachments = event.attachments,
-                        timestamp = event.timestamp,
-                        isStreaming = false,
-                        streamEvents = listOf(StreamEvent("finish", "Finish")),
-                    )
+                    replyHostIdx >= 0 -> replyHostIdx
+                    else -> msgs.indexOfLast {
+                        it is ChatItem.Assistant &&
+                            it.messageId == sourceMessageId &&
+                            (it.isStreaming || it.text.isBlank())
+                    }.takeIf { it >= 0 }
+                        ?: msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.messageId == sourceMessageId
+                        }
                 }
 
-            when {
-                existingFinalIdx >= 0 -> msgs[existingFinalIdx] = nextMessage
-                streamingIdx >= 0 -> msgs[streamingIdx] = nextMessage
-                else -> msgs.add(nextMessage)
+            if (targetIdx >= 0) {
+                val current = msgs[targetIdx] as ChatItem.Assistant
+                val completedStreamEvents = current.streamEvents.markAllInactive().let { events ->
+                    if (events.any { it.type == "reasoning" }) {
+                        events.addOrUpdate(StreamEvent("reasoning", "done"))
+                    } else {
+                        events
+                    }
+                }.addOrUpdate(StreamEvent("finish", "Finish"))
+                msgs[targetIdx] = current.copy(
+                    text = event.text?.let { mergeIndependentFinalText(current.text, it) } ?: current.text,
+                    messageId = sourceMessageId,
+                    attachments = (current.attachments + event.attachments).distinctBy { it.blobRef },
+                    timestamp = event.timestamp ?: current.timestamp,
+                    isStreaming = false,
+                    streamEvents = completedStreamEvents,
+                )
+                messageIdToReplyHostAssistantId[sourceMessageId] = current.assistantId
+            } else {
+                val newMessage = ChatItem.Assistant(
+                    text = event.text.orEmpty(),
+                    messageId = sourceMessageId,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                    isStreaming = false,
+                    streamEvents = listOf(StreamEvent("finish", "Finish")),
+                )
+                msgs.add(newMessage)
+                messageIdToReplyHostAssistantId[sourceMessageId] = newMessage.assistantId
             }
 
             conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
