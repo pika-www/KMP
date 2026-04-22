@@ -692,8 +692,8 @@ class SdkSessionManager(
         targetCdi: String,
         items: List<TransferUploadItem>,
         deviceKind: FileTransferDeviceKind = FileTransferDeviceKind.Nas,
-        retryCount: Int = 100,
-        timeoutMs: Long = 3000L,
+        retryCount: Int = 30,
+        timeoutMs: Long = 10000L,
         onProgress: (ProgressFrame) -> Unit = {},
     ): Result<SendFileOutcome> {
         if (items.isEmpty()) {
