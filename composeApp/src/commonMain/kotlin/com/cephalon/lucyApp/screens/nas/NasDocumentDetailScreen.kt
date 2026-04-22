@@ -116,6 +116,8 @@ internal fun NasDocumentDetailScreen(
         }
     }
 
+    PlatformBackHandler(onBack = onBack)
+
     Box(
         modifier = modifier
             .fillMaxSize()

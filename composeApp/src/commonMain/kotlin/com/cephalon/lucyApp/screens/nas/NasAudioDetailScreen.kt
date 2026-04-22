@@ -150,6 +150,8 @@ internal fun NasAudioDetailScreen(
     }
     val isPlaying = isCurrentAudio && playbackState.isPlaying
 
+    PlatformBackHandler(onBack = onBack)
+
     LaunchedEffect(audio.id, isCurrentAudio, currentPositionMillis, durationMillis, isSeeking) {
         if (!isSeeking) {
             sliderPositionMillis = currentPositionMillis.coerceIn(0L, durationMillis).toFloat()
