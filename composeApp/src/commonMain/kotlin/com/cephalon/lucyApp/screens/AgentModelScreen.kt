@@ -125,7 +125,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+<<<<<<< Updated upstream
 import androidx.compose.animation.slideInHorizontally
+=======
+>>>>>>> Stashed changes
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
@@ -1845,7 +1848,11 @@ fun AgentModelScreen(
                     )
                 }
 
-                if (showNasNotSupportedDialog) {
+                AnimatedVisibility(
+                    visible = showNasNotSupportedDialog,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(150)),
+                ) {
                     LaunchedEffect(Unit) {
                         val links = authRepository.getTaobaoLinks()
                         taobaoLinkUrl = links?.aiNpc?.takeIf { it.isNotBlank() }
@@ -1860,18 +1867,28 @@ fun AgentModelScreen(
                             ) { showNasNotSupportedDialog = false },
                         contentAlignment = Alignment.Center
                     ) {
-                        NasNotSupportedDialog(
-                            onDismiss = { showNasNotSupportedDialog = false },
-                            onBuy = {
-                                showNasNotSupportedDialog = false
-                                val url = taobaoLinkUrl ?: ""
-                                uriHandler.openUri(url)
-                            }
-                        )
+                        AnimatedVisibility(
+                            visible = showNasNotSupportedDialog,
+                            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                        ) {
+                            NasNotSupportedDialog(
+                                onDismiss = { showNasNotSupportedDialog = false },
+                                onBuy = {
+                                    showNasNotSupportedDialog = false
+                                    val url = taobaoLinkUrl ?: ""
+                                    uriHandler.openUri(url)
+                                }
+                            )
+                        }
                     }
                 }
 
-                if (showLowBalanceDialog) {
+                AnimatedVisibility(
+                    visible = showLowBalanceDialog,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(150)),
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1885,17 +1902,23 @@ fun AgentModelScreen(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        LowBalanceReminderDialog(
-                            onDismiss = {
-                                lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
-                                showLowBalanceDialog = false
-                            },
-                            onRecharge = {
-                                lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
-                                showLowBalanceDialog = false
-                                showRechargePage = true
-                            }
-                        )
+                        AnimatedVisibility(
+                            visible = showLowBalanceDialog,
+                            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                        ) {
+                            LowBalanceReminderDialog(
+                                onDismiss = {
+                                    lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                    showLowBalanceDialog = false
+                                },
+                                onRecharge = {
+                                    lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                    showLowBalanceDialog = false
+                                    showRechargePage = true
+                                }
+                            )
+                        }
                     }
                 }
 

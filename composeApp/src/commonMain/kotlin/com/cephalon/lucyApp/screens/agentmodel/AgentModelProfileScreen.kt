@@ -7,6 +7,8 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
@@ -70,7 +72,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
@@ -111,7 +119,6 @@ import org.koin.compose.koinInject
 internal enum class ProfilePage {
     Settings,
     Account,
-    DeleteAccount,
     Feedback,
     Recharge,
     RechargePackage,
@@ -331,37 +338,6 @@ internal fun AgentModelProfileScreen(
 
                             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
-                            // ── 删除账号 ──
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = ds.sw(20.dp))
-                                    .clickable(
-                                        indication = null,
-                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                    ) { showDeleteAccountDialog = true },
-                                shape = RoundedCornerShape(ds.sm(99.dp)),
-                                color = Color.White,
-                                shadowElevation = 0.dp,
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = ds.sh(14.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "删除账号",
-                                        fontSize = ds.sp(16f),
-                                        fontWeight = FontWeight.Normal,
-                                        color = Color(0xFFE84026),
-                                        textAlign = TextAlign.Center,
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
                             // ── 退出登录 ──
                             Surface(
                                 modifier = Modifier
@@ -418,7 +394,6 @@ internal fun AgentModelProfileScreen(
                             AccountDetailContent(
                                 phone = userPhone,
                                 email = userEmail,
-                                onDeleteAccountClick = { showDeleteAccountDialog = true },
                                 onLogoutClick = { showLogoutDialog = true }
                             )
                         }
@@ -535,6 +510,36 @@ internal fun AgentModelProfileScreen(
                                     switchDeviceCurrentCdi = currentCdi
                                     currentPage = ProfilePage.SwitchDevice
                                 },
+                            )
+
+                            Spacer(modifier = Modifier.weight(1f))
+
+                            val annotatedText = buildAnnotatedString {
+                                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                                    append("账号注销意味着彻底失去所有的数据 ")
+                                }
+                                val link = LinkAnnotation.Clickable(tag = "DELETE") {
+                                    showDeleteAccountDialog = true
+                                }
+                                withLink(link) {
+                                    withStyle(SpanStyle(
+                                        color = Color.Black.copy(alpha = 0.90f),
+                                        textDecoration = TextDecoration.Underline,
+                                    )) {
+                                        append("立即注销")
+                                    }
+                                }
+                            }
+                            Text(
+                                text = annotatedText,
+                                style = TextStyle(
+                                    fontSize = ds.sp(12f),
+                                    fontWeight = FontWeight.Normal,
+                                    textAlign = TextAlign.Center,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = ds.sh(20.dp)),
                             )
                         }
                     }
@@ -663,9 +668,6 @@ internal fun AgentModelProfileScreen(
                     }
                 }
 
-                ProfilePage.DeleteAccount -> {
-                    Box(Modifier.fillMaxSize())
-                }
             }
         } // end AnimatedContent
         } // end HalfModalBottomSheet
@@ -698,7 +700,11 @@ internal fun AgentModelProfileScreen(
             )
         }
 
-        if (showLogoutDialog) {
+        AnimatedVisibility(
+            visible = showLogoutDialog,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -708,17 +714,27 @@ internal fun AgentModelProfileScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                LogoutConfirmDialog(
-                    onDismiss = { showLogoutDialog = false },
-                    onConfirm = {
-                        showLogoutDialog = false
-                        onLogout()
-                    }
-                )
+                AnimatedVisibility(
+                    visible = showLogoutDialog,
+                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                ) {
+                    LogoutConfirmDialog(
+                        onDismiss = { showLogoutDialog = false },
+                        onConfirm = {
+                            showLogoutDialog = false
+                            onLogout()
+                        }
+                    )
+                }
             }
         }
 
-        if (showClearCacheDialog) {
+        AnimatedVisibility(
+            visible = showClearCacheDialog,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -728,19 +744,29 @@ internal fun AgentModelProfileScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                ClearCacheConfirmDialog(
-                    cacheSizeText = formatCacheSize(cacheSizeBytes),
-                    onDismiss = { showClearCacheDialog = false },
-                    onConfirm = {
-                        clearAppCache()
-                        cacheSizeBytes = getAppCacheSize()
-                        showClearCacheDialog = false
-                    }
-                )
+                AnimatedVisibility(
+                    visible = showClearCacheDialog,
+                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                ) {
+                    ClearCacheConfirmDialog(
+                        cacheSizeText = formatCacheSize(cacheSizeBytes),
+                        onDismiss = { showClearCacheDialog = false },
+                        onConfirm = {
+                            clearAppCache()
+                            cacheSizeBytes = getAppCacheSize()
+                            showClearCacheDialog = false
+                        }
+                    )
+                }
             }
         }
 
-        if (showFeedbackSuccessDialog) {
+        AnimatedVisibility(
+            visible = showFeedbackSuccessDialog,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -750,16 +776,26 @@ internal fun AgentModelProfileScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                FeedbackSuccessDialog(
-                    onDismiss = {
-                        showFeedbackSuccessDialog = false
-                        currentPage = ProfilePage.Settings
-                    }
-                )
+                AnimatedVisibility(
+                    visible = showFeedbackSuccessDialog,
+                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                ) {
+                    FeedbackSuccessDialog(
+                        onDismiss = {
+                            showFeedbackSuccessDialog = false
+                            currentPage = ProfilePage.Settings
+                        }
+                    )
+                }
             }
         }
 
-        if (showDeleteAccountDialog) {
+        AnimatedVisibility(
+            visible = showDeleteAccountDialog,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -769,16 +805,22 @@ internal fun AgentModelProfileScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                DeleteAccountConfirmDialog(
-                    phone = userPhone,
-                    email = userEmail,
-                    authRepository = authRepository,
-                    onDismiss = { showDeleteAccountDialog = false },
-                    onSuccess = {
-                        showDeleteAccountDialog = false
-                        onLogout()
-                    },
-                )
+                AnimatedVisibility(
+                    visible = showDeleteAccountDialog,
+                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                ) {
+                    DeleteAccountConfirmDialog(
+                        phone = userPhone,
+                        email = userEmail,
+                        authRepository = authRepository,
+                        onDismiss = { showDeleteAccountDialog = false },
+                        onSuccess = {
+                            showDeleteAccountDialog = false
+                            onLogout()
+                        },
+                    )
+                }
             }
         }
 
@@ -962,7 +1004,6 @@ private fun ProfileMenuItemNew(
 private fun AccountDetailContent(
     phone: String,
     email: String,
-    onDeleteAccountClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
 ) {
     val ds = LocalDesignScale.current
@@ -1011,15 +1052,6 @@ private fun AccountDetailContent(
                 }
             }
         }
-
-        Text(
-            text = "删除账户",
-            fontSize = ds.sp(14f),
-            color = Color(0xFFFF4444),
-            modifier = Modifier
-                .clickable { onDeleteAccountClick() }
-                .padding(vertical = ds.sh(4.dp))
-        )
 
         Spacer(modifier = Modifier.weight(1f))
 
