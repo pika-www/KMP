@@ -81,35 +81,33 @@ internal fun NasDocumentDetailScreen(
 
     var showMenu by remember { mutableStateOf(false) }
     var localFilePath by remember(document.id) { mutableStateOf<String?>(null) }
-    var fileLoading by remember(document.id) { mutableStateOf(false) }
+    var fileLoading by remember(document.id) { mutableStateOf(true) }
     var fileError by remember(document.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(document.fileId, targetCdi) {
         if (localFilePath != null) return@LaunchedEffect
         fileLoading = true
         fileError = null
-        coroutineScope.launch {
-            runCatching {
-                val blobRef = when {
-                    document.fileId != null -> {
-                        val getResponse = sdkSessionManager.getFileFromNas(
-                            targetCdi = targetCdi,
-                            fileId = document.fileId,
-                        ).getOrThrow()
-                        getResponse.item?.blobRef ?: throw IllegalStateException("文件详情缺少 blobRef")
-                    }
-                    document.path.isNotBlank() -> document.path
-                    else -> throw IllegalStateException("文件 ID 缺失")
+        runCatching {
+            val blobRef = when {
+                document.fileId != null -> {
+                    val getResponse = sdkSessionManager.getFileFromNas(
+                        targetCdi = targetCdi,
+                        fileId = document.fileId,
+                    ).getOrThrow()
+                    getResponse.item?.blobRef ?: throw IllegalStateException("文件详情缺少 blobRef")
                 }
-                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
-                platformSaveCacheFile(bytes, document.name)
-            }.onSuccess { path ->
-                localFilePath = path
-                fileLoading = false
-            }.onFailure { err ->
-                fileError = err.message ?: "加载文档失败"
-                fileLoading = false
+                document.path.isNotBlank() -> document.path
+                else -> throw IllegalStateException("文件 ID 缺失")
             }
+            val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+            platformSaveCacheFile(bytes, document.name)
+        }.onSuccess { path ->
+            localFilePath = path
+            fileLoading = false
+        }.onFailure { err ->
+            fileError = err.message ?: "加载文档失败"
+            fileLoading = false
         }
     }
 
