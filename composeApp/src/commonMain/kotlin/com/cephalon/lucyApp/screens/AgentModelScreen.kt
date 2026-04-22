@@ -70,7 +70,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.components.DesignScaleProvider
 import com.cephalon.lucyApp.components.LocalDesignScale
@@ -682,8 +685,11 @@ fun AgentModelScreen(
     val discardedReplyMessageIds = remember { mutableStateListOf<String>() }
     val processedEventIds = remember { mutableStateListOf<String>() }
     var toastMessage by remember { mutableStateOf<String?>(null) }
+    var composerHeightPx by remember { mutableStateOf(0) }
     val audioBlobCacheMap = remember { mutableStateMapOf<String, String>() }
     val loadingAudioBlobRefs = remember { mutableStateListOf<String>() }
+    val density = LocalDensity.current
+    val toastBottomPadding = with(density) { composerHeightPx.toDp() + 16.dp }
 
     // ── 余额不足提醒（仅一次） ──
     val balanceWsManager = koinInject<BalanceWsManager>()
@@ -1945,6 +1951,7 @@ fun AgentModelScreen(
                         isSendDisabled = false,
                         onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) },
                         uploadStates = attachmentUploadStates,
+                        modifier = Modifier.onSizeChanged { composerHeightPx = it.height },
                     )
 
                 
@@ -2258,7 +2265,8 @@ fun AgentModelScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 120.dp),
+                .padding(bottom = toastBottomPadding)
+                .zIndex(100f),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Surface(
