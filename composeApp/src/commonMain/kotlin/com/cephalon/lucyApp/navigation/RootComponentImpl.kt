@@ -316,6 +316,16 @@ class RootComponentImpl(
                                                 }
                                             }
                                         }
+                                        20070 -> {
+                                            // 设备尚未就绪，继续轮询
+                                            if (attempt >= maxPollingAttempts) {
+                                                onError("设备绑定超时，请稍后重试")
+                                                onLoading(false)
+                                                return@launch
+                                            }
+                                            println("RootComponent: code=20070，${5}s 后第 ${attempt + 1} 次轮询")
+                                            delay(5000L)
+                                        }
                                         30001 -> {
                                             onError("当前任务未绑定云设备")
                                             onLoading(false)

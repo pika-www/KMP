@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -116,6 +117,12 @@ import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import com.cephalon.lucyApp.media.rememberPlatformMediaAccessController
 import com.cephalon.lucyApp.scan.rememberOpenWifiSettings
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -2084,7 +2091,7 @@ internal fun RechargePackagePage(
                     for (i in gridItems.indices step 2) {
                         if (i > 0) Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Max),
                             horizontalArrangement = Arrangement.spacedBy(ds.sw(15.dp)),
                         ) {
                             val pkg1 = gridItems[i]
@@ -2217,8 +2224,8 @@ private fun DarkFeaturedPackageCard(
                 .padding(
                     start = ds.sw(20.dp),
                     end = ds.sw(20.dp),
-                    top = ds.sh(12.dp),
-                    bottom = ds.sh(28.dp),
+                    top = ds.sh(20.dp),
+                    bottom = ds.sh(20.dp),
                 ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -2292,6 +2299,7 @@ private fun DarkGridPackageCard(
     val cardShape = RoundedCornerShape(ds.sm(16.dp))
     Column(
         modifier = modifier
+            .fillMaxHeight()
             .clip(cardShape)
             .background(Color.White.copy(alpha = 0.10f))
             .border(
@@ -2336,7 +2344,7 @@ private fun DarkGridPackageCard(
             color = Color.White.copy(alpha = 0.60f),
             textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(ds.sh(14.dp)))
+        Spacer(modifier = Modifier.weight(1f).height(ds.sh(14.dp)))
         // 价格按钮
         DarkPriceButton(price = price, isProcessing = isProcessing, width = ds.sw(120.dp), height = ds.sh(40.dp))
     }
@@ -3421,6 +3429,8 @@ private sealed interface WifiConfigState {
     data class Error(val message: String, val phoneSsid: String) : WifiConfigState
     /** 无法获取本机 Wi‑Fi */
     data object PhoneWifiUnavailable : WifiConfigState
+    /** BLE 连接断开 */
+    data object BleDisconnected : WifiConfigState
 }
 
 @Composable
@@ -3440,14 +3450,22 @@ private fun WifiConfigContent(
     var wifiPassword by remember { mutableStateOf("") }
     var deviceNetworkStatus by remember { mutableStateOf<com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload?>(null) }
 
+    // Android 专用：BLE 断开 → 立即停止所有操作（iOS Core Bluetooth 自行管理，不干预）
+    val isAndroid = remember { getPlatform().name.startsWith("Android", ignoreCase = true) }
+    // 跟踪当前 BLE 操作的 Job，断开时立即 cancel（仅 Android）
+    var bleOperationJob by remember { mutableStateOf<Job?>(null) }
+    // 用于重试时重新触发初始化 LaunchedEffect
+    var retryKey by remember { mutableStateOf(0) }
+
     // ── 初始化：读本机 Wi‑Fi 并和设备对比 ──
-    LaunchedEffect(device.id) {
+    LaunchedEffect(device.id, retryKey) {
         configState = WifiConfigState.Loading
         when (val phoneWifi = controller.readCurrentPhoneWifi()) {
             is com.cephalon.lucyApp.brainbox.PhoneWifiState.Connected -> {
                 val phoneSsid = phoneWifi.ssid
                 // 尝试 BLE 读设备当前 Wi‑Fi
                 val ns = readDeviceNetworkStatus(provisionManager, device)
+                if (isAndroid) coroutineContext.ensureActive()
                 deviceNetworkStatus = ns
                 val deviceSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
                 if (deviceSsid != null && deviceSsid.equals(phoneSsid, ignoreCase = true)) {
@@ -3468,11 +3486,51 @@ private fun WifiConfigContent(
         }
     }
 
+    // ── Android 专用：BLE 断开监听，一旦检测到断开立即取消所有操作 ──
+    if (isAndroid) {
+        LaunchedEffect(provisionManager) {
+            provisionManager.disconnectEvents.collect { reason ->
+                println("[WifiConfig] BLE 断开事件: $reason")
+                bleOperationJob?.cancel()
+                bleOperationJob = null
+                provisionManager.stopScan()
+                provisionManager.cancel()
+                val current = configState
+                if (current is WifiConfigState.Loading || current is WifiConfigState.Configuring) {
+                    configState = WifiConfigState.BleDisconnected
+                }
+            }
+        }
+
+        // 监听 ProvisionManager stage 变为 Reconnecting/Failed
+        val provisionState by provisionManager.state.collectAsState()
+        LaunchedEffect(provisionState.stage) {
+            val stage = provisionState.stage
+            if (stage == com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage.Reconnecting ||
+                stage == com.cephalon.lucyApp.deviceaccess.gatt.ProvisionFlowStage.Failed
+            ) {
+                val current = configState
+                if (current is WifiConfigState.Loading || current is WifiConfigState.Configuring) {
+                    println("[WifiConfig] ProvisionManager stage=$stage，取消 BLE 操作")
+                    bleOperationJob?.cancel()
+                    bleOperationJob = null
+                    provisionManager.stopScan()
+                    provisionManager.cancel()
+                    configState = WifiConfigState.BleDisconnected
+                }
+            }
+        }
+    }
+
     // ── 清理 ──
     DisposableEffect(Unit) {
         onDispose {
+            if (isAndroid) {
+                bleOperationJob?.cancel()
+                bleOperationJob = null
+                CoroutineScope(Dispatchers.Default).launch { provisionManager.cancel() }
+            }
             provisionManager.stopScan()
-            // 不 cancel，避免中断残留协程
         }
     }
 
@@ -3687,7 +3745,8 @@ private fun WifiConfigContent(
                         val ssid = state.phoneSsid
                         val pwd = wifiPassword
                         configState = WifiConfigState.Configuring(ssid)
-                        scope.launch {
+                        if (isAndroid) bleOperationJob?.cancel()
+                        val job = scope.launch {
                             configureDeviceWifi(
                                 provisionManager = provisionManager,
                                 wifiCredentialCache = wifiCredentialCache,
@@ -3698,6 +3757,7 @@ private fun WifiConfigContent(
                                 onNetworkStatus = { deviceNetworkStatus = it },
                             )
                         }
+                        if (isAndroid) bleOperationJob = job
                     },
                 shape = RoundedCornerShape(ds.sm(14.dp)),
                 color = Color(0xFF1F2535),
@@ -3858,6 +3918,56 @@ private fun WifiConfigContent(
                 }
             }
         }
+
+        is WifiConfigState.BleDisconnected -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(ds.sm(16.dp)),
+                color = Color(0xFFFFEBEE),
+            ) {
+                Column(modifier = Modifier.padding(ds.sm(16.dp))) {
+                    Text(
+                        text = "蓝牙连接已断开",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFFE84026),
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                    Text(
+                        text = "与设备的蓝牙连接已中断，所有操作已停止。请确认设备已通电且在附近，然后重试。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF333333),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+
+            // 重试按钮
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        // 重新进入 Loading 状态，递增 retryKey 触发 LaunchedEffect 重新初始化
+                        configState = WifiConfigState.Loading
+                        retryKey++
+                    },
+                shape = RoundedCornerShape(ds.sm(14.dp)),
+                color = Color(0xFF1F2535),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "重试",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        color = Color.White,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -3891,6 +4001,7 @@ private suspend fun scanAndMatchDeviceByCdi(
     val startTime = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
 
     while (kotlinx.datetime.Clock.System.now().toEpochMilliseconds() - startTime < SCAN_AND_MATCH_TIMEOUT_MS) {
+        coroutineContext.ensureActive()
         val allDevices = provisionManager.scanState.value.devices
         if (allDevices.isEmpty()) {
             kotlinx.coroutines.delay(SCAN_POLL_INTERVAL_MS)
@@ -3912,6 +4023,7 @@ private suspend fun scanAndMatchDeviceByCdi(
         // 策略 2：逐台 probe 未探测过的设备，用 channelDeviceId 确认
         val newDevices = allDevices.filter { it.id !in probedIds }
         for (candidate in newDevices) {
+            coroutineContext.ensureActive()
             probedIds.add(candidate.id)
             val probeResult = provisionManager.probeDevice(candidate).getOrNull()
             println("[WifiConfig] probe ${candidate.name}(${candidate.id}): cdi=${probeResult?.channelDeviceId}")
@@ -3940,7 +4052,9 @@ private suspend fun readDeviceNetworkStatus(
 ): com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload? {
     println("[WifiConfig] readDeviceNetworkStatus: 开始扫描, name=${device.name}, serial=${device.serialNumber}, cdi=${device.channelDeviceId}")
     return try {
+        coroutineContext.ensureActive()
         val target = scanAndMatchDeviceByCdi(provisionManager, device)
+        coroutineContext.ensureActive()
         if (target == null) {
             println("[WifiConfig] readDeviceNetworkStatus: 未匹配到目标设备")
             return null
@@ -3951,6 +4065,9 @@ private suspend fun readDeviceNetworkStatus(
         val networkStatus = provisionManager.state.value.networkStatus
         println("[WifiConfig] 设备当前 SSID: ${networkStatus?.ssid}, IP: ${networkStatus?.ip}")
         networkStatus
+    } catch (e: CancellationException) {
+        println("[WifiConfig] readDeviceNetworkStatus cancelled (BLE 断开)")
+        throw e
     } catch (e: Exception) {
         println("[WifiConfig] readDeviceNetworkStatus failed: ${e.message}")
         null
@@ -3972,11 +4089,13 @@ private suspend fun configureDeviceWifi(
     onNetworkStatus: (com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload) -> Unit = {},
 ) {
     try {
+        coroutineContext.ensureActive()
         // 如果 provisionManager 当前没有已连接的设备，需要重新扫描连接
         val currentDevice = provisionManager.state.value.selectedDevice
         if (currentDevice == null) {
             println("[WifiConfig] configureDeviceWifi: 无已连接设备，开始扫描匹配")
             val target = scanAndMatchDeviceByCdi(provisionManager, device)
+            coroutineContext.ensureActive()
             if (target == null) {
                 onState(WifiConfigState.Error("未找到目标设备蓝牙信号，请确认设备已通电且在附近", ssid))
                 return
@@ -3988,8 +4107,10 @@ private suspend fun configureDeviceWifi(
             }
         }
 
+        coroutineContext.ensureActive()
         // 下发 Wi‑Fi 配置
         val result = provisionManager.configureWifi(ssid = ssid, password = password)
+        coroutineContext.ensureActive()
         result.onSuccess { ns ->
             onNetworkStatus(ns)
             val deviceSsid = ns.ssid.trim().takeIf { it.isNotBlank() }
@@ -4014,6 +4135,10 @@ private suspend fun configureDeviceWifi(
                 ssid,
             ))
         }
+    } catch (e: CancellationException) {
+        // BLE 断开导致 Job 被 cancel，不回调 onState（由断开监听器处理）
+        println("[WifiConfig] configureDeviceWifi cancelled (BLE 断开)")
+        throw e
     } catch (e: Exception) {
         onState(WifiConfigState.Error(e.message ?: "配置过程异常", ssid))
     } finally {

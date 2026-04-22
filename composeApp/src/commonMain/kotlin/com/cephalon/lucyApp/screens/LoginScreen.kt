@@ -484,7 +484,7 @@ fun LoginScreen(
                             preferEmailLogin = preferEmailLogin,
                             needsRegister = needsRegister,
                             username = username,
-                            onUsernameChange = { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } },
+                            onUsernameChange = { if (it != username) { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } } },
                             password = password,
                             onPasswordChange = { password = it },
                             confirmPassword = confirmPassword,

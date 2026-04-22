@@ -182,8 +182,7 @@ fun HomeScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(ds.sh(240.dp)),
+                    .fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = ds.sw(98.dp)),
                 pageSpacing = ds.sw(16.dp),
                 beyondViewportPageCount = 1,
@@ -203,7 +202,6 @@ fun HomeScreen(
                             this.alpha = alpha
                         }
                         .width(ds.sw(180.dp))
-                        .height(ds.sh(240.dp))
                         .shadow(
                             elevation = 15.dp,
                             shape = RoundedCornerShape(ds.sm(16.dp)),
@@ -233,13 +231,13 @@ fun HomeScreen(
                     Image(
                         painter = painterResource(Res.drawable.roboto_bg),
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.matchParentSize(),
                         contentScale = ContentScale.Crop,
                     )
 
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .padding(
                                 start = ds.sw(16.dp),
                                 end = ds.sw(16.dp),
