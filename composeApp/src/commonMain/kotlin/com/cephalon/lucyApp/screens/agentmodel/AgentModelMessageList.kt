@@ -1148,7 +1148,7 @@ private fun EventCheckIcon(
     isActive: Boolean,
     ds: com.cephalon.lucyApp.components.DesignScale,
 ) {
-    val iconSize = ds.sm(16.dp)
+    val iconSize = ds.sm(12.dp)
     val strokeColor = Color(0xFFCCCCCC)
     val fillColor = Color(0xFF4CAF50)
     val checkColor = Color.White
