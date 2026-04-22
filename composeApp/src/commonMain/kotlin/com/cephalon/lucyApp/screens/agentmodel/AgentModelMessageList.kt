@@ -590,11 +590,13 @@ private fun AssistantAttachments(
         it.effectiveContentType()?.startsWith("audio") != true
     }
 
+    val onlyOneImage = imageAttachments.size == 1 && audioAttachments.isEmpty() && docAttachments.isEmpty()
+
     Surface(
         shape = RoundedCornerShape(ds.sm(22.dp)),
         color = Color.White,
         border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = if (onlyOneImage) Modifier else Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
@@ -602,34 +604,62 @@ private fun AssistantAttachments(
             verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
         ) {
             // ── 图片 ──
-            imageAttachments.forEach { att ->
-                Box(
-                    modifier = Modifier
-                        .size(ds.sw(120.dp))
-                        .clip(RoundedCornerShape(ds.sm(8.dp)))
-                        .clickable { onAttachmentOpen(att, imageAttachments) },
-                ) {
-                    BlobImage(
-                        blobRef = att.blobRef,
-                        contentDescription = att.fileName,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+            if (imageAttachments.isNotEmpty()) {
+                val imgSize = ds.sw(120.dp)
+                val imgSpacing = ds.sw(8.dp)
+
+                @Composable
+                fun ImageCell(att: MediaAttachment, index: Int) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(ds.sm(6.dp))
-                            .size(ds.sm(24.dp))
-                            .clip(RoundedCornerShape(ds.sm(12.dp)))
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .clickable { onAttachmentDownload(att) },
-                        contentAlignment = Alignment.Center,
+                            .size(imgSize)
+                            .clip(RoundedCornerShape(ds.sm(8.dp)))
+                            .clickable { onAttachmentOpen(att, imageAttachments) },
                     ) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_download),
-                            contentDescription = "下载",
-                            modifier = Modifier.size(ds.sm(14.dp)),
-                            tint = Color.White,
+                        BlobImage(
+                            blobRef = att.blobRef,
+                            contentDescription = att.fileName,
+                            modifier = Modifier.fillMaxSize(),
                         )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(ds.sm(6.dp))
+                                .size(ds.sm(24.dp))
+                                .clip(RoundedCornerShape(ds.sm(12.dp)))
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .clickable { onAttachmentDownload(att) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painter = painterResource(Res.drawable.ic_download),
+                                contentDescription = "下载",
+                                modifier = Modifier.size(ds.sm(14.dp)),
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                }
+
+                if (imageAttachments.size == 1) {
+                    // 单张：宽度自适应，不撑满
+                    ImageCell(att = imageAttachments[0], index = 0)
+                } else if (imageAttachments.size == 2) {
+                    // 两张：并排显示
+                    Row(horizontalArrangement = Arrangement.spacedBy(imgSpacing)) {
+                        imageAttachments.forEachIndexed { index, att ->
+                            ImageCell(att = att, index = index)
+                        }
+                    }
+                } else {
+                    // 3张以上：横向滑动，露出约 2.x 张暗示可滑动
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(imgSpacing),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
+                        imageAttachments.forEachIndexed { index, att ->
+                            ImageCell(att = att, index = index)
+                        }
                     }
                 }
             }
