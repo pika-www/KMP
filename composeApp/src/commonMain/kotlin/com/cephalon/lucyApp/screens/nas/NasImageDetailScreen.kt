@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
 
@@ -174,6 +175,12 @@ internal fun NasImageDetailScreen(
                             strokeWidth = 3.dp,
                         )
                     }
+                }
+                pageImage.path.isLocalAttachmentSource() -> {
+                    PlatformImageThumbnail(
+                        uri = pageImage.path,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
                 pageImage.path.isNotBlank() -> {
                     BlobImage(
@@ -347,4 +354,13 @@ private fun NasDetailGlassCircleButton(
             content()
         }
     }
+}
+
+private fun String.isLocalAttachmentSource(): Boolean {
+    val value = trim()
+    return value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("ph://") ||
+        value.startsWith("assets-library://") ||
+        value.startsWith("/")
 }

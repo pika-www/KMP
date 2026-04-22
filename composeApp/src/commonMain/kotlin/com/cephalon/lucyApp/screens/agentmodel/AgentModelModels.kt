@@ -26,6 +26,7 @@ internal data class DraftAttachment(
     val type: DraftAttachmentType,
     val uri: String,
     val displayName: String? = null,
+    val blobRef: String? = null,
     val nasFileId: Long? = null,
 )
 
@@ -82,6 +83,7 @@ internal sealed class ChatItem {
         val id: String,
         val name: String,
         val path: String,
+        val blobRef: String? = null,
         override val messageId: String? = null,
     ) : ChatItem()
     data class Error(
@@ -160,6 +162,7 @@ internal fun DraftAttachment.asAudioRecording(): AudioRecording {
     return AudioRecording(
         id = uri,
         name = displayName(),
-        path = uri
+        path = uri,
+        blobRef = blobRef
     )
 }

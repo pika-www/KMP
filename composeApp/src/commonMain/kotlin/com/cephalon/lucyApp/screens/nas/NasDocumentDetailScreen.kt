@@ -89,7 +89,8 @@ internal fun NasDocumentDetailScreen(
         fileLoading = true
         fileError = null
         runCatching {
-            val blobRef = when {
+            val source = when {
+                document.path.isLocalAttachmentSource() -> document.path
                 document.fileId != null -> {
                     val getResponse = sdkSessionManager.getFileFromNas(
                         targetCdi = targetCdi,
@@ -100,8 +101,12 @@ internal fun NasDocumentDetailScreen(
                 document.path.isNotBlank() -> document.path
                 else -> throw IllegalStateException("文件 ID 缺失")
             }
-            val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
-            platformSaveCacheFile(bytes, document.name)
+            if (source.isLocalAttachmentSource()) {
+                source
+            } else {
+                val bytes = sdkSessionManager.fetchBlobBytes(source).getOrThrow()
+                platformSaveCacheFile(bytes, document.name)
+            }
         }.onSuccess { path ->
             localFilePath = path
             fileLoading = false
@@ -319,6 +324,7 @@ private fun DocDetailGlassCircleButton(
     content: @Composable () -> Unit
 ) {
     Surface(
+
         modifier = modifier.size(size),
         shape = CircleShape,
         color = if (isLight) Color.White else Color(0x1AFFFFFF),
@@ -334,4 +340,13 @@ private fun DocDetailGlassCircleButton(
             content()
         }
     }
+}
+
+private fun String.isLocalAttachmentSource(): Boolean {
+    val value = trim()
+    return value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("ph://") ||
+        value.startsWith("assets-library://") ||
+        value.startsWith("/")
 }

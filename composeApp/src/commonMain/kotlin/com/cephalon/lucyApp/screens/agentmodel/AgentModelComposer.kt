@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,13 +26,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -56,8 +52,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.ErrorOutline
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.media.AudioPlaybackState
 import com.cephalon.lucyApp.media.PlatformImageThumbnail
+import com.cephalon.lucyApp.sdk.MediaAttachment
 import org.jetbrains.compose.resources.painterResource
+import androidios.composeapp.generated.resources.ic_audio
+import androidios.composeapp.generated.resources.ic_doc
 
 @Composable
 internal fun AgentModelComposer(
@@ -68,8 +68,9 @@ internal fun AgentModelComposer(
     onImageClick: (ImagePreviewState) -> Unit,
     onFileClick: (DraftAttachment) -> Unit,
     onAudioClick: (DraftAttachment) -> Unit,
-    playingRecordingId: String?,
-    onToggleRecordingPlayback: (String) -> Unit,
+    audioPlaybackState: AudioPlaybackState = AudioPlaybackState(),
+    loadingAudioBlobRefs: Set<String> = emptySet(),
+    onToggleRecordingPlayback: (DraftAttachment) -> Unit,
     isRecording: Boolean,
     isVoiceBusy: Boolean,
     onVoiceStart: () -> Unit,
@@ -122,7 +123,8 @@ internal fun AgentModelComposer(
                     onImageClick = onImageClick,
                     onFileClick = onFileClick,
                     onAudioClick = onAudioClick,
-                    playingRecordingId = playingRecordingId,
+                    audioPlaybackState = audioPlaybackState,
+                    loadingAudioBlobRefs = loadingAudioBlobRefs,
                     onToggleRecordingPlayback = onToggleRecordingPlayback,
                     uploadStates = uploadStates,
                     modifier = Modifier.fillMaxWidth()
@@ -261,277 +263,203 @@ private fun DraftAttachmentPreviewRow(
     onImageClick: (ImagePreviewState) -> Unit,
     onFileClick: (DraftAttachment) -> Unit,
     onAudioClick: (DraftAttachment) -> Unit,
-    playingRecordingId: String?,
-    onToggleRecordingPlayback: (String) -> Unit,
+    audioPlaybackState: AudioPlaybackState = AudioPlaybackState(),
+    loadingAudioBlobRefs: Set<String> = emptySet(),
+    onToggleRecordingPlayback: (DraftAttachment) -> Unit,
     uploadStates: Map<String, AttachmentUploadState> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
+    val visualAttachments = attachments.filter {
+        it.type == DraftAttachmentType.Image ||
+            it.type == DraftAttachmentType.File ||
+            it.type == DraftAttachmentType.Audio
+    }
     val imageUris = imageAttachments.map { it.uri }
 
     val ds = LocalDesignScale.current
-    LazyRow(
+    val pillShape = RoundedCornerShape(ds.sm(99.dp))
+
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
+        verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
     ) {
-        itemsIndexed(
-            items = attachments,
-            key = { index, attachment -> "${attachment.type}:${attachment.uri}:$index" }
-        ) { _, attachment ->
-            val uploadState = if (attachment.nasFileId == null) uploadStates[attachment.uri] else null
-            val isFailed = uploadState is AttachmentUploadState.Failed
-            val isUploading = uploadState is AttachmentUploadState.Uploading
-            val borderColor = when {
-                isFailed -> Color(0xFFE53935)
-                isUploading -> Color(0xFFFF9800)
-                else -> Color(0xFFE7E7E7)
-            }
+        // ── 图片 + 文件 + 音频附件（同一横向行混排）──
+        if (visualAttachments.isNotEmpty()) {
+            val imageCardSize = ds.sm(72.dp)
+            val documentCardWidth = ds.sm(180.dp)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
+            ) {
+                itemsIndexed(
+                    items = visualAttachments,
+                    key = { index, att -> "visual:${att.type}:${att.uri}:$index" }
+                ) { _, attachment ->
+                    val uploadState = if (attachment.nasFileId == null) uploadStates[attachment.uri] else null
+                    val isFailed = uploadState is AttachmentUploadState.Failed
+                    val isUploading = uploadState is AttachmentUploadState.Uploading
+                    val imageIndex = imageAttachments.indexOfFirst { it.uri == attachment.uri }
+                    val resolvedBlobRef = attachment.blobRef?.trim()?.takeIf { it.isNotBlank() }
+                        ?: (uploadStates[attachment.uri] as? AttachmentUploadState.Success)?.blobRef
+                    val isAudioLoading = attachment.type == DraftAttachmentType.Audio &&
+                        resolvedBlobRef?.let { it in loadingAudioBlobRefs } == true
 
-            Box {
-                when (attachment.type) {
-                    DraftAttachmentType.Image -> {
-                        val imageIndex = imageAttachments.indexOfFirst { it.uri == attachment.uri }
-                        Card(
-                            modifier = Modifier
-                                .size(ds.sm(72.dp))
-                                .clickable {
-                                    if (imageIndex >= 0) {
-                                        onImageClick(
-                                            ImagePreviewState(
-                                                images = imageUris,
-                                                selectedIndex = imageIndex
-                                            )
-                                        )
-                                    }
-                                },
-                            shape = RoundedCornerShape(ds.sm(12.dp)),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
-                            border = if (isFailed) BorderStroke(1.5.dp, Color(0xFFE53935)) else null,
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                if (attachment.nasFileId != null) {
-                                    BlobImage(
-                                        blobRef = attachment.uri,
-                                        contentDescription = attachment.displayName,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    PlatformImageThumbnail(
-                                        uri = attachment.uri,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                                // ── 上传中 / 失败覆盖层 ──
-                                if (isUploading || isFailed) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                if (isFailed) Color.Red.copy(alpha = 0.25f)
-                                                else Color.Black.copy(alpha = 0.35f),
-                                                RoundedCornerShape(ds.sm(12.dp))
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (isUploading) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(ds.sm(24.dp)),
-                                                strokeWidth = 2.dp,
-                                                color = Color.White,
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.ErrorOutline,
-                                                contentDescription = "Upload failed",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(ds.sm(24.dp)),
+                    Box {
+                        if (attachment.type == DraftAttachmentType.Image) {
+                            Card(
+                                modifier = Modifier
+                                    .size(imageCardSize)
+                                    .clickable {
+                                        if (imageIndex >= 0) {
+                                            onImageClick(
+                                                ImagePreviewState(
+                                                    images = imageUris,
+                                                    selectedIndex = imageIndex
+                                                )
                                             )
                                         }
+                                    },
+                                shape = RoundedCornerShape(ds.sm(12.dp)),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
+                                border = if (isFailed) BorderStroke(1.5.dp, Color(0xFFE53935)) else null,
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    if (attachment.nasFileId != null) {
+                                        BlobImage(
+                                            blobRef = attachment.uri,
+                                            contentDescription = attachment.displayName,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        PlatformImageThumbnail(
+                                            uri = attachment.uri,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
                                     }
                                 }
                             }
-                        }
-                    }
-
-                    DraftAttachmentType.File -> {
-                        Surface(
-                            modifier = Modifier
-                                .width(ds.sw(164.dp))
-                                .height(ds.sh(72.dp))
-                                .clickable { onFileClick(attachment) },
-                            shape = RoundedCornerShape(ds.sm(12.dp)),
-                            color = Color(0xFFF5F5F5),
-                            border = BorderStroke(1.dp, borderColor)
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
-                                    verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = Color(0xFF111111)
-                                    ) {
-                                        Text(
-                                            text = attachment.fileExtensionLabel(),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
-                                        )
-                                    }
-                                    Text(
-                                        text = attachment.displayName(),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF111111),
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                // ── 上传中 / 失败覆盖层 ──
-                                if (isUploading || isFailed) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                if (isFailed) Color.Red.copy(alpha = 0.18f)
-                                                else Color.Black.copy(alpha = 0.25f),
-                                                RoundedCornerShape(ds.sm(12.dp))
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (isUploading) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(ds.sm(20.dp)),
-                                                strokeWidth = 2.dp,
-                                                color = Color.White,
-                                            )
+                        } else {
+                            Surface(
+                                modifier = Modifier
+                                    .width(documentCardWidth)
+                                    .height(imageCardSize)
+                                    .clickable {
+                                        if (attachment.type == DraftAttachmentType.Audio) {
+                                            onAudioClick(attachment)
                                         } else {
-                                            Icon(
-                                                imageVector = Icons.Default.ErrorOutline,
-                                                contentDescription = "Upload failed",
-                                                tint = Color(0xFFE53935),
-                                                modifier = Modifier.size(ds.sm(20.dp)),
-                                            )
+                                            onFileClick(attachment)
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    DraftAttachmentType.Audio -> {
-                        Surface(
-                            modifier = Modifier
-                                .width(ds.sw(210.dp))
-                                .height(ds.sh(72.dp)),
-                            shape = RoundedCornerShape(ds.sm(12.dp)),
-                            color = Color(0xFFF5F5F5),
-                            border = BorderStroke(1.dp, borderColor)
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
+                                    },
+                                shape = RoundedCornerShape(ds.sm(12.dp)),
+                                color = Color(0xFFF5F5F7),
+                                border = if (isFailed) BorderStroke(1.5.dp, Color(0xFFE53935)) else null,
+                            ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(10.dp)),
+                                        .padding(horizontal = ds.sw(14.dp)),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
                                 ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = Color(0xFF111111),
-                                        modifier = Modifier.size(ds.sm(36.dp))
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .clickable { onToggleRecordingPlayback(attachment.uri) },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = if (playingRecordingId == attachment.uri) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                contentDescription = "Audio Preview",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(ds.sm(18.dp))
-                                            )
-                                        }
-                                    }
-
-                                    Column(
+                                    Icon(
+                                        painter = painterResource(
+                                            if (attachment.type == DraftAttachmentType.Audio) {
+                                                Res.drawable.ic_audio
+                                            } else {
+                                                Res.drawable.ic_doc
+                                            }
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(ds.sm(20.dp)),
+                                        tint = Color(0xFF1F2535),
+                                    )
+                                    Text(
+                                        text = attachment.displayName(),
+                                        fontSize = ds.sp(14f),
+                                        color = Color(0xFF1F2535),
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.MiddleEllipsis,
                                         modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Text(
-                                            text = "语音",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFF8A8A8A)
+                                    )
+                                    if (attachment.type == DraftAttachmentType.Audio && isAudioLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(ds.sm(16.dp)),
+                                            strokeWidth = 2.dp,
+                                            color = Color(0xFF1F2535),
                                         )
-                                        Text(
-                                            text = uriDisplayName(attachment.uri),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color(0xFF111111),
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    OutlinedButton(onClick = { onToggleRecordingPlayback(attachment.uri) }) {
-                                        Text(if (playingRecordingId == attachment.uri) "暂停" else "播放")
-                                    }
-                                }
-                                // ── 上传中 / 失败覆盖层 ──
-                                if (isUploading || isFailed) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                if (isFailed) Color.Red.copy(alpha = 0.18f)
-                                                else Color.Black.copy(alpha = 0.25f),
-                                                RoundedCornerShape(ds.sm(12.dp))
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (isUploading) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(ds.sm(20.dp)),
-                                                strokeWidth = 2.dp,
-                                                color = Color.White,
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.ErrorOutline,
-                                                contentDescription = "Upload failed",
-                                                tint = Color(0xFFE53935),
-                                                modifier = Modifier.size(ds.sm(20.dp)),
-                                            )
-                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = ds.sh(4.dp), end = ds.sw(4.dp))
-                        .size(ds.sm(20.dp))
-                        .clickable { onRemoveAttachment(attachment) },
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.Black.copy(alpha = 0.60f)
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Remove",
-                            tint = Color.White,
-                            modifier = Modifier.size(ds.sm(12.dp))
+                        if (isUploading || isFailed) {
+                            Box(
+                                modifier = Modifier
+                                    .then(
+                                        if (attachment.type == DraftAttachmentType.Image) {
+                                            Modifier.size(imageCardSize)
+                                        } else {
+                                            Modifier
+                                                .width(documentCardWidth)
+                                                .height(imageCardSize)
+                                        }
+                                    )
+                                    .clip(RoundedCornerShape(ds.sm(12.dp)))
+                                    .background(
+                                        if (isFailed) Color.Red.copy(alpha = 0.18f)
+                                        else Color.Black.copy(alpha = 0.25f)
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isUploading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(ds.sm(20.dp)),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.ErrorOutline,
+                                        contentDescription = "Upload failed",
+                                        tint = Color(0xFFE53935),
+                                        modifier = Modifier.size(ds.sm(20.dp)),
+                                    )
+                                }
+                            }
+                        }
+                        DraftRemoveButton(
+                            ds = ds,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                            onClick = { onRemoveAttachment(attachment) }
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DraftRemoveButton(
+    ds: com.cephalon.lucyApp.components.DesignScale,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier
+            .padding(top = ds.sh(4.dp), end = ds.sw(4.dp))
+            .size(ds.sm(20.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        color = Color.Black.copy(alpha = 0.60f)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Remove",
+                tint = Color.White,
+                modifier = Modifier.size(ds.sm(12.dp))
+            )
         }
     }
 }

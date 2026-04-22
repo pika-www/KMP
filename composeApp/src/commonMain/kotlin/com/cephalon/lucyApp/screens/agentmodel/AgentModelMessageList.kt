@@ -85,7 +85,7 @@ import kotlinx.datetime.toLocalDateTime
 
 
 /** 根据文件扩展名推断 MIME content type，用于 contentType 为 null 时的兜底分类 */
-private fun inferContentTypeFromFileName(fileName: String?): String? {
+internal fun inferContentTypeFromFileName(fileName: String?): String? {
     if (fileName.isNullOrBlank()) return null
     val ext = fileName.substringAfterLast('.', "").lowercase()
     return when (ext) {
@@ -121,6 +121,8 @@ internal fun AgentModelMessageList(
     onImageClick: (ImagePreviewState) -> Unit,
     onFileClick: (PickedFile) -> Unit,
     onAudioFileOpen: (AudioRecording) -> Unit = {},
+    onUserAttachmentOpen: (DraftAttachment) -> Unit = {},
+    onToggleUserAudioAttachmentPlayback: (DraftAttachment) -> Unit = {},
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
     onAttachmentOpen: (MediaAttachment, List<MediaAttachment>) -> Unit = { _, _ -> },
@@ -234,15 +236,12 @@ internal fun AgentModelMessageList(
 
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
-                        val imageCellSize = ((bubbleMaxWidth - ds.sw(28.dp) - ds.sw(8.dp)) / 2).coerceAtMost(ds.sm(132.dp))
-                        val fileCellWidth = (bubbleMaxWidth - ds.sw(28.dp) - ds.sw(8.dp)) / 2
                         Surface(
                             // 右侧用户附件气泡同样 22dp，和文字气泡视觉一致
                             shape = RoundedCornerShape(ds.sm(22.dp)),
                             color = Color.White,
                             border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
                             modifier = Modifier
-                                .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
@@ -261,108 +260,13 @@ internal fun AgentModelMessageList(
                                         color = Color(0xFF1F2535)
                                     )
                                 }
-
-                                val images = item.attachments.filter { it.type == DraftAttachmentType.Image }
-                                val files = item.attachments.filter { it.type == DraftAttachmentType.File }
-                                val audios = item.attachments.filter { it.type == DraftAttachmentType.Audio }
-
-                                if (images.isNotEmpty()) {
-                                    val imageUris = images.map { it.uri }
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
-                                    ) {
-                                        images.chunked(2).forEachIndexed { rowIndex, rowImages ->
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
-                                            ) {
-                                                ImageAttachmentCell(
-                                                    attachment = rowImages.getOrNull(0),
-                                                    onClick = {
-                                                        onImageClick(
-                                                            ImagePreviewState(
-                                                                images = imageUris,
-                                                                selectedIndex = rowIndex * 2
-                                                            )
-                                                        )
-                                                    },
-                                                    modifier = Modifier.size(imageCellSize)
-                                                )
-                                                rowImages.getOrNull(1)?.let { secondAttachment ->
-                                                    ImageAttachmentCell(
-                                                        attachment = secondAttachment,
-                                                        onClick = {
-                                                            onImageClick(
-                                                                ImagePreviewState(
-                                                                    images = imageUris,
-                                                                    selectedIndex = rowIndex * 2 + 1
-                                                                )
-                                                            )
-                                                        },
-                                                        modifier = Modifier.size(imageCellSize)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                val allFiles = files + audios
-                                if (allFiles.isNotEmpty()) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
-                                        allFiles.chunked(2).forEach { rowFiles ->
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
-                                            ) {
-                                                rowFiles.forEach { attachment ->
-                                                    Surface(
-                                                        shape = RoundedCornerShape(ds.sm(12.dp)),
-                                                        color = Color(0xFFF5F5F5),
-                                                        border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
-                                                        modifier = Modifier
-                                                            .width(fileCellWidth)
-                                                            .height(ds.sh(72.dp))
-                                                            .clickable {
-                                                                if (attachment.type == DraftAttachmentType.Audio) {
-                                                                    onAudioFileOpen(attachment.asAudioRecording())
-                                                                } else {
-                                                                    onFileClick(attachment.asPickedFile())
-                                                                }
-                                                            }
-                                                    ) {
-                                                        Column(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
-                                                            verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
-                                                        ) {
-                                                            Surface(
-                                                                shape = RoundedCornerShape(999.dp),
-                                                                color = Color(0xFF111111)
-                                                            ) {
-                                                                Text(
-                                                                    text = attachment.fileExtensionLabel(),
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    color = Color.White,
-                                                                    modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
-                                                                )
-                                                            }
-                                                            Text(
-                                                                text = attachment.displayName(),
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = Color(0xFF111111),
-                                                                maxLines = 2,
-                                                                overflow = TextOverflow.Ellipsis
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                if (rowFiles.size == 1) {
-                                                    Spacer(modifier = Modifier.width(fileCellWidth))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                UserAttachmentsContent(
+                                    attachments = item.attachments,
+                                    onAttachmentOpen = onUserAttachmentOpen,
+                                    audioPlaybackState = audioPlaybackState,
+                                    loadingAudioBlobRefs = loadingAudioBlobRefs,
+                                    onToggleAudioAttachmentPlayback = onToggleUserAudioAttachmentPlayback,
+                                )
                             }
                         }
                     }
@@ -399,7 +303,8 @@ internal fun AgentModelMessageList(
                                         AudioRecording(
                                             id = item.id,
                                             name = item.name,
-                                            path = item.path
+                                            path = item.path,
+                                            blobRef = item.blobRef
                                         )
                                     )
                                 }
@@ -437,7 +342,8 @@ internal fun AgentModelMessageList(
                                             AudioRecording(
                                                 id = item.id,
                                                 name = item.name,
-                                                path = item.path
+                                                path = item.path,
+                                                blobRef = item.blobRef
                                             )
                                         )
                                     }
@@ -487,6 +393,16 @@ internal fun AgentModelMessageList(
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
         }
     }
+}
+
+internal fun DraftAttachment.asMediaAttachment(): MediaAttachment {
+    val resolvedBlobRef = blobRef?.trim().takeUnless { it.isNullOrBlank() } ?: uri
+    val inferredContentType = inferContentTypeFromFileName(displayName())
+    return MediaAttachment(
+        blobRef = resolvedBlobRef,
+        contentType = inferredContentType,
+        fileName = displayName(),
+    )
 }
 
 @Composable
@@ -697,7 +613,83 @@ private fun AssistantAttachments(
 }
 
 @Composable
-private fun AttachmentFileCard(
+private fun UserAttachmentsContent(
+    attachments: List<DraftAttachment>,
+    onAttachmentOpen: (DraftAttachment) -> Unit,
+    audioPlaybackState: AudioPlaybackState,
+    loadingAudioBlobRefs: Set<String>,
+    onToggleAudioAttachmentPlayback: (DraftAttachment) -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
+    val audioAttachments = attachments.filter { it.type == DraftAttachmentType.Audio }
+    val docAttachments = attachments.filter { it.type == DraftAttachmentType.File }
+
+    if (attachments.isEmpty()) return
+
+    if (imageAttachments.isNotEmpty()) {
+        val imgSize = ds.sw(120.dp)
+        val imgSpacing = ds.sw(8.dp)
+
+        @Composable
+        fun UserImageCell(att: DraftAttachment) {
+            ImageAttachmentCell(
+                attachment = att,
+                onClick = { onAttachmentOpen(att) },
+                modifier = Modifier.size(imgSize),
+            )
+        }
+
+        if (imageAttachments.size == 1) {
+            UserImageCell(att = imageAttachments[0])
+        } else if (imageAttachments.size == 2) {
+            Row(horizontalArrangement = Arrangement.spacedBy(imgSpacing)) {
+                imageAttachments.forEach { att ->
+                    UserImageCell(att = att)
+                }
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(imgSpacing),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                imageAttachments.forEach { att ->
+                    UserImageCell(att = att)
+                }
+            }
+        }
+    }
+
+    if (audioAttachments.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+            audioAttachments.forEach { att ->
+                AudioAttachmentCard(
+                    attachment = att.asMediaAttachment(),
+                    timestamp = null,
+                    audioPlaybackState = audioPlaybackState,
+                    isLoading = att.blobRef in loadingAudioBlobRefs,
+                    onPlayToggle = { onToggleAudioAttachmentPlayback(att) },
+                    onClick = { onAttachmentOpen(att) },
+                )
+            }
+        }
+    }
+
+    if (docAttachments.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+            docAttachments.forEach { att ->
+                AttachmentFileCard(
+                    icon = Res.drawable.ic_doc,
+                    fileName = att.displayName(),
+                    onClick = { onAttachmentOpen(att) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AttachmentFileCard(
     icon: org.jetbrains.compose.resources.DrawableResource,
     fileName: String,
     onClick: () -> Unit,
@@ -761,7 +753,7 @@ private fun formatAudioTimestamp(epochMillis: Long?): String {
 }
 
 @Composable
-private fun AudioAttachmentCard(
+internal fun AudioAttachmentCard(
     attachment: MediaAttachment,
     timestamp: Long?,
     audioPlaybackState: AudioPlaybackState,
@@ -1269,9 +1261,10 @@ private fun ImageAttachmentCell(
             modifier = modifier
                 .clickable { onClick() }
         ) {
-            if (attachment.nasFileId != null) {
+            val resolvedBlobRef = attachment.blobRef?.trim()?.takeIf { it.isNotBlank() }
+            if (attachment.nasFileId != null || resolvedBlobRef != null) {
                 BlobImage(
-                    blobRef = attachment.uri,
+                    blobRef = resolvedBlobRef ?: attachment.uri,
                     contentDescription = attachment.displayName,
                     modifier = Modifier.fillMaxSize()
                 )
