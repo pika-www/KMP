@@ -317,6 +317,7 @@ class SdkSessionManager(
 
     private val blobTransfer by lazy { createPlatformBlobTransfer() }
     private val blobBytesCache = linkedMapOf<String, ByteArray>()
+    private val blobRefDebugCache = linkedMapOf<String, BlobRefDebugInfo?>()
     private val blobFetchingSet = mutableSetOf<String>()
     private val blobCacheLock = Mutex()
     private val BLOB_CACHE_MAX_SIZE = 100
@@ -332,6 +333,24 @@ class SdkSessionManager(
         }
 
         return runCatching {
+            val debug =
+                blobCacheLock.withLock {
+                    blobRefDebugCache[blobRef] ?: parseBlobRefDebugInfo(blobRef).also {
+                        if (blobRefDebugCache.size >= BLOB_CACHE_MAX_SIZE) {
+                            val oldest = blobRefDebugCache.keys.first()
+                            blobRefDebugCache.remove(oldest)
+                        }
+                        blobRefDebugCache[blobRef] = it
+                    }
+                }
+            if (debug != null) {
+                appLogD(
+                    TAG,
+                    "[BlobFetch] 解析 blobRef nodeId=${debug.nodeId} relayUrl=${debug.relayUrl ?: "none"} directAddrs=${debug.directAddresses.size} blobRef=${blobRef.take(40)}",
+                )
+            } else {
+                appLogD(TAG, "[BlobFetch] 解析 blobRef 失败/不可用 blobRef=${blobRef.take(40)}")
+            }
             appLogD(TAG, "[BlobFetch] 开始下载 blobRef=${blobRef.take(40)}...")
             val bytes = blobTransfer.fetch(blobRef)
             appLogD(TAG, "[BlobFetch] 下载完成 blobRef=${blobRef.take(40)} size=${bytes.size}")
