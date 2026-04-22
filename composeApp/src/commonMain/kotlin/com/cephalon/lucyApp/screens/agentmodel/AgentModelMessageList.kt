@@ -216,7 +216,6 @@ internal fun AgentModelMessageList(
                             color = Color.White,
                             border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
                             modifier = Modifier
-                                .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
@@ -252,13 +251,15 @@ internal fun AgentModelMessageList(
                             ) {
                                 val messageText = item.text
                                 if (!messageText.isNullOrBlank()) {
-                                    Text(
-                                        text = messageText,
-                                        fontSize = ds.sp(14f),
-                                        fontWeight = FontWeight.Normal,
-                                        lineHeight = ds.sp(20f),
-                                        color = Color(0xFF1F2535)
-                                    )
+                                    SelectionContainer {
+                                        Text(
+                                            text = messageText,
+                                            fontSize = ds.sp(14f),
+                                            fontWeight = FontWeight.Normal,
+                                            lineHeight = ds.sp(20f),
+                                            color = Color(0xFF1F2535)
+                                        )
+                                    }
                                 }
                                 UserAttachmentsContent(
                                     attachments = item.attachments,

@@ -628,6 +628,8 @@ fun AgentModelScreen(
 
 
     val messageListState = rememberLazyListState()
+    var shouldAutoFollowBottom by remember { mutableStateOf(true) }
+    var lastMessageListInteractionAt by remember { mutableStateOf(0L) }
 
     // 用户是否已经在（接近）底部：允许约 32px 容差，避免浮点/间距导致误判。
     // 在底部 → streaming 循环会继续跟随；不在底部 → 用户自由滚动，我们不再强拉回底部。
@@ -643,6 +645,12 @@ fun AgentModelScreen(
                 lastVisible.index >= lastIndex &&
                     lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 32
             }
+        }
+    }
+
+    LaunchedEffect(isNearBottom) {
+        if (isNearBottom) {
+            shouldAutoFollowBottom = true
         }
     }
 
@@ -697,8 +705,8 @@ fun AgentModelScreen(
     }
 
     // 发送 / 新增消息时动画滚动到底部
-    LaunchedEffect(currentMessages.size) {
-        if (currentMessages.isNotEmpty()) {
+    LaunchedEffect(currentMessages.size, shouldAutoFollowBottom) {
+        if (shouldAutoFollowBottom && currentMessages.isNotEmpty()) {
             // +2: top_spacer + bottom_spacer
             val lastIndex = currentMessages.size + 1
             messageListState.animateScrollToItem(lastIndex)
@@ -712,8 +720,9 @@ fun AgentModelScreen(
         if (!assistantReplyStreaming) return@LaunchedEffect
         while (isActive) {
             delay(200)
-            if (!isNearBottom) continue
+            if (!shouldAutoFollowBottom) continue
             if (messageListState.isScrollInProgress) continue
+            if (currentTimeMillis() - lastMessageListInteractionAt < 350L) continue
             val total = messageListState.layoutInfo.totalItemsCount
             if (total > 0) {
                 messageListState.scrollToItem(total - 1)
@@ -1324,6 +1333,8 @@ fun AgentModelScreen(
             // 都用 sendingCdi 做路由 key。
             val sendingCdi = currentCdi
 
+            shouldAutoFollowBottom = true
+
             // ── 特殊指令：脑花 功能/能力 → 直接展示技能卡片，不走 publishTextToNpc ──
             if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
@@ -1739,14 +1750,7 @@ fun AgentModelScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = ds.sw(20.dp))
-                                .pointerInput(Unit) {
-                                    awaitEachGesture {
-                                        awaitFirstDown(pass = PointerEventPass.Initial)
-                                        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                                        if (up != null) { focusManager.clearFocus() }
-                                    }
-                                },
+                                .padding(horizontal = ds.sw(20.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1812,18 +1816,7 @@ fun AgentModelScreen(
                             }
                         }
                     } else {
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f)
-                            .pointerInput(Unit) {
-                                awaitEachGesture {
-                                    awaitFirstDown(pass = PointerEventPass.Final)
-                                    val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
-                                    if (up != null) {
-                                        focusManager.clearFocus()
-                                        attachmentsExpanded = false
-                                    }
-                                }
-                            }
-                        ) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             AgentModelMessageList(
                                 messages = currentMessages,
                                 playingRecordingId = mediaAccessController.playingRecordingId,
@@ -1854,6 +1847,24 @@ fun AgentModelScreen(
                                 hiddenStatusMessageIds = hiddenStopReplyMessageIds.toSet(),
                                 listState = messageListState,
                                 modifier = Modifier
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(pass = PointerEventPass.Final)
+                                            lastMessageListInteractionAt = currentTimeMillis()
+                                            val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
+                                            if (up != null) {
+                                                lastMessageListInteractionAt = currentTimeMillis()
+                                                if (!isNearBottom) {
+                                                    shouldAutoFollowBottom = false
+                                                }
+                                                val isShortTap = up.uptimeMillis - down.uptimeMillis < 200L
+                                                if (isShortTap && !messageListState.isScrollInProgress) {
+                                                    focusManager.clearFocus()
+                                                    attachmentsExpanded = false
+                                                }
+                                            }
+                                        }
+                                    }
                                     .fillMaxSize()
                                     .padding(horizontal = 20.dp)
                             )
