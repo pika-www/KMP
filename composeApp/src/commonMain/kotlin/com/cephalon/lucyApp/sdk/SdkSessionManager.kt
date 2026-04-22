@@ -239,11 +239,14 @@ class SdkSessionManager(
     val selectedDeviceCdi: StateFlow<String?> = _selectedDeviceCdi.asStateFlow()
 
     init {
-        // 启动时从缓存恢复上次选中的设备
-        val cached = settings.getStringOrNull(KEY_SELECTED_DEVICE_CDI)
-        if (!cached.isNullOrBlank()) {
-            _selectedDeviceCdi.value = cached
-            appLogD(TAG, "从缓存恢复选中设备 cdi=$cached")
+        // 启动时从缓存恢复上次选中的设备（仅当 userId 已知时使用缓存，防止跨用户污染）
+        val cdiKey = userKeyOf(KEY_SELECTED_DEVICE_CDI)
+        if (cdiKey != null) {
+            val cached = settings.getStringOrNull(cdiKey)
+            if (!cached.isNullOrBlank()) {
+                _selectedDeviceCdi.value = cached
+                appLogD(TAG, "从缓存恢复选中设备 cdi=$cached")
+            }
         }
     }
 
@@ -345,16 +348,19 @@ class SdkSessionManager(
     fun selectDevice(cdi: String?) {
         val normalized = cdi?.trim()?.takeIf { it.isNotEmpty() }
         _selectedDeviceCdi.value = normalized
-        if (normalized != null) {
-            settings.putString(KEY_SELECTED_DEVICE_CDI, normalized)
-        } else {
-            settings.remove(KEY_SELECTED_DEVICE_CDI)
+        val key = userKeyOf(KEY_SELECTED_DEVICE_CDI)
+        if (key != null) {
+            if (normalized != null) {
+                settings.putString(key, normalized)
+            } else {
+                settings.remove(key)
+            }
         }
     }
 
     fun clearSelectedDeviceCache() {
         _selectedDeviceCdi.value = null
-        settings.remove(KEY_SELECTED_DEVICE_CDI)
+        userKeyOf(KEY_SELECTED_DEVICE_CDI)?.let { settings.remove(it) }
     }
 
     private val blobTransfer by lazy { createPlatformBlobTransfer() }
@@ -2314,6 +2320,15 @@ class SdkSessionManager(
         private const val MAX_OBSERVER_RESTART_ATTEMPTS = 5      // observer 重建最多尝试次数
         private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
         private const val KEY_SELECTED_DEVICE_CDI = "sdk.selected_device_cdi"
+    }
+
+    /**
+     * 拼接当前用户的隔离 key：`{base}.{userId}`。
+     * userId 未知时返回 null，调用方应跳过缓存读写。
+     */
+    private fun userKeyOf(base: String): String? {
+        val uid = tokenStore.getCurrentUserId() ?: return null
+        return "$base.$uid"
     }
 }
 

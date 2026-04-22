@@ -16,6 +16,16 @@ class AuthTokenStore(
         settings.putString(KEY_TOKEN, token)
     }
 
+    fun saveUserId(userId: String) {
+        settings.putString(KEY_USER_ID, userId)
+    }
+
+    /**
+     * 返回当前登录用户的 ID（同步读取，不走网络）。
+     * 用于所有需要按用户隔离的本地存储 key 构建。
+     */
+    fun getCurrentUserId(): String? = settings.getStringOrNull(KEY_USER_ID)?.takeIf { it.isNotBlank() }
+
     fun saveUserPhone(phone: String) {
         settings.putString(KEY_PHONE, phone)
     }
@@ -30,6 +40,7 @@ class AuthTokenStore(
 
     fun clear() {
         settings.remove(KEY_TOKEN)
+        settings.remove(KEY_USER_ID)
         settings.remove(KEY_PHONE)
         settings.remove(KEY_EMAIL)
     }
@@ -58,6 +69,7 @@ class AuthTokenStore(
 
     private companion object {
         private const val KEY_TOKEN = "auth.token"
+        private const val KEY_USER_ID = "auth.user_id"
         private const val KEY_PHONE = "auth.phone"
         private const val KEY_EMAIL = "auth.email"
     }

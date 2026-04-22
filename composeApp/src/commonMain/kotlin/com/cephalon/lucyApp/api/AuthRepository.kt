@@ -26,6 +26,7 @@ class AuthRepository(
         val token = response.data?.token
         if (response.code == 20000 && token != null) {
             tokenStore.saveToken(token)
+            response.data.userId?.takeIf { it.isNotBlank() }?.let { tokenStore.saveUserId(it) }
             request.phone?.let { tokenStore.saveUserPhone(it) }
             request.email?.let { tokenStore.saveUserEmail(it) }
         }
@@ -92,6 +93,7 @@ class AuthRepository(
         val response = authApi.get<UserInfoData>("/user/info")
         if (response.code == 20000 && response.data != null) {
             _userInfo.value = response.data
+            response.data.userId?.takeIf { it.isNotBlank() }?.let { tokenStore.saveUserId(it) }
         }
         return response
     }
@@ -217,12 +219,13 @@ class AuthRepository(
      */
     suspend fun claimDailyRewardIfNeeded() {
         val today = todayDateString()
-        val lastClaimed = settings.getStringOrNull(KEY_DAILY_REWARD_DATE)
+        val key = userKeyOf(KEY_DAILY_REWARD_DATE) ?: return
+        val lastClaimed = settings.getStringOrNull(key)
         if (lastClaimed == today) return
 
         val resp = authApi.post<Map<String, String>, DailyRewardData>(dailyRewardPath, emptyMap())
         if (resp.code == 20000) {
-            settings.putString(KEY_DAILY_REWARD_DATE, today)
+            settings.putString(key, today)
         }
     }
 
@@ -240,7 +243,7 @@ class AuthRepository(
             val resp = authApi.get<Map<String, String>>(connectPath)
             appLogD("AuthRepository", "connectLucyApp: code=${resp.code}, msg=${resp.msg}, data=${resp.data}")
             if (resp.code == 20000) {
-                settings.putBoolean(KEY_CONNECTION_FLAG, true)
+                userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.putBoolean(it, true) }
                 appLogD("AuthRepository", "connectLucyApp: 接入成功")
                 Result.success(Unit)
             } else {
@@ -261,15 +264,16 @@ class AuthRepository(
      * 检查连接标记：优先读本地缓存，若无缓存则请求接口并存储
      */
     suspend fun checkConnectionFlag(): Boolean {
-        // 优先读本地缓存
-        if (settings.getBoolean(KEY_CONNECTION_FLAG, false)) {
+        val key = userKeyOf(KEY_CONNECTION_FLAG)
+        // 优先读本地缓存（userId 未知时跳过缓存，直接走网络）
+        if (key != null && settings.getBoolean(key, false)) {
             return true
         }
-        // 本地无缓存，请求接口
+        // 本地无缓存或 userId 未知，请求接口
         val resp = authApi.get<ConnectionFlagData>(connectionFlagPath)
         val connected = resp.code == 20000 && resp.data?.hasConnectedLucyApp == true
         if (connected) {
-            settings.putBoolean(KEY_CONNECTION_FLAG, true)
+            userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.putBoolean(it, true) }
         }
         return connected
     }
@@ -281,7 +285,7 @@ class AuthRepository(
         val resp = authApi.put<ConnectionFlagData>(connectionFlagPath)
         val success = resp.code == 20000
         if (success) {
-            settings.putBoolean(KEY_CONNECTION_FLAG, true)
+            userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.putBoolean(it, true) }
         }
         return success
     }
@@ -289,7 +293,10 @@ class AuthRepository(
     /**
      * 本地缓存是否已连接（同步读取，不走网络）
      */
-    fun isConnectionFlagCached(): Boolean = settings.getBoolean(KEY_CONNECTION_FLAG, false)
+    fun isConnectionFlagCached(): Boolean {
+        val key = userKeyOf(KEY_CONNECTION_FLAG) ?: return false
+        return settings.getBoolean(key, false)
+    }
 
     /**
      * 仅清掉本地 connection_flag 缓存（保留 token、用户信息等）。
@@ -298,7 +305,7 @@ class AuthRepository(
      * 缓存 flag 让全新账号被错误地直接带进 AgentModel 对话页。
      */
     fun invalidateConnectionFlagCache() {
-        settings.remove(KEY_CONNECTION_FLAG)
+        userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.remove(it) }
     }
 
     // ---- 设备绑定（OTP） ----
@@ -342,17 +349,21 @@ class AuthRepository(
     val modelConfig: StateFlow<ModelConfigData?> = _modelConfig.asStateFlow()
 
     init {
-        // 延迟加载本地缓存的模型配置
-        val raw = settings.getStringOrNull(KEY_MODEL_CONFIG)
-        if (raw != null) {
-            _modelConfig.value = runCatching { modelConfigJson.decodeFromString<ModelConfigData>(raw) }.getOrNull()
+        // 延迟加载本地缓存的模型配置（仅当 userId 已知时才使用缓存，防止跨用户污染）
+        val configKey = userKeyOf(KEY_MODEL_CONFIG)
+        if (configKey != null) {
+            val raw = settings.getStringOrNull(configKey)
+            if (raw != null) {
+                _modelConfig.value = runCatching { modelConfigJson.decodeFromString<ModelConfigData>(raw) }.getOrNull()
+            }
         }
     }
 
 
     private fun persistModelConfig(data: ModelConfigData) {
+        val key = userKeyOf(KEY_MODEL_CONFIG) ?: return
         val raw = modelConfigJson.encodeToString(ModelConfigData.serializer(), data)
-        settings.putString(KEY_MODEL_CONFIG, raw)
+        settings.putString(key, raw)
     }
 
     /**
@@ -370,13 +381,23 @@ class AuthRepository(
     fun logout() {
         _userInfo.value = null
         _modelConfig.value = null
-        settings.remove(KEY_MODEL_CONFIG)
-        settings.remove(KEY_CONNECTION_FLAG)
-        settings.remove(KEY_DAILY_REWARD_DATE)
+        // 清除当前用户的缓存 key（在 tokenStore.clear() 之前，因为 clear 会移除 userId）
+        userKeyOf(KEY_MODEL_CONFIG)?.let { settings.remove(it) }
+        userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.remove(it) }
+        userKeyOf(KEY_DAILY_REWARD_DATE)?.let { settings.remove(it) }
         tokenStore.clear()
     }
 
     fun hasValidToken(): Boolean = tokenStore.getValidTokenOrNull() != null
+
+    /**
+     * 拼接当前用户的隔离 key：`{base}.{userId}`。
+     * userId 未知（未登录/token 过期已清除）时返回 null，调用方应跳过缓存读写。
+     */
+    private fun userKeyOf(base: String): String? {
+        val uid = tokenStore.getCurrentUserId() ?: return null
+        return "$base.$uid"
+    }
 
     private companion object {
         const val KEY_CONNECTION_FLAG = "lucy_app.has_connected"

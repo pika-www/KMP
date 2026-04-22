@@ -109,6 +109,8 @@ import com.cephalon.lucyApp.screens.nas.NasSendFileType
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.sdk.NpcReplyEvent
 import com.cephalon.lucyApp.sdk.SdkSessionManager
+import com.cephalon.lucyApp.ws.BalanceWsManager
+import com.russhwolf.settings.Settings
 import org.koin.compose.koinInject
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -582,6 +584,25 @@ fun AgentModelScreen(
     var toastMessage by remember { mutableStateOf<String?>(null) }
     val audioBlobCacheMap = remember { mutableStateMapOf<String, String>() }
     val loadingAudioBlobRefs = remember { mutableStateListOf<String>() }
+
+    // ── 余额不足提醒（仅一次） ──
+    val balanceWsManager = koinInject<BalanceWsManager>()
+    val settings = koinInject<Settings>()
+    var showLowBalanceDialog by remember { mutableStateOf(false) }
+    val balanceData by balanceWsManager.balance.collectAsState()
+    val totalBalance = (balanceData.balances["1"] ?: 0L) + (balanceData.balances["4"] ?: 0L)
+
+    val lowBalanceDismissedKey = effectiveUserId?.let { "$LOW_BALANCE_DISMISSED_KEY.$it" }
+
+    LaunchedEffect(totalBalance, lowBalanceDismissedKey) {
+        if (totalBalance in 1..499) {
+            val key = lowBalanceDismissedKey ?: return@LaunchedEffect
+            val dismissed = settings.getBoolean(key, false)
+            if (!dismissed) {
+                showLowBalanceDialog = true
+            }
+        }
+    }
 
     // 发送 / 新增消息时动画滚动到底部
     LaunchedEffect(currentMessages.size) {
@@ -1815,6 +1836,34 @@ fun AgentModelScreen(
                     }
                 }
 
+                if (showLowBalanceDialog) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0x66000000))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) {
+                                lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                showLowBalanceDialog = false
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LowBalanceReminderDialog(
+                            onDismiss = {
+                                lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                showLowBalanceDialog = false
+                            },
+                            onRecharge = {
+                                lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                showLowBalanceDialog = false
+                                showRechargePage = true
+                            }
+                        )
+                    }
+                }
+
                 if (mediaAccessController.isRecording && !showProfilePage) {
                     AgentModelVoiceRecordingOverlay(
                         startedAtMillis = voiceRecordingStartedAtMillis ?: currentTimeMillis(),
@@ -1883,6 +1932,95 @@ fun AgentModelScreen(
     }
     } // Box
     } // DesignScaleProvider
+}
+
+private const val LOW_BALANCE_DISMISSED_KEY = "low_balance_reminder_dismissed"
+
+@Composable
+private fun LowBalanceReminderDialog(
+    onDismiss: () -> Unit,
+    onRecharge: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    Surface(
+        shape = RoundedCornerShape(ds.sm(20.dp)),
+        color = Color.White,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { /* consume click */ }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
+        ) {
+            Text(
+                text = "脑力值余额不足",
+                fontSize = ds.sp(20f),
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+
+            Text(
+                text = "脑力值当前已用尽，请尽快去充值，点击下方按钮充值或者去〈个人中心〉充值。",
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF717580),
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onDismiss() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "取消",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color(0xFF1F2535))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onRecharge() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "去充值",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.White,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
