@@ -933,7 +933,7 @@ fun NasScreen(onBack: () -> Unit) {
                                                 fileId = it.fileId!!,
                                                 fileName = it.name,
                                                 fileType = NasSendFileType.Image,
-                                                thumbnailBlobRef = it.path,
+                                                previewBlobRef = it.path,
                                                 sizeKB = it.sizeKB,
                                                 format = it.format,
                                             )
@@ -945,7 +945,7 @@ fun NasScreen(onBack: () -> Unit) {
                                                 fileId = it.fileId!!,
                                                 fileName = it.name,
                                                 fileType = NasSendFileType.Audio,
-                                                thumbnailBlobRef = it.path,
+                                                previewBlobRef = it.path,
                                                 sizeKB = it.sizeKB,
                                                 format = it.format,
                                             )
@@ -957,7 +957,7 @@ fun NasScreen(onBack: () -> Unit) {
                                                 fileId = it.fileId!!,
                                                 fileName = it.name,
                                                 fileType = NasSendFileType.Document,
-                                                thumbnailBlobRef = it.path,
+                                                previewBlobRef = it.path,
                                                 sizeKB = it.sizeKB,
                                                 format = it.format,
                                             )
@@ -1078,7 +1078,7 @@ fun NasScreen(onBack: () -> Unit) {
                                                     fileId = it.fileId!!,
                                                     fileName = it.name,
                                                     fileType = NasSendFileType.Image,
-                                                    thumbnailBlobRef = it.path,
+                                                    previewBlobRef = it.path,
                                                     sizeKB = it.sizeKB,
                                                     format = it.format,
                                                 )
@@ -1090,7 +1090,7 @@ fun NasScreen(onBack: () -> Unit) {
                                                     fileId = it.fileId!!,
                                                     fileName = it.name,
                                                     fileType = NasSendFileType.Audio,
-                                                    thumbnailBlobRef = it.path,
+                                                    previewBlobRef = it.path,
                                                     sizeKB = it.sizeKB,
                                                     format = it.format,
                                                 )
@@ -1102,7 +1102,7 @@ fun NasScreen(onBack: () -> Unit) {
                                                     fileId = it.fileId!!,
                                                     fileName = it.name,
                                                     fileType = NasSendFileType.Document,
-                                                    thumbnailBlobRef = it.path,
+                                                    previewBlobRef = it.path,
                                                     sizeKB = it.sizeKB,
                                                     format = it.format,
                                                 )

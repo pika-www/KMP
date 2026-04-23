@@ -706,6 +706,48 @@ fun AgentModelScreen(
     val density = LocalDensity.current
     val toastBottomPadding = with(density) { composerHeightPx.toDp() + 16.dp }
 
+    LaunchedEffect(currentCdi, NasSendToChatStore.pendingItems.size) {
+        val targetCdi = currentCdi?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (NasSendToChatStore.pendingItems.isEmpty()) return@LaunchedEffect
+
+        val incomingItems = NasSendToChatStore.consume()
+        incomingItems.forEach { item ->
+            val resolvedBlobRef = runCatching {
+                sdkSessionManager.getFileFromNas(
+                    targetCdi = targetCdi,
+                    fileId = item.fileId,
+                ).getOrThrow().item?.blobRef?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+
+            val draftType = when (item.fileType) {
+                NasSendFileType.Image -> DraftAttachmentType.Image
+                NasSendFileType.Audio -> DraftAttachmentType.Audio
+                NasSendFileType.Document -> DraftAttachmentType.File
+            }
+            val attachmentUri = resolvedBlobRef ?: item.previewBlobRef
+            val existingIndex = draftAttachments.indexOfFirst {
+                it.nasFileId == item.fileId || (
+                    it.nasFileId == null &&
+                        it.uri == attachmentUri &&
+                        it.displayName == item.fileName
+                    )
+            }
+            val attachment = DraftAttachment(
+                type = draftType,
+                uri = attachmentUri,
+                displayName = item.fileName,
+                blobRef = resolvedBlobRef,
+                nasFileId = item.fileId,
+            )
+            if (existingIndex >= 0) {
+                draftAttachments[existingIndex] = attachment
+            } else {
+                draftAttachments.add(attachment)
+            }
+        }
+        attachmentsExpanded = false
+    }
+
     // ── 余额不足提醒（仅一次） ──
     val balanceWsManager = koinInject<BalanceWsManager>()
     val settings = koinInject<Settings>()
@@ -1619,7 +1661,7 @@ fun AgentModelScreen(
                                 is ChatItem.UserAttachments -> {
                                     val resolvedAttachments = old.attachments.map { attachment ->
                                         if (attachment.nasFileId != null) {
-                                            attachment.copy(blobRef = attachment.uri)
+                                            attachment.copy(blobRef = attachment.blobRef ?: attachment.uri)
                                         } else {
                                             val uploadedBlobRef = uploadStatesSnapshot[attachment.uri]
                                                 ?.let { it as? AttachmentUploadState.Success }
