@@ -17,13 +17,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
@@ -86,6 +89,8 @@ internal fun AgentModelComposer(
 ) {
     val ds = LocalDesignScale.current
     val boxShape = RoundedCornerShape(ds.sm(16.dp))
+    val inputLineHeight = ds.sp(22f)
+    val inputScrollState = rememberScrollState()
     val glassBrush = Brush.radialGradient(
         colors = listOf(
             Color(0xFFDFDFDF).copy(alpha = 0.10f),
@@ -139,13 +144,16 @@ internal fun AgentModelComposer(
                 textStyle = TextStyle(
                     color = Color(0xFF1F2535),
                     fontSize = ds.sp(15f),
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = inputLineHeight
                 ),
                 maxLines = Int.MAX_VALUE,
                 cursorBrush = SolidColor(Color(0xFF1F2535)),
                 enabled = !isRecording,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = inputLineHeight.value.dp * 6)
+                    .verticalScroll(inputScrollState)
                     .padding(vertical = ds.sm(3.dp)),
                 decorationBox = { innerTextField ->
                     Box {
@@ -156,7 +164,8 @@ internal fun AgentModelComposer(
                                 else "输入你想问咩",
                                 color = Color(0xFF9A9A9A),
                                 fontSize = ds.sp(15f),
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                lineHeight = inputLineHeight
                             )
                         }
                         innerTextField()
