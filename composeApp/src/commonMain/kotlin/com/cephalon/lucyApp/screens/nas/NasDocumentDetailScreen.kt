@@ -12,12 +12,14 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -73,6 +75,7 @@ internal fun NasDocumentDetailScreen(
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+    val swipeEdgeWidth = 28.dp
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
     val backgroundColor = if (isChatMode) Color.White else Color.Black
@@ -122,31 +125,6 @@ internal fun NasDocumentDetailScreen(
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
-            .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                    if (down.position.x > swipeStartEdgePx) return@awaitEachGesture
-
-                    val pointerId = down.id
-                    var totalDx = 0f
-                    var totalAbsDy = 0f
-
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                        if (!change.pressed) break
-
-                        val delta = change.position - change.previousPosition
-                        totalDx += delta.x
-                        totalAbsDy += abs(delta.y)
-
-                        if (totalDx > swipeBackThresholdPx && totalDx > totalAbsDy * 1.2f) {
-                            onBack()
-                            break
-                        }
-                    }
-                }
-            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -280,11 +258,17 @@ internal fun NasDocumentDetailScreen(
                         )
                     }
                     localFilePath != null -> {
-                        PlatformDocumentPreview(
-                            source = localFilePath!!,
-                            fileName = document.name,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(8.dp))
+                        ) {
+                            PlatformDocumentPreview(
+                                source = localFilePath!!,
+                                fileName = document.name,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                     else -> {
                         Text(
@@ -296,6 +280,43 @@ internal fun NasDocumentDetailScreen(
                 }
             }
         } // end Column
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(swipeEdgeWidth)
+                    .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                            if (down.position.x > swipeStartEdgePx) return@awaitEachGesture
+
+                            val pointerId = down.id
+                            var totalDx = 0f
+                            var totalAbsDy = 0f
+
+                            while (true) {
+                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                if (!change.pressed) break
+
+                                val delta = change.position - change.previousPosition
+                                totalDx += delta.x
+                                totalAbsDy += abs(delta.y)
+
+                                if (totalDx > swipeBackThresholdPx && totalDx > totalAbsDy * 1.2f) {
+                                    onBack()
+                                    break
+                                }
+                            }
+                        }
+                    }
+            )
+        }
 
         if (!isChatMode) {
             Box(

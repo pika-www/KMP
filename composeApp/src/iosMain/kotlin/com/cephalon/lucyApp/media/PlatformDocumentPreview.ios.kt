@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
 import androidx.compose.ui.viewinterop.UIKitViewController
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -22,7 +23,10 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import platform.CoreGraphics.CGRectMake
+import platform.Foundation.NSString
+import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSURL
+import platform.Foundation.stringWithContentsOfFile
 import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
 import platform.PDFKit.kPDFDisplaySinglePageContinuous
@@ -42,6 +46,18 @@ actual fun PlatformDocumentPreview(
     fileName: String,
     modifier: Modifier,
 ) {
+    val extension = remember(fileName, source) {
+        fileName.substringAfterLast('.', source.substringAfterLast('.', "")).lowercase()
+    }
+    if (extension in setOf("md", "markdown", "txt", "log", "json", "xml", "yaml", "yml", "csv")) {
+        TextDocumentPreview(
+            source = source,
+            fileName = fileName,
+            modifier = modifier
+        )
+        return
+    }
+
     val previewState by produceState<IOSDocumentPreviewState>(
         initialValue = IOSDocumentPreviewState.Loading,
         key1 = source,
@@ -94,6 +110,20 @@ actual fun PlatformDocumentPreview(
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
+suspend actual fun platformReadTextDocument(
+    source: String,
+    fileName: String,
+): String {
+    val fileUrl = materializeDocumentUrl(source = source, fileName = fileName)
+    val filePath = fileUrl.path ?: error("无法解析文档路径")
+    return NSString.stringWithContentsOfFile(
+        path = filePath,
+        encoding = NSUTF8StringEncoding,
+        error = null
+    ) as? String ?: error("读取文档内容失败")
+}
+
 @Composable
 @OptIn(ExperimentalForeignApi::class)
 private fun IOSPdfDocumentPreview(
@@ -110,11 +140,21 @@ private fun IOSPdfDocumentPreview(
                 this.displaysPageBreaks = false
                 this.backgroundColor = UIColor.whiteColor
                 this.document = PDFDocument(uRL = fileUrl)
+                this.minScaleFactor = this.scaleFactorForSizeToFit
+                this.scaleFactor = this.scaleFactorForSizeToFit
             }
         },
         update = { view ->
             view.document = PDFDocument(uRL = fileUrl)
+            view.autoScales = true
+            view.minScaleFactor = view.scaleFactorForSizeToFit
+            view.scaleFactor = view.scaleFactorForSizeToFit
         }
+        ,
+        properties = UIKitInteropProperties(
+            isInteractive = true,
+            isNativeAccessibilityEnabled = true
+        )
     )
 }
 
@@ -132,7 +172,11 @@ private fun IOSQuickLookDocumentPreview(
             controller
         },
         update = {
-        }
+        },
+        properties = UIKitInteropProperties(
+            isInteractive = true,
+            isNativeAccessibilityEnabled = true
+        )
     )
 }
 
@@ -196,4 +240,3 @@ private suspend fun materializeDocumentUrl(
         }
     }
 }
-

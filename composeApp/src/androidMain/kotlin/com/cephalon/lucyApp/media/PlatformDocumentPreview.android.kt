@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidios.composeapp.generated.resources.Res
+import com.cephalon.lucyApp.screens.agentmodel.AndroidAppContextHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
@@ -57,19 +58,38 @@ actual fun PlatformDocumentPreview(
         fileName.substringAfterLast('.', source.substringAfterLast('.', "")).lowercase()
     }
 
-    if (extension == "pdf") {
-        AndroidPdfDocumentPreview(
-            source = source,
-            fileName = fileName,
-            modifier = modifier
-        )
-    } else {
-        AndroidUnsupportedDocumentPreview(
-            source = source,
-            fileName = fileName,
-            modifier = modifier
-        )
+    when (extension) {
+        "md", "markdown", "txt", "log", "json", "xml", "yaml", "yml", "csv" -> {
+            TextDocumentPreview(
+                source = source,
+                fileName = fileName,
+                modifier = modifier
+            )
+        }
+        "pdf" -> {
+            AndroidPdfDocumentPreview(
+                source = source,
+                fileName = fileName,
+                modifier = modifier
+            )
+        }
+        else -> {
+            AndroidUnsupportedDocumentPreview(
+                source = source,
+                fileName = fileName,
+                modifier = modifier
+            )
+        }
     }
+}
+
+suspend actual fun platformReadTextDocument(
+    source: String,
+    fileName: String,
+): String {
+    val context = AndroidAppContextHolder.appContext
+    val file = materializeDocumentFile(context = context, source = source, fileName = fileName)
+    return file.readText(Charsets.UTF_8)
 }
 
 @Composable
