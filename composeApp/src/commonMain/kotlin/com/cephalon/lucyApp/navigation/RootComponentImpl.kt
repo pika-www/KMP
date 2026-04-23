@@ -225,7 +225,7 @@ class RootComponentImpl(
                         }
                     }
 
-                    override fun onOpenAgentModel(onLoading: (Boolean) -> Unit, onError: (String) -> Unit) {
+                    override fun onOpenAgentModel(onLoading: (Boolean) -> Unit, onStep: (Int) -> Unit, onError: (String) -> Unit) {
                         scope.launch {
                             onLoading(true)
                             try {
@@ -236,6 +236,8 @@ class RootComponentImpl(
                                 if (storedMissionId != null) {
                                     println("RootComponent: 检测到缓存的 bootstrapMissionId=$storedMissionId，跳过 connect 直接恢复轮询")
                                     missionId = storedMissionId
+                                    // 恢复场景：step1 已完成
+                                    onStep(1)
                                 } else {
                                     // 调用 connect 接口获取 bootstrap_mission_id（内部已持久化）
                                     println("RootComponent: 点击端脑云用户，开始调用 connectLucyApp()")
@@ -250,6 +252,8 @@ class RootComponentImpl(
                                     missionId = connectData.bootstrapMissionId
                                     bootstrapCompleted = connectData.bootstrapStatus == "completed"
                                     println("RootComponent: 获得 bootstrapMissionId=$missionId, status=${connectData.bootstrapStatus}, code=${connectData.responseCode}")
+                                    // step 1 完成：创建云端应用
+                                    onStep(1)
                                     // 非首次连接（如 40088 "已经链接"）→ toast 提示服务端 msg
                                     if (connectData.responseCode != 20000 && connectData.responseMsg.isNotBlank()) {
                                         onError(connectData.responseMsg)
@@ -259,13 +263,16 @@ class RootComponentImpl(
                                 // 快速路径：bootstrap_status 已 completed → 先尝试一次 binding-status
                                 if (bootstrapCompleted) {
                                     println("RootComponent: bootstrap_status=completed，尝试快速路径")
+                                    onStep(2) // 快速路径直接跳到 step2
                                     sdkSessionManager.ensureConnectedIfTokenValid()
                                     val statusResp = authRepository.getDeviceBindingStatus(missionId)
                                     if (statusResp.code == 20000 && statusResp.data != null && statusResp.data.bindingStatus == "bound") {
+                                        onStep(3) // step3 完成
                                         authRepository.clearBootstrapMissionId()
                                         val deviceId = statusResp.data.deviceId
                                         val devices = authRepository.getDevices()
                                         val matchedDevice = devices.firstOrNull { it.id == deviceId }
+                                        delay(2000L) // 绑定成功后等待 2s 再跳转
                                         if (matchedDevice != null) {
                                             val cdi = matchedDevice.channelDeviceId
                                             println("RootComponent: completed 快速路径，找到设备 cdi=$cdi")
@@ -293,6 +300,7 @@ class RootComponentImpl(
                                         val matched = missionsResp.data.list.any { it.id == missionId }
                                         if (matched) {
                                             println("RootComponent: missionId=$missionId 已在 running 列表中")
+                                            onStep(2) // step 2 完成：启动云端应用
                                             break
                                         }
                                     }
@@ -322,7 +330,8 @@ class RootComponentImpl(
 
                                             when (bindingStatus) {
                                                 "bound" -> {
-                                                    // 绑定成功 → 清除缓存 → SDK 连接
+                                                    // 绑定成功 → step3 完成 → 清除缓存 → SDK 连接
+                                                    onStep(3)
                                                     authRepository.clearBootstrapMissionId()
                                                     println("RootComponent: 绑定成功，开始 SDK ensureConnectedIfTokenValid()")
                                                     sdkSessionManager.ensureConnectedIfTokenValid()
@@ -330,6 +339,8 @@ class RootComponentImpl(
                                                     // 4. 查询设备列表，匹配 device_id 获取 cdi
                                                     val devices = authRepository.getDevices()
                                                     val matchedDevice = devices.firstOrNull { it.id == deviceId }
+                                                    // 绑定成功后等待 2s 再跳转
+                                                    delay(2000L)
                                                     if (matchedDevice != null) {
                                                         val cdi = matchedDevice.channelDeviceId
                                                         println("RootComponent: 找到匹配设备 cdi=$cdi，跳转对话页")

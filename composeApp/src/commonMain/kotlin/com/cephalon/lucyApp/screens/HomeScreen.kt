@@ -50,7 +50,6 @@ import androidios.composeapp.generated.resources.roboto_bg
 import androidx.compose.runtime.snapshotFlow
 import com.cephalon.lucyApp.components.DesignScaleProvider
 import com.cephalon.lucyApp.components.LocalDesignScale
-import androidx.compose.material3.CircularProgressIndicator
 import com.cephalon.lucyApp.components.ToastHost
 import com.cephalon.lucyApp.components.rememberToastState
 import com.cephalon.lucyApp.scan.rememberCameraPermissionController
@@ -103,12 +102,14 @@ fun HomeScreen(
     onOpenWsTest: () -> Unit,
     onOpenBrainBoxGuide: () -> Unit,
     onOpenBrainBoxLoginSuccess: (cdi: String) -> Unit,
-    onOpenAgentModel: (onLoading: (Boolean) -> Unit, onError: (String) -> Unit) -> Unit,
+    onOpenAgentModel: (onLoading: (Boolean) -> Unit, onStep: (Int) -> Unit, onError: (String) -> Unit) -> Unit,
     onOpenScanBindChannel: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var showBrainBoxLoginSheet by remember { mutableStateOf(false) }
     var isCloudLoading by remember { mutableStateOf(false) }
+    var cloudDeployStep by remember { mutableStateOf(0) }
+    var cloudDeployError by remember { mutableStateOf<String?>(null) }
     val toastState = rememberToastState()
     val cameraPermission = rememberCameraPermissionController()
     val openAppSettings = rememberOpenAppSettings()
@@ -216,10 +217,18 @@ fun HomeScreen(
                             if (pagerState.currentPage == pageIndex) {
                                 when (pageIndex) {
                                     0 -> showBrainBoxLoginSheet = true
-                                    1 -> if (!isCloudLoading) onOpenAgentModel(
-                                        { isCloudLoading = it },
-                                        { toastState.show(it) },
-                                    )
+                                    1 -> if (!isCloudLoading) {
+                                        cloudDeployStep = 0
+                                        cloudDeployError = null
+                                        onOpenAgentModel(
+                                            { isCloudLoading = it },
+                                            { step -> cloudDeployStep = step },
+                                            { msg ->
+                                                cloudDeployError = msg
+                                                toastState.show(msg)
+                                            },
+                                        )
+                                    }
                                     2 -> openScanWithPermission()
                                 }
                             } else {
@@ -302,10 +311,18 @@ fun HomeScreen(
                                     if (pagerState.currentPage == pageIndex) {
                                         when (pageIndex) {
                                             0 -> showBrainBoxLoginSheet = true
-                                            1 -> if (!isCloudLoading) onOpenAgentModel(
-                                                { isCloudLoading = it },
-                                                { toastState.show(it) },
-                                            )
+                                            1 -> if (!isCloudLoading) {
+                                                cloudDeployStep = 0
+                                                cloudDeployError = null
+                                                onOpenAgentModel(
+                                                    { isCloudLoading = it },
+                                                    { step -> cloudDeployStep = step },
+                                                    { msg ->
+                                                        cloudDeployError = msg
+                                                        toastState.show(msg)
+                                                    },
+                                                )
+                                            }
                                             2 -> openScanWithPermission()
                                         }
                                     } else {
@@ -384,23 +401,37 @@ fun HomeScreen(
                     tint = Color(0xFF1F2535)
                 )
             }
-        }
-
-        // 端脑云 loading 遮罩
-        if (isCloudLoading) {
+        } else {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.40f))
+                    .statusBarsPadding()
+                    .padding(end = ds.sw(16.dp), top = ds.sh(8.dp))
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .background(Color.Black.copy(alpha = 0.06f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                    ) { /* 拦截点击 */ },
+                    ) { onLogout() }
+                    .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(color = Color.White)
+                Text(
+                    text = "切换账号",
+                    color = SubtitleColor,
+                    fontSize = ds.sp(13f),
+                    fontWeight = FontWeight.Normal,
+                )
             }
         }
+
+        // 端脑云部署进度弹窗
+        CloudDeploySheet(
+            isVisible = isCloudLoading,
+            completedStep = cloudDeployStep,
+            errorMessage = cloudDeployError,
+            onDismiss = { /* 部署中不允许关闭 */ },
+        )
 
         ToastHost(state = toastState, modifier = Modifier.align(Alignment.TopCenter))
 

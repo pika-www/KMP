@@ -641,7 +641,7 @@ internal fun BrainBoxBindStep(
                     modifier = Modifier.size(ds.sm(18.dp)),
                 )
             } else {
-                Text(text = "绑定并进入")
+                Text(text = "绑定")
             }
         }
     }
