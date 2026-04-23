@@ -256,14 +256,13 @@ class RootComponentImpl(
                                     }
                                 }
 
-                                // 快速路径：bootstrap_status 已 completed → 跳过所有轮询，直连 SDK 进入对话页
+                                // 快速路径：bootstrap_status 已 completed → 先尝试一次 binding-status
                                 if (bootstrapCompleted) {
-                                    println("RootComponent: bootstrap_status=completed，跳过轮询直接连接 SDK")
-                                    authRepository.clearBootstrapMissionId()
+                                    println("RootComponent: bootstrap_status=completed，尝试快速路径")
                                     sdkSessionManager.ensureConnectedIfTokenValid()
-                                    // 尝试通过 binding-status 获取 deviceId 以匹配 cdi
                                     val statusResp = authRepository.getDeviceBindingStatus(missionId)
                                     if (statusResp.code == 20000 && statusResp.data != null && statusResp.data.bindingStatus == "bound") {
+                                        authRepository.clearBootstrapMissionId()
                                         val deviceId = statusResp.data.deviceId
                                         val devices = authRepository.getDevices()
                                         val matchedDevice = devices.firstOrNull { it.id == deviceId }
@@ -274,18 +273,13 @@ class RootComponentImpl(
                                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
                                             return@launch
                                         }
-                                        // deviceId 匹配不到设备，兜底默认跳转
                                         println("RootComponent: completed 快速路径，设备列表无匹配，使用默认跳转")
                                         onLoading(false)
                                         navigation.replaceAll(Config.AgentModel())
                                         return@launch
                                     }
-                                    // 非 20000 或 bindingStatus 不是 bound → 提示服务端返回的 msg
-                                    val errMsg = statusResp.msg.ifBlank { "查询绑定状态失败（code=${statusResp.code}）" }
-                                    println("RootComponent: completed 快速路径失败: code=${statusResp.code}, msg=$errMsg")
-                                    onError(errMsg)
-                                    onLoading(false)
-                                    return@launch
+                                    // 设备未就绪（20070）或 bindingStatus 非 bound → fall through 到轮询
+                                    println("RootComponent: completed 快速路径设备未就绪 code=${statusResp.code}, bindingStatus=${statusResp.data?.bindingStatus}，进入轮询")
                                 }
 
                                 // 2. 轮询任务列表，等待 missionId 出现在 running 列表中
