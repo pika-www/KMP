@@ -56,7 +56,8 @@ internal fun Bubble(
     onCopySuccess: (() -> Unit)? = null,
 ) {
     val ds = LocalDesignScale.current
-    BubbleContainer(alignEnd = alignEnd) { bubbleMaxWidth ->
+    val bubbleWidthFraction = if (alignEnd) 0.82f else 1f
+    BubbleContainer(alignEnd = alignEnd, maxWidthFraction = bubbleWidthFraction) { bubbleMaxWidth ->
         if (alignEnd) {
             Card(
                 shape = RoundedCornerShape(ds.sm(16.dp)),
@@ -370,10 +371,11 @@ private fun markdownInlineAnnotatedString(text: String, textColor: Color): Annot
 @Composable
 internal fun BubbleContainer(
     alignEnd: Boolean,
+    maxWidthFraction: Float = 0.82f,
     content: @Composable (Dp) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val bubbleMaxWidth = maxWidth * 0.82f
+        val bubbleMaxWidth = maxWidth * maxWidthFraction
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (alignEnd) Arrangement.End else Arrangement.Start
