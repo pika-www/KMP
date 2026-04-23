@@ -229,17 +229,64 @@ class RootComponentImpl(
                         scope.launch {
                             onLoading(true)
                             try {
-                                // 1. 调用 connect 接口获取 bootstrap_mission_id
-                                println("RootComponent: 点击端脑云用户，开始调用 connectLucyApp()")
-                                val connectResult = authRepository.connectLucyApp()
-                                println("RootComponent: connectLucyApp 返回: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
-                                if (connectResult.isFailure) {
-                                    onError(connectResult.exceptionOrNull()?.message ?: "接入失败")
+                                // 1. 优先读取本地缓存的 missionId（App 被杀后恢复场景）
+                                val storedMissionId = authRepository.getStoredBootstrapMissionId()
+                                val missionId: String
+                                var bootstrapCompleted = false
+                                if (storedMissionId != null) {
+                                    println("RootComponent: 检测到缓存的 bootstrapMissionId=$storedMissionId，跳过 connect 直接恢复轮询")
+                                    missionId = storedMissionId
+                                } else {
+                                    // 调用 connect 接口获取 bootstrap_mission_id（内部已持久化）
+                                    println("RootComponent: 点击端脑云用户，开始调用 connectLucyApp()")
+                                    val connectResult = authRepository.connectLucyApp()
+                                    println("RootComponent: connectLucyApp 返回: isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
+                                    if (connectResult.isFailure) {
+                                        onError(connectResult.exceptionOrNull()?.message ?: "接入失败")
+                                        onLoading(false)
+                                        return@launch
+                                    }
+                                    val connectData = connectResult.getOrThrow()
+                                    missionId = connectData.bootstrapMissionId
+                                    bootstrapCompleted = connectData.bootstrapStatus == "completed"
+                                    println("RootComponent: 获得 bootstrapMissionId=$missionId, status=${connectData.bootstrapStatus}, code=${connectData.responseCode}")
+                                    // 非首次连接（如 40088 "已经链接"）→ toast 提示服务端 msg
+                                    if (connectData.responseCode != 20000 && connectData.responseMsg.isNotBlank()) {
+                                        onError(connectData.responseMsg)
+                                    }
+                                }
+
+                                // 快速路径：bootstrap_status 已 completed → 跳过所有轮询，直连 SDK 进入对话页
+                                if (bootstrapCompleted) {
+                                    println("RootComponent: bootstrap_status=completed，跳过轮询直接连接 SDK")
+                                    authRepository.clearBootstrapMissionId()
+                                    sdkSessionManager.ensureConnectedIfTokenValid()
+                                    // 尝试通过 binding-status 获取 deviceId 以匹配 cdi
+                                    val statusResp = authRepository.getDeviceBindingStatus(missionId)
+                                    if (statusResp.code == 20000 && statusResp.data != null && statusResp.data.bindingStatus == "bound") {
+                                        val deviceId = statusResp.data.deviceId
+                                        val devices = authRepository.getDevices()
+                                        val matchedDevice = devices.firstOrNull { it.id == deviceId }
+                                        if (matchedDevice != null) {
+                                            val cdi = matchedDevice.channelDeviceId
+                                            println("RootComponent: completed 快速路径，找到设备 cdi=$cdi")
+                                            onLoading(false)
+                                            navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
+                                            return@launch
+                                        }
+                                        // deviceId 匹配不到设备，兜底默认跳转
+                                        println("RootComponent: completed 快速路径，设备列表无匹配，使用默认跳转")
+                                        onLoading(false)
+                                        navigation.replaceAll(Config.AgentModel())
+                                        return@launch
+                                    }
+                                    // 非 20000 或 bindingStatus 不是 bound → 提示服务端返回的 msg
+                                    val errMsg = statusResp.msg.ifBlank { "查询绑定状态失败（code=${statusResp.code}）" }
+                                    println("RootComponent: completed 快速路径失败: code=${statusResp.code}, msg=$errMsg")
+                                    onError(errMsg)
                                     onLoading(false)
                                     return@launch
                                 }
-                                val missionId = connectResult.getOrThrow()
-                                println("RootComponent: 获得 bootstrapMissionId=$missionId")
 
                                 // 2. 轮询任务列表，等待 missionId 出现在 running 列表中
                                 val maxMissionPolling = 60 // 最多 5 分钟
@@ -256,6 +303,7 @@ class RootComponentImpl(
                                         }
                                     }
                                     if (missionAttempt >= maxMissionPolling) {
+                                        authRepository.clearBootstrapMissionId()
                                         onError("任务启动超时，请稍后重试")
                                         onLoading(false)
                                         return@launch
@@ -280,7 +328,8 @@ class RootComponentImpl(
 
                                             when (bindingStatus) {
                                                 "bound" -> {
-                                                    // 3. 绑定成功 → SDK 连接
+                                                    // 绑定成功 → 清除缓存 → SDK 连接
+                                                    authRepository.clearBootstrapMissionId()
                                                     println("RootComponent: 绑定成功，开始 SDK ensureConnectedIfTokenValid()")
                                                     sdkSessionManager.ensureConnectedIfTokenValid()
 
@@ -301,6 +350,7 @@ class RootComponentImpl(
                                                 }
                                                 "init", "rebinding" -> {
                                                     if (attempt >= maxPollingAttempts) {
+                                                        authRepository.clearBootstrapMissionId()
                                                         onError("设备绑定超时，请稍后重试")
                                                         onLoading(false)
                                                         return@launch
@@ -310,6 +360,7 @@ class RootComponentImpl(
                                                     // continue polling
                                                 }
                                                 else -> {
+                                                    authRepository.clearBootstrapMissionId()
                                                     onError("设备尚未绑定（状态: $bindingStatus），请稍后重试")
                                                     onLoading(false)
                                                     return@launch
@@ -319,6 +370,7 @@ class RootComponentImpl(
                                         20070 -> {
                                             // 设备尚未就绪，继续轮询
                                             if (attempt >= maxPollingAttempts) {
+                                                authRepository.clearBootstrapMissionId()
                                                 onError("设备绑定超时，请稍后重试")
                                                 onLoading(false)
                                                 return@launch
@@ -327,16 +379,19 @@ class RootComponentImpl(
                                             delay(5000L)
                                         }
                                         30001 -> {
+                                            authRepository.clearBootstrapMissionId()
                                             onError("当前任务未绑定云设备")
                                             onLoading(false)
                                             return@launch
                                         }
                                         40003 -> {
+                                            authRepository.clearBootstrapMissionId()
                                             onError("当前任务绑定设备关系不明确，请重新绑定")
                                             onLoading(false)
                                             return@launch
                                         }
                                         else -> {
+                                            authRepository.clearBootstrapMissionId()
                                             onError(statusResp.msg.ifBlank { "查询绑定状态失败" })
                                             onLoading(false)
                                             return@launch
@@ -345,6 +400,7 @@ class RootComponentImpl(
                                 }
                             } catch (e: Exception) {
                                 println("RootComponent: 端脑云接入异常: ${e.message}")
+                                // 网络异常不清除 missionId，下次打开可继续恢复轮询
                                 onError(e.message ?: "网络连接失败")
                                 onLoading(false)
                             }

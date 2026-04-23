@@ -122,6 +122,12 @@ fun BrainBoxLoginSheet(
     // 列表用手机看到的足够准确；拿到 SSID 后仍走原逻辑向设备写 wifi_config。
     val phoneScannedWifi by controller.wifiNetworks.collectAsState()
     val phoneWifiLoading by controller.isWifiLoading.collectAsState()
+    // 手机本机当前连接的 Wi‑Fi SSID（来自手机扫描结果中 isCurrent=true 的那一条）
+    val phoneCurrentSsid = phoneScannedWifi
+        .firstOrNull { it.isCurrent }
+        ?.ssid
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
     val scannedWifiNetworks = phoneScannedWifi.map { raw ->
         // phoneScannedWifi 里的 isCurrent 是手机的当前连接标记；脑花盒子当前连接的 SSID
         // 要以 network_status 为准（设备视角），所以用 currentSsid 重新算 isCurrent。
@@ -746,7 +752,7 @@ fun BrainBoxLoginSheet(
                     BrainBoxStep.Wifi -> {
                         BrainBoxWifiStep(
                             selectedDevice = selectedBleDevice,
-                            phoneSsid = selectedWifiSsid.takeIf { it.isNotBlank() } ?: currentSsid,
+                            phoneSsid = selectedWifiSsid.takeIf { it.isNotBlank() } ?: phoneCurrentSsid ?: currentSsid,
                             deviceIp = provisionState.networkStatus?.ip?.takeIf { it.isNotBlank() },
                             wifiPassword = wifiPassword,
                             onWifiPasswordChange = { wifiPassword = it },

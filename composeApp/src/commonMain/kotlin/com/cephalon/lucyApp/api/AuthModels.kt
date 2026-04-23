@@ -133,6 +133,13 @@ data class RechargeRuleItem(
 data class ConnectLucyAppData(
     @SerialName("bootstrap_mission_id")
     val bootstrapMissionId: String = "",
+    @SerialName("bootstrap_status")
+    val bootstrapStatus: String = "",
+    // 非序列化字段：由 AuthRepository 在解析后手动填入，供调用方做 toast 提示
+    @kotlinx.serialization.Transient
+    val responseMsg: String = "",
+    @kotlinx.serialization.Transient
+    val responseCode: Int = 0,
 )
 
 /**

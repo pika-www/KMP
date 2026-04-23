@@ -235,18 +235,21 @@ class AuthRepository(
 
     /**
      * 端脑云用户接入：GET /channels/lucy-app/connect
-     * 成功后写入本地连接标记，返回 bootstrap_mission_id
+     * 成功后写入本地连接标记，返回 ConnectLucyAppData（含 bootstrap_mission_id 和 bootstrap_status）。
+     * code=20000（首次连接）和 code=40088（已连接）都视为成功。
      */
-    suspend fun connectLucyApp(): Result<String> {
+    suspend fun connectLucyApp(): Result<ConnectLucyAppData> {
         appLogD("AuthRepository", "connectLucyApp: 开始请求 $connectPath")
         return try {
             val resp = authApi.get<ConnectLucyAppData>(connectPath)
             appLogD("AuthRepository", "connectLucyApp: code=${resp.code}, msg=${resp.msg}, data=${resp.data}")
-            if (resp.code == 20000 && resp.data != null) {
+            if ((resp.code == 20000 || resp.code == 40088) && resp.data != null) {
                 userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.putBoolean(it, true) }
                 val missionId = resp.data.bootstrapMissionId
-                appLogD("AuthRepository", "connectLucyApp: 接入成功, bootstrapMissionId=$missionId")
-                Result.success(missionId)
+                // 按用户存储 missionId，防止轮询中途 App 被关闭后丢失
+                userKeyOf(KEY_BOOTSTRAP_MISSION_ID)?.let { settings.putString(it, missionId) }
+                appLogD("AuthRepository", "connectLucyApp: 接入成功, bootstrapMissionId=$missionId, status=${resp.data.bootstrapStatus}（已持久化）")
+                Result.success(resp.data.copy(responseMsg = resp.msg, responseCode = resp.code))
             } else {
                 appLogD("AuthRepository", "connectLucyApp: 接入失败 code=${resp.code} msg=${resp.msg}")
                 Result.failure(Exception(resp.msg))
@@ -406,6 +409,22 @@ class AuthRepository(
         return response
     }
 
+    /**
+     * 读取当前用户缓存的 bootstrap_mission_id（轮询中途 App 被杀后恢复用）。
+     * 返回 null 表示没有未完成的轮询。
+     */
+    fun getStoredBootstrapMissionId(): String? {
+        val key = userKeyOf(KEY_BOOTSTRAP_MISSION_ID) ?: return null
+        return settings.getStringOrNull(key)?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * 清除缓存的 bootstrap_mission_id（绑定成功、终态失败时调用）。
+     */
+    fun clearBootstrapMissionId() {
+        userKeyOf(KEY_BOOTSTRAP_MISSION_ID)?.let { settings.remove(it) }
+    }
+
     fun logout() {
         _userInfo.value = null
         _modelConfig.value = null
@@ -413,6 +432,7 @@ class AuthRepository(
         userKeyOf(KEY_MODEL_CONFIG)?.let { settings.remove(it) }
         userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.remove(it) }
         userKeyOf(KEY_DAILY_REWARD_DATE)?.let { settings.remove(it) }
+        userKeyOf(KEY_BOOTSTRAP_MISSION_ID)?.let { settings.remove(it) }
         tokenStore.clear()
     }
 
@@ -431,5 +451,6 @@ class AuthRepository(
         const val KEY_CONNECTION_FLAG = "lucy_app.has_connected"
         const val KEY_DAILY_REWARD_DATE = "lucy_app.daily_reward_date"
         const val KEY_MODEL_CONFIG = "lucy_app.model_config"
+        const val KEY_BOOTSTRAP_MISSION_ID = "lucy_app.bootstrap_mission_id"
     }
 }
