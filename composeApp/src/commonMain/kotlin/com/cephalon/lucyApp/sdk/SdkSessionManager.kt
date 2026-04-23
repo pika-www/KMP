@@ -272,31 +272,6 @@ class SdkSessionManager(
         )
     }
 
-    private fun rememberAssistantFinalEvent(msgId: String, event: NpcMachineEvent): Boolean {
-        val eventKey = buildCompletedEventKey(msgId, event)
-        val seenKeys = assistantFinalEventKeys.getOrPut(msgId) { linkedSetOf() }
-        if (!seenKeys.add(eventKey)) return false
-        while (seenKeys.size > ASSISTANT_FINAL_KEYS_PER_MESSAGE_MAX_SIZE) {
-            seenKeys.remove(seenKeys.first())
-        }
-        return true
-    }
-
-    private fun restartAssistantFinalCompletionTimer(msgId: String, isLatest: Boolean) {
-        assistantFinalCompletionJobs.remove(msgId)?.cancel()
-        assistantFinalCompletionJobs[msgId] = scope.launch {
-            delay(ASSISTANT_FINAL_SETTLE_DELAY_MS)
-            assistantFinalCompletionJobs.remove(msgId)
-            updateReplyState(msgId) { state ->
-                state.copy(
-                    streaming = false,
-                    streamingStatusText = null,
-                )
-            }
-            completeRequest(msgId, msgId == _latestRequestId, "对话结束(assistant.final settle)")
-        }
-    }
-
     fun selectDevice(cdi: String?) {
         val normalized = cdi?.trim()?.takeIf { it.isNotEmpty() }
         _selectedDeviceCdi.value = normalized
@@ -407,9 +382,6 @@ class SdkSessionManager(
 
     private val _npcReplyEvents = MutableSharedFlow<NpcReplyEvent>(extraBufferCapacity = 64)
     val npcReplyEvents: SharedFlow<NpcReplyEvent> = _npcReplyEvents.asSharedFlow()
-
-    private val assistantFinalEventKeys = mutableMapOf<String, LinkedHashSet<String>>()
-    private val assistantFinalCompletionJobs = mutableMapOf<String, Job>()
 
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
@@ -675,8 +647,6 @@ class SdkSessionManager(
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
-                assistantFinalCompletionJobs.remove(outgoingMessageId)?.cancel()
-                assistantFinalEventKeys.remove(outgoingMessageId)
             _activeRequestIds.update { it + outgoingMessageId }
             _replyStateMap.update { it + (outgoingMessageId to ReplyState()) }
             _latestRequestId = outgoingMessageId
@@ -1432,9 +1402,6 @@ class SdkSessionManager(
         _lastReplyMessageId.value = null
         _activeRequestIds.value = emptySet()
         _replyStateMap.value = emptyMap()
-        assistantFinalCompletionJobs.values.forEach { it.cancel() }
-        assistantFinalCompletionJobs.clear()
-        assistantFinalEventKeys.clear()
         pendingNasRegisterRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
@@ -1843,7 +1810,6 @@ class SdkSessionManager(
             }
 
             "assistant.final" -> {
-                val isNewFinalEvent = rememberAssistantFinalEvent(msgId, event)
                 emitNpcReplyEvent(
                     messageId = msgId,
                     type = event.type,
@@ -1867,11 +1833,36 @@ class SdkSessionManager(
                     _assistantReplyStreaming.value = true
                     _streamingStatusText.value = null
                 }
-                if (isNewFinalEvent) {
-                    restartAssistantFinalCompletionTimer(msgId, isLatest)
-                } else {
-                    appLogD(TAG, "[Event] assistant.final 重复推送已忽略，不重置 settle 计时 msgId=$msgId timestamp=${event.timestamp}")
+            }
+
+            "assistant.complete" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        streaming = false,
+                        streamingStatusText = null,
+                        attachments = if (event.attachments.isNotEmpty()) {
+                            (state.attachments + event.attachments).distinctBy { it.blobRef }
+                        } else {
+                            state.attachments
+                        },
+                        timestamp = event.timestamp ?: state.timestamp,
+                    )
                 }
+                if (isLatest) {
+                    if (!event.text.isNullOrBlank()) _assistantReplyText.value = event.text
+                    _assistantReplyStreaming.value = false
+                    _streamingStatusText.value = null
+                }
+                completeRequest(msgId, isLatest, "对话结束(assistant.complete)")
             }
 
             "error" -> {
@@ -1911,7 +1902,6 @@ class SdkSessionManager(
     }
 
     private fun completeRequest(msgId: String, isLatest: Boolean, logLabel: String) {
-        assistantFinalCompletionJobs.remove(msgId)?.cancel()
         _activeRequestIds.update { it - msgId }
         if (isLatest) {
             _streamingStatusText.value = null
@@ -2294,8 +2284,6 @@ class SdkSessionManager(
     companion object {
         private const val TAG = "SdkSessionManager"
         private const val BACKGROUND_DISCONNECT_DELAY_MS = 5_000L
-        private const val ASSISTANT_FINAL_KEYS_PER_MESSAGE_MAX_SIZE = 100
-        private const val ASSISTANT_FINAL_SETTLE_DELAY_MS = 3_000L
         private const val RECONNECT_DELAY_MS = 3_000L
         private const val TOKEN_RECONNECT_DELAY_MS = 2_000L
         private const val TOKEN_REFRESH_BUFFER_MS = 60_000L

@@ -510,20 +510,11 @@ fun AgentModelScreen(
 
             if (targetIdx >= 0) {
                 val current = msgs[targetIdx] as ChatItem.Assistant
-                val completedStreamEvents = current.streamEvents.markAllInactive().let { events ->
-                    if (events.any { it.type == "reasoning" }) {
-                        events.addOrUpdate(StreamEvent("reasoning", "done"))
-                    } else {
-                        events
-                    }
-                }.addOrUpdate(StreamEvent("finish", "Finish"))
                 msgs[targetIdx] = current.copy(
                     text = event.text?.let { mergeIndependentFinalText(current.text, it) } ?: current.text,
                     messageId = sourceMessageId,
                     attachments = (current.attachments + event.attachments).distinctBy { it.blobRef },
                     timestamp = event.timestamp ?: current.timestamp,
-                    isStreaming = false,
-                    streamEvents = completedStreamEvents,
                 )
                 messageIdToReplyHostAssistantId[sourceMessageId] = current.assistantId
             } else {
@@ -532,8 +523,7 @@ fun AgentModelScreen(
                     messageId = sourceMessageId,
                     attachments = event.attachments,
                     timestamp = event.timestamp,
-                    isStreaming = false,
-                    streamEvents = listOf(StreamEvent("finish", "Finish")),
+                    isStreaming = true,
                 )
                 msgs.add(newMessage)
                 messageIdToReplyHostAssistantId[sourceMessageId] = newMessage.assistantId
@@ -628,26 +618,39 @@ fun AgentModelScreen(
     val currentConversation = conversations.firstOrNull { it.id == selectedConversationId }
         ?: orderedConversations.firstOrNull()
     val currentMessages = currentConversation?.messages.orEmpty()
+    var hasInitializedBottomForConversation by remember(selectedConversationId) { mutableStateOf(false) }
 
 
     val messageListState = rememberLazyListState()
     var shouldAutoFollowBottom by remember { mutableStateOf(true) }
     var lastMessageListInteractionAt by remember { mutableStateOf(0L) }
+    val autoFollowBottomThresholdPx = with(LocalDensity.current) { 120.dp.roundToPx() }
 
-    // 用户是否已经在（接近）底部：允许约 32px 容差，避免浮点/间距导致误判。
-    // 在底部 → streaming 循环会继续跟随；不在底部 → 用户自由滚动，我们不再强拉回底部。
-    val isNearBottom by remember(messageListState) {
+    // 计算距离底部的像素距离：
+    // - 小于阈值：认为仍在底部附近，允许流式输出继续自动跟随。
+    // - 大于阈值：认为用户正在浏览历史，停止自动拉到底部。
+    val bottomDistancePx by remember(messageListState) {
         derivedStateOf {
             val info = messageListState.layoutInfo
             val visible = info.visibleItemsInfo
             if (visible.isEmpty()) {
-                true
+                0
             } else {
                 val lastVisible = visible.last()
-                val lastIndex = info.totalItemsCount - 1
-                lastVisible.index >= lastIndex &&
-                    lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 32
+                val itemsBelowLastVisible = (info.totalItemsCount - 1 - lastVisible.index).coerceAtLeast(0)
+                val viewportGap = (lastVisible.offset + lastVisible.size - info.viewportEndOffset).coerceAtLeast(0)
+                if (itemsBelowLastVisible > 0) {
+                    autoFollowBottomThresholdPx + 1
+                } else {
+                    viewportGap
+                }
             }
+        }
+    }
+
+    val isNearBottom by remember(messageListState) {
+        derivedStateOf {
+            bottomDistancePx <= autoFollowBottomThresholdPx
         }
     }
 
@@ -655,6 +658,18 @@ fun AgentModelScreen(
         if (isNearBottom) {
             shouldAutoFollowBottom = true
         }
+    }
+
+    LaunchedEffect(messageListState, isNearBottom) {
+        snapshotFlow { messageListState.isScrollInProgress }
+            .collect { scrolling ->
+                if (scrolling) {
+                    lastMessageListInteractionAt = currentTimeMillis()
+                    if (!isNearBottom) {
+                        shouldAutoFollowBottom = false
+                    }
+                }
+            }
     }
 
     var inputText by remember { mutableStateOf(TextFieldValue("")) }
@@ -710,6 +725,18 @@ fun AgentModelScreen(
         }
     }
 
+    LaunchedEffect(selectedConversationId, currentMessages.size) {
+        if (hasInitializedBottomForConversation) return@LaunchedEffect
+        if (currentMessages.isEmpty()) {
+            hasInitializedBottomForConversation = true
+            return@LaunchedEffect
+        }
+        val lastIndex = currentMessages.size + 1
+        messageListState.scrollToItem(lastIndex)
+        shouldAutoFollowBottom = true
+        hasInitializedBottomForConversation = true
+    }
+
     // 发送 / 新增消息时动画滚动到底部
     LaunchedEffect(currentMessages.size, shouldAutoFollowBottom) {
         if (shouldAutoFollowBottom && currentMessages.isNotEmpty()) {
@@ -729,6 +756,20 @@ fun AgentModelScreen(
             if (!shouldAutoFollowBottom) continue
             if (messageListState.isScrollInProgress) continue
             if (currentTimeMillis() - lastMessageListInteractionAt < 350L) continue
+            val total = messageListState.layoutInfo.totalItemsCount
+            if (total > 0) {
+                messageListState.scrollToItem(total - 1)
+            }
+        }
+    }
+
+    fun scrollToLatestMessage() {
+        coroutineScope.launch {
+            withTimeoutOrNull(500L) {
+                snapshotFlow { messageListState.layoutInfo.totalItemsCount }
+                    .filter { it > 0 }
+                    .first()
+            }
             val total = messageListState.layoutInfo.totalItemsCount
             if (total > 0) {
                 messageListState.scrollToItem(total - 1)
@@ -1095,14 +1136,14 @@ fun AgentModelScreen(
             if (isStopReply && pendingStopMessageIds.remove(msgId)) {
                 println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
             }
-            if (isStopReply && event.type != "assistant.partial" && event.type != "assistant.final") {
+            if (isStopReply && event.type != "assistant.partial" && event.type != "assistant.final" && event.type != "assistant.complete") {
                 if (pendingStopMessageIds.remove(msgId)) {
                     println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
                 }
                 println("[Stop] 跳过 /stop 非文本回复渲染 type=${event.type} msgId=$msgId")
                 return@collect
             }
-            if (event.type != "assistant.final" && eventId.isNotEmpty()) {
+            if (event.type != "assistant.final" && event.type != "assistant.complete" && eventId.isNotEmpty()) {
                 if (processedEventIds.contains(eventId)) {
                     println("[Event] 跳过重复事件 eventId=$eventId type=${event.type} msgId=$msgId")
                     return@collect
@@ -1211,8 +1252,32 @@ fun AgentModelScreen(
                         pendingStopMessageIds.clear()
                     }
                     upsertAssistantFinalMessage(convId, msgId, event)
+                    println("[Event] assistant.final 更新最终文本 msgId=$msgId, convId=$convId, eventId=${event.eventId}")
+                }
+                "assistant.complete" -> {
+                    if (pendingStopMessageIds.isNotEmpty()) {
+                        println("[Stop] 收到 assistant.complete msgId=$msgId，恢复发送按钮")
+                        pendingStopMessageIds.clear()
+                    }
+                    updateAssistantMessage(convId, msgId) { a ->
+                        val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
+                            if (events.any { it.type == "reasoning" }) {
+                                events.addOrUpdate(StreamEvent("reasoning", "done"))
+                            } else {
+                                events
+                            }
+                        }.addOrUpdate(StreamEvent("finish", "Finish"))
+                        a.copy(
+                            text = event.text?.let { mergeIndependentFinalText(a.text, it) } ?: a.text,
+                            messageId = msgId,
+                            attachments = (a.attachments + event.attachments).distinctBy { it.blobRef },
+                            timestamp = event.timestamp ?: a.timestamp,
+                            isStreaming = false,
+                            streamEvents = completedStreamEvents,
+                        )
+                    }
                     activeStreamingRequests.remove(msgId)
-                    println("[Event] assistant.final 独立落消息 msgId=$msgId, convId=$convId, eventId=${event.eventId}")
+                    println("[Event] assistant.complete 结束流式 msgId=$msgId, convId=$convId, eventId=${event.eventId}")
                 }
                 "error" -> {
                     updateAssistantMessage(convId, msgId) { a ->
@@ -1345,6 +1410,7 @@ fun AgentModelScreen(
             if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
                 appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
+                scrollToLatestMessage()
                 inputText = TextFieldValue("")
                 attachmentsExpanded = false
                 return@Unit
@@ -1377,6 +1443,10 @@ fun AgentModelScreen(
                 targetConversationId,
                 ChatItem.Assistant(text = "")
             )
+            scrollToLatestMessage()
+
+            inputText = TextFieldValue("")
+            attachmentsExpanded = false
             coroutineScope.launch {
                 println("[Chat] ensureConnectedIfTokenValid 开始...")
                 val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
@@ -1860,9 +1930,6 @@ fun AgentModelScreen(
                                             val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
                                             if (up != null) {
                                                 lastMessageListInteractionAt = currentTimeMillis()
-                                                if (!isNearBottom) {
-                                                    shouldAutoFollowBottom = false
-                                                }
                                                 val isShortTap = up.uptimeMillis - down.uptimeMillis < 200L
                                                 if (isShortTap && !messageListState.isScrollInProgress) {
                                                     focusManager.clearFocus()

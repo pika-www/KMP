@@ -163,7 +163,7 @@ internal fun AgentModelMessageList(
                 is ChatItem.Assistant -> {
                     val isThinkingActive = item.messageId != null && item.messageId in activeThinkingMessageIds
                     val shouldHideStatusBubble = item.messageId != null && item.messageId in hiddenStatusMessageIds
-                    Column(modifier = Modifier.fillMaxWidth(0.8f)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         // ── 可折叠思考状态气泡 ──
                         if (!shouldHideStatusBubble && (isThinkingActive || item.streamEvents.isNotEmpty())) {
                             ThinkingBubble(
