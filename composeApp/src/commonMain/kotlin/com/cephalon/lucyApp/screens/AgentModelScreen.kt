@@ -777,6 +777,10 @@ fun AgentModelScreen(
         }
     }
 
+    fun finishComposerEditing() {
+        focusManager.clearFocus(force = true)
+    }
+
     fun AudioRecording.toNasAudioItem(): NasAudioItem {
         val format = name.substringAfterLast('.', "").lowercase().ifBlank { "m4a" }
         val resolvedBlobRef = blobRef?.takeIf { it.isNotBlank() }
@@ -1402,6 +1406,7 @@ fun AgentModelScreen(
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
                 appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
                 scrollToLatestMessage()
+                finishComposerEditing()
                 inputText = TextFieldValue("")
                 attachmentsExpanded = false
                 return@Unit
@@ -1436,6 +1441,7 @@ fun AgentModelScreen(
             )
             scrollToLatestMessage()
 
+            finishComposerEditing()
             inputText = TextFieldValue("")
             attachmentsExpanded = false
             coroutineScope.launch {
