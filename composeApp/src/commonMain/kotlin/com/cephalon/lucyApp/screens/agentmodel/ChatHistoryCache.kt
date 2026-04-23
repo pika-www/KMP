@@ -188,7 +188,6 @@ internal class ChatHistoryCache(private val settings: Settings) {
         )
         val jsonStr = cacheJson.encodeToString(history)
         settings.putString(keyOf(userId, cdi), jsonStr)
-        appLogD(TAG, "已保存 userId=$userId cdi=$cdi 的聊天记录: ${conversations.size}个对话")
     }
 
     fun load(

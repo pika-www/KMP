@@ -1129,23 +1129,18 @@ fun AgentModelScreen(
             val msgId = event.messageId
             val eventId = event.eventId?.trim().orEmpty()
             if (msgId.isNotBlank() && msgId in discardedReplyMessageIds) {
-                println("[Stop] 丢弃已暂停回复的事件 type=${event.type} msgId=$msgId")
                 return@collect
             }
             val isStopReply = msgId.isNotBlank() && msgId in hiddenStopReplyMessageIds
             if (isStopReply && pendingStopMessageIds.remove(msgId)) {
-                println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
             }
             if (isStopReply && event.type != "assistant.partial" && event.type != "assistant.final" && event.type != "assistant.complete") {
                 if (pendingStopMessageIds.remove(msgId)) {
-                    println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
                 }
-                println("[Stop] 跳过 /stop 非文本回复渲染 type=${event.type} msgId=$msgId")
                 return@collect
             }
             if (event.type != "assistant.final" && event.type != "assistant.complete" && eventId.isNotEmpty()) {
                 if (processedEventIds.contains(eventId)) {
-                    println("[Event] 跳过重复事件 eventId=$eventId type=${event.type} msgId=$msgId")
                     return@collect
                 }
                 processedEventIds.add(eventId)
@@ -1231,7 +1226,7 @@ fun AgentModelScreen(
                         a.copy(
                             messageId = msgId, isStreaming = true,
                             reasoningText = event.text ?: a.reasoningText,
-                            streamEvents = a.streamEvents.addOrUpdate(StreamEvent("reasoning", "Thinks")),
+                            // streamEvents = a.streamEvents.addOrUpdate(StreamEvent("reasoning", "Thinks")),
                         )
                     }
                 }
@@ -1247,23 +1242,19 @@ fun AgentModelScreen(
                     }
                 }
                 "assistant.final" -> {
-                    if (pendingStopMessageIds.isNotEmpty()) {
-                        println("[Stop] 收到首个 assistant.final msgId=$msgId，恢复发送按钮")
-                        pendingStopMessageIds.clear()
-                    }
                     upsertAssistantFinalMessage(convId, msgId, event)
-                    println("[Event] assistant.final 更新最终文本 msgId=$msgId, convId=$convId, eventId=${event.eventId}")
                 }
                 "assistant.complete" -> {
                     if (pendingStopMessageIds.isNotEmpty()) {
-                        println("[Stop] 收到 assistant.complete msgId=$msgId，恢复发送按钮")
                         pendingStopMessageIds.clear()
                     }
                     updateAssistantMessage(convId, msgId) { a ->
                         val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
                             if (events.any { it.type == "reasoning" }) {
-                                events.addOrUpdate(StreamEvent("reasoning", "done"))
-                            } else {
+                                events
+                                // .addOrUpdate(StreamEvent("reasoning", "reasoning"))
+                            } 
+                            else {
                                 events
                             }
                         }.addOrUpdate(StreamEvent("finish", "Finish"))
