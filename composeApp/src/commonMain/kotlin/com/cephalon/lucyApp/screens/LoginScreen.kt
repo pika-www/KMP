@@ -105,15 +105,15 @@ fun LoginScreen(
                             pwd = password,
                             confirmPwd = confirmPassword,
                             trackId = "kmp",
-                            appType = "platform",
+                            appType = "lucy",
                             way = "phone_code"
                         )
                     } else {
                         LoginRequest(
                             phone = phone,
                             code = verifyCode,
+                            appType = "lucy",
                             trackId = "kmp",
-                            appType = "platform",
                             way = "phone_code"
                         )
                     }
@@ -144,7 +144,7 @@ fun LoginScreen(
                         confirmPwd = confirmPassword,
                         code = verifyCode,
                         trackId = "kmp",
-                        appType = "platform",
+                        appType = "lucy",
                         way = "phone_pwd"
                     )
                     val response = authRepository.login(request)
@@ -180,7 +180,7 @@ fun LoginScreen(
                             confirmPwd = confirmPassword,
                             code = verifyCode,
                             trackId = "kmp",
-                            appType = "platform",
+                            appType = "lucy",
                             way = "phone_pwd"
                         )
                     } else {
@@ -188,7 +188,7 @@ fun LoginScreen(
                             phone = phone,
                             pwd = password,
                             trackId = "kmp",
-                            appType = "platform",
+                            appType = "lucy",
                             way = "phone_pwd"
                         )
                     }

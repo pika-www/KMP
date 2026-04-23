@@ -79,7 +79,7 @@ private data class AccessCard(
 private val accessCards = listOf(
     AccessCard(
         title = "脑花盒子用户",
-        subtitle = "我拥有 AI NPC/龙虾pai",
+        subtitle = "我拥有 AI NPC/龙虾派",
         buttonText = "点击登录",
     ),
     AccessCard(
