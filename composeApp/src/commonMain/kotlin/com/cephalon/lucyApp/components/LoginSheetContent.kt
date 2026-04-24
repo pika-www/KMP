@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -11,8 +12,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.`return`
+import org.jetbrains.compose.resources.painterResource
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,8 +56,9 @@ fun SheetBackButton(
     Box(
         modifier = Modifier
             .size(ds.sm(32.dp))
+            .background(Color.White.copy(alpha = 0.10f), CircleShape)
+            .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape)
             .clip(CircleShape)
-            .background(Color(0x3D76768080.toInt()))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -64,10 +67,10 @@ fun SheetBackButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            painter = painterResource(Res.drawable.`return`),
             contentDescription = "Back",
-            tint = Color(0xFF2D2D2D),
-            modifier = Modifier.size(ds.sm(18.dp))
+            tint = Color.Unspecified,
+            modifier = Modifier.size(ds.sm(16.dp))
         )
     }
 }
@@ -120,37 +123,12 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(52.dp)))
 
-            if (isRegisterPage && isAccountRegistered) {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = TitleColor)) {
-                            append("该账号已注册请")
-                        }
-                        withStyle(
-                            SpanStyle(
-                                color = LinkColor,
-                                textDecoration = TextDecoration.Underline,
-                            )
-                        ) {
-                            append("前往登录")
-                        }
-                    },
-                    fontSize = ds.sp(28f),
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onGotoLoginFromRegister
-                    ),
-                )
-            } else {
-                Text(
-                    text = sheetTitle,
-                    color = TitleColor,
-                    fontSize = ds.sp(28f),
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            Text(
+                text = sheetTitle,
+                color = TitleColor,
+                fontSize = ds.sp(28f),
+                fontWeight = FontWeight.SemiBold,
+            )
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 

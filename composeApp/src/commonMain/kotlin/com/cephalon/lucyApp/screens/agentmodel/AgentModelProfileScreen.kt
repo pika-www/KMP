@@ -96,6 +96,8 @@ import androidios.composeapp.generated.resources.cep_bg
 import androidios.composeapp.generated.resources.tc_bg
 import androidios.composeapp.generated.resources.other_bg
 import androidios.composeapp.generated.resources.ic_device_storage
+import androidios.composeapp.generated.resources.ic_modal_close
+import androidios.composeapp.generated.resources.`return`
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.channelDeviceId
@@ -279,21 +281,21 @@ internal fun AgentModelProfileScreen(
                                 modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
                             )
 
-                            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+//                            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
                             // ── 账号 ──
-                            if (displayAccount.isNotEmpty()) {
-                                Text(
-                                    text = displayAccount,
-                                    fontSize = ds.sp(14f),
-                                    fontWeight = FontWeight.Normal,
-                                    color = Color(0xFF595E6B),
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
-                                )
-                            }
+//                            if (displayAccount.isNotEmpty()) {
+//                                Text(
+//                                    text = displayAccount,
+//                                    fontSize = ds.sp(14f),
+//                                    fontWeight = FontWeight.Normal,
+//                                    color = Color(0xFF595E6B),
+//                                    textAlign = TextAlign.Center,
+//                                    maxLines = 1,
+//                                    overflow = TextOverflow.Ellipsis,
+//                                    modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
+//                                )
+//                            }
 
                             Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
@@ -437,12 +439,21 @@ internal fun AgentModelProfileScreen(
                                 onClick = { currentPage = ProfilePage.Settings },
                                 modifier = Modifier.size(ds.sm(40.dp)),
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color(0xFF12192B),
-                                    modifier = Modifier.size(ds.sm(22.dp)),
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(ds.sm(32.dp))
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.10f))
+                                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(Res.drawable.`return`),
+                                        contentDescription = "Back",
+                                        tint = Color.Unspecified,
+                                        modifier = Modifier.size(ds.sm(16.dp)),
+                                    )
+                                }
                             }
                         }
 
@@ -574,12 +585,21 @@ internal fun AgentModelProfileScreen(
                                 onClick = { currentPage = ProfilePage.MyDevices },
                                 modifier = Modifier.size(ds.sm(40.dp)),
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color(0xFF12192B),
-                                    modifier = Modifier.size(ds.sm(22.dp)),
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(ds.sm(32.dp))
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.10f))
+                                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(Res.drawable.`return`),
+                                        contentDescription = "Back",
+                                        tint = Color.Unspecified,
+                                        modifier = Modifier.size(ds.sm(16.dp)),
+                                    )
+                                }
                             }
                         }
 
@@ -912,17 +932,23 @@ private fun ProfileTopBar(
         if (showBack) {
             IconButton(
                 onClick = { onBack?.invoke() },
-                modifier = Modifier
-                    .size(ds.sm(40.dp))
-                    .clip(CircleShape)
-                    .background(Color(0xFFE6E6E6))
+                modifier = Modifier.size(ds.sm(40.dp))
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color(0xFF2D2D2D),
-                    modifier = Modifier.size(ds.sm(24.dp))
-                )
+                Box(
+                    modifier = Modifier
+                        .size(ds.sm(32.dp))
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(Res.drawable.`return`),
+                        contentDescription = "Back",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(ds.sm(16.dp))
+                    )
+                }
             }
         } else {
             Spacer(modifier = Modifier.size(ds.sm(40.dp)))
@@ -949,10 +975,10 @@ private fun ProfileTopBar(
                 modifier = Modifier.size(ds.sm(40.dp))
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    painter = painterResource(Res.drawable.ic_modal_close),
                     contentDescription = "Close",
-                    tint = Color(0xFF2D2D2D),
-                    modifier = Modifier.size(ds.sm(22.dp))
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(ds.sm(32.dp))
                 )
             }
         } else {

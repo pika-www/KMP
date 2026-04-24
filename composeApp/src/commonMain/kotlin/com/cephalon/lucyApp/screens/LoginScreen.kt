@@ -4,10 +4,15 @@ import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.login_bg
 import androidios.composeapp.generated.resources.logo
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
@@ -73,8 +78,9 @@ fun LoginScreen(
     var sheetPage by remember { mutableStateOf(SheetPage.Login) }
     var needsRegister by remember { mutableStateOf(false) }
     var sheetTitle by remember { mutableStateOf("Welcome to Lucy") }
-    // 注册页：账号已注册命中时显示「前往登录」链接
+    // 注册页：账号已注册命中时弹出弹窗
     var accountRegistered by remember { mutableStateOf(false) }
+    var showAccountRegisteredDialog by remember { mutableStateOf(false) }
     // 是否已完成「是否已注册」校验；输入变化时重置为 false，校验成功返回后置为 true。
     // 用于门控「获取验证码」按钮——必须校验通过且条件满足后才亮起。
     var accountCheckPassed by remember { mutableStateOf(false) }
@@ -244,6 +250,7 @@ fun LoginScreen(
             val exists = response.data?.isExist ?: false
             if (sheetPage == SheetPage.Register) {
                 accountRegistered = exists
+                if (exists) showAccountRegisteredDialog = true
             } else {
                 accountRegistered = false
                 if (exists) {
@@ -583,6 +590,40 @@ fun LoginScreen(
             }
         }
 
+        // ── 账号已注册弹窗 ──
+        AnimatedVisibility(
+            visible = showAccountRegisteredDialog,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x66000000))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { showAccountRegisteredDialog = false },
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVisibility(
+                    visible = showAccountRegisteredDialog,
+                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                ) {
+                    AccountRegisteredDialog(
+                        onDismiss = { showAccountRegisteredDialog = false },
+                        onGotoLogin = {
+                            showAccountRegisteredDialog = false
+                            resetSheetState()
+                            preferEmailLogin = false
+                            sheetPage = SheetPage.Login
+                        },
+                    )
+                }
+            }
+        }
+
         ToastHost(state = toastState)
     }
 }
@@ -623,6 +664,93 @@ private fun LoginGlassButton(
                 fontSize = ds.sp(16f),
                 fontWeight = FontWeight.Medium,
             )
+        }
+    }
+}
+
+/* ───────── Account Registered Dialog ───────── */
+
+@Composable
+private fun AccountRegisteredDialog(
+    onDismiss: () -> Unit,
+    onGotoLogin: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    Surface(
+        shape = RoundedCornerShape(ds.sm(20.dp)),
+        color = Color.White,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { /* consume click */ }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
+        ) {
+            Text(
+                text = "该账号已被注册，请前往登录",
+                fontSize = ds.sp(20f),
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
+            ) {
+                // 取消按钮
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onDismiss() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "取消",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
+                }
+
+                // 去登录按钮
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color(0xFF1F2535))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onGotoLogin() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "去登录",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                    )
+                }
+            }
         }
     }
 }

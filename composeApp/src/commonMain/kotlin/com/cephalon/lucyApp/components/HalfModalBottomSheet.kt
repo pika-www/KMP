@@ -1,15 +1,17 @@
 package com.cephalon.lucyApp.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_modal_close
+import androidios.composeapp.generated.resources.`return`
+import org.jetbrains.compose.resources.painterResource
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -208,17 +210,23 @@ fun HalfModalBottomSheet(
                                     if (showBackButton) {
                                         IconButton(
                                             onClick = { onBack?.invoke() ?: latestOnDismissRequest.value() },
-                                            modifier = Modifier
-                                                .size(ds.sm(40.dp))
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFE6E6E6))
+                                            modifier = Modifier.size(ds.sm(40.dp))
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                                contentDescription = "Back",
-                                                tint = Color(0xFF2D2D2D),
-                                                modifier = Modifier.size(ds.sm(24.dp))
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(ds.sm(32.dp))
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.10f))
+                                                    .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(Res.drawable.`return`),
+                                                    contentDescription = "Back",
+                                                    tint = Color.Unspecified,
+                                                    modifier = Modifier.size(ds.sm(16.dp))
+                                                )
+                                            }
                                         }
                                     } else {
                                         Spacer(modifier = Modifier.size(ds.sm(40.dp)))
@@ -229,16 +237,13 @@ fun HalfModalBottomSheet(
                                     if (showCloseButton) {
                                         IconButton(
                                             onClick = { latestOnDismissRequest.value() },
-                                            modifier = Modifier
-                                                .size(ds.sm(40.dp))
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFE6E6E6))
+                                            modifier = Modifier.size(ds.sm(40.dp))
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Close,
+                                                painter = painterResource(Res.drawable.ic_modal_close),
                                                 contentDescription = "Close",
-                                                tint = Color(0xFF2D2D2D),
-                                                modifier = Modifier.size(ds.sm(22.dp))
+                                                tint = Color.Unspecified,
+                                                modifier = Modifier.size(ds.sm(32.dp))
                                             )
                                         }
                                     } else {

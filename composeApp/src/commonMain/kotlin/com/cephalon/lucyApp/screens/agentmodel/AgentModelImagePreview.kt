@@ -21,8 +21,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_modal_close
+import org.jetbrains.compose.resources.painterResource
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -77,9 +78,10 @@ internal fun AgentModelImagePreview(
             ) {
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        painter = painterResource(Res.drawable.ic_modal_close),
                         contentDescription = "Close preview",
-                        tint = Color.White
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(ds.sm(32.dp))
                     )
                 }
 

@@ -7,6 +7,8 @@ import androidios.composeapp.generated.resources.ic_doc
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_image
 import androidios.composeapp.generated.resources.ic_share
+import androidios.composeapp.generated.resources.ic_modal_close
+import androidios.composeapp.generated.resources.`return`
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -40,6 +42,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -230,12 +233,26 @@ internal fun NasUploadProgressDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    NasGlassCircleButton(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "关闭上传进度",
+                    IconButton(
                         onClick = onDismiss,
                         modifier = Modifier.size(ds.sm(36.dp))
-                    )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(ds.sm(32.dp))
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.10f))
+                                .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(Res.drawable.`return`),
+                                contentDescription = "关闭上传进度",
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(ds.sm(16.dp))
+                            )
+                        }
+                    }
                     val hasUpload = tasks.any { it.direction == NasTaskDirection.Upload }
                     val hasDownload = tasks.any { it.direction == NasTaskDirection.Download }
                     val dialogTitle = when {
@@ -251,12 +268,17 @@ internal fun NasUploadProgressDialog(
                         ),
                         color = Color.White
                     )
-                    NasGlassCircleButton(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "收起进度",
+                    IconButton(
                         onClick = onDismiss,
                         modifier = Modifier.size(ds.sm(36.dp))
-                    )
+                    ) {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_modal_close),
+                            contentDescription = "收起进度",
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(ds.sm(32.dp))
+                        )
+                    }
                 }
 
                 if (activeCount > 0) {

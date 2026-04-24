@@ -151,7 +151,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.cephalon.lucyApp"
+    namespace = "cloud.cephalon.app.naohua"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     buildFeatures {
@@ -159,7 +159,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.cephalon.lucyApp"
+        applicationId = "cloud.cephalon.app.naohua"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
@@ -172,16 +172,27 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = "naohua123"
+            keyAlias = "naohua"
+            keyPassword = "naohua123"
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             buildConfigField("String", "APP_ENV", "\"test\"")
         }
         create("staging") {
             initWith(getByName("debug"))
+            signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "APP_ENV", "\"test\"")
         }
         getByName("release") {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             buildConfigField("String", "APP_ENV", "\"release\"")
         }
     }
@@ -190,7 +201,7 @@ android {
         outputs.all {
             val buildDate = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy.MM dd-MM"))
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "${buildDate}-脑花-${buildType.name}.apk"
+            output.outputFileName = "naohua.apk"
         }
     }
 
@@ -203,4 +214,19 @@ android {
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+}
+
+// Workaround: Compose 1.10.0 syncComposeResourcesForIos outputDir not configured
+afterEvaluate {
+    tasks.matching { it.name == "syncComposeResourcesForIos" }.configureEach {
+        val builtProducts = providers.environmentVariable("BUILT_PRODUCTS_DIR")
+        val contentsFolder = providers.environmentVariable("CONTENTS_FOLDER_PATH")
+        if (builtProducts.isPresent && contentsFolder.isPresent) {
+            try {
+                val prop = this::class.java.methods.firstOrNull { it.name == "getOutputDir" }
+                    ?.invoke(this) as? org.gradle.api.file.DirectoryProperty
+                prop?.set(File(builtProducts.get(), contentsFolder.get() + "/compose-resources"))
+            } catch (_: Exception) { /* reflection unavailable */ }
+        }
+    }
 }
