@@ -246,9 +246,9 @@ class AuthRepository(
             if ((resp.code == 20000 || resp.code == 40088) && resp.data != null) {
                 userKeyOf(KEY_CONNECTION_FLAG)?.let { settings.putBoolean(it, true) }
                 val missionId = resp.data.bootstrapMissionId
-                // 按用户存储 missionId，防止轮询中途 App 被关闭后丢失
+                // 按用户存储 bootstrapMissionId，防止轮询中途 App 被关闭后丢失
                 userKeyOf(KEY_BOOTSTRAP_MISSION_ID)?.let { settings.putString(it, missionId) }
-                appLogD("AuthRepository", "connectLucyApp: 接入成功, bootstrapMissionId=$missionId, status=${resp.data.bootstrapStatus}（已持久化）")
+                appLogD("AuthRepository", "connectLucyApp: 接入成功, id=${resp.data.id}, bootstrapMissionId=$missionId, status=${resp.data.bootstrapStatus}（已持久化）")
                 Result.success(resp.data.copy(responseMsg = resp.msg, responseCode = resp.code))
             } else {
                 appLogD("AuthRepository", "connectLucyApp: 接入失败 code=${resp.code} msg=${resp.msg}")

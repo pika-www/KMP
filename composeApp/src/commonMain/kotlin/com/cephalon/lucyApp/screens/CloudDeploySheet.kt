@@ -15,13 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,13 +27,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.HalfModalBottomSheet
 import com.cephalon.lucyApp.components.LocalDesignScale
-import kotlinx.coroutines.delay
-import kotlinx.datetime.Clock
 
 // ─── 颜色常量 ───
 private val StepCompletedColor = Color(0xFF1F2535)
 private val StepPendingColor = Color(0xFFD1D1D6)
-private val StepTimeColor = Color(0xFF999999)
 private val ButtonBgColor = Color(0xFFE5E5EA)
 private val ButtonTextColor = Color(0xFF8E8E93)
 private val DividerColor = Color(0xFFF0F0F0)
@@ -59,69 +52,10 @@ fun CloudDeploySheet(
 ) {
     val ds = LocalDesignScale.current
 
-    // 每个步骤的开始时间戳（ms），用于计算耗时
-    val step1StartMs = remember { mutableLongStateOf(0L) }
-    val step2StartMs = remember { mutableLongStateOf(0L) }
-    val step3StartMs = remember { mutableLongStateOf(0L) }
-    val step1EndMs = remember { mutableLongStateOf(0L) }
-    val step2EndMs = remember { mutableLongStateOf(0L) }
-    val step3EndMs = remember { mutableLongStateOf(0L) }
-
-    // 实时 tick（每秒刷新一次）
-    var nowMs by remember { mutableLongStateOf(Clock.System.now().toEpochMilliseconds()) }
-    LaunchedEffect(isVisible) {
-        if (isVisible) {
-            while (true) {
-                nowMs = Clock.System.now().toEpochMilliseconds()
-                delay(1000L)
-            }
-        }
-    }
-
-    // 记录每步开始 & 结束时间
-    LaunchedEffect(isVisible) {
-        if (isVisible) {
-            val ts = Clock.System.now().toEpochMilliseconds()
-            step1StartMs.longValue = ts
-            step1EndMs.longValue = 0L
-            step2StartMs.longValue = 0L
-            step2EndMs.longValue = 0L
-            step3StartMs.longValue = 0L
-            step3EndMs.longValue = 0L
-        }
-    }
-    LaunchedEffect(completedStep) {
-        val ts = Clock.System.now().toEpochMilliseconds()
-        when (completedStep) {
-            1 -> {
-                step1EndMs.longValue = ts
-                step2StartMs.longValue = ts
-            }
-            2 -> {
-                // 如果跳过了 step1 的计时（恢复场景），补齐
-                if (step1EndMs.longValue == 0L) step1EndMs.longValue = ts
-                step2EndMs.longValue = ts
-                step3StartMs.longValue = ts
-            }
-            3 -> {
-                if (step2EndMs.longValue == 0L) step2EndMs.longValue = ts
-                step3EndMs.longValue = ts
-            }
-        }
-    }
-
-    fun elapsedText(startMs: Long, endMs: Long): String {
-        if (startMs == 0L) return ""
-        val end = if (endMs > 0L) endMs else nowMs
-        val seconds = ((end - startMs) / 1000).coerceAtLeast(0)
-        return "${seconds}s"
-    }
-
     data class StepItem(
         val label: String,
         val isCompleted: Boolean,
         val isActive: Boolean,
-        val elapsed: String,
     )
 
     val steps = listOf(
@@ -129,19 +63,16 @@ fun CloudDeploySheet(
             label = "创建云端应用",
             isCompleted = completedStep >= 1,
             isActive = completedStep < 1,
-            elapsed = elapsedText(step1StartMs.longValue, step1EndMs.longValue),
         ),
         StepItem(
             label = "启动云端应用",
             isCompleted = completedStep >= 2,
             isActive = completedStep == 1,
-            elapsed = elapsedText(step2StartMs.longValue, step2EndMs.longValue),
         ),
         StepItem(
             label = "链接脑花",
             isCompleted = completedStep >= 3,
             isActive = completedStep == 2,
-            elapsed = elapsedText(step3StartMs.longValue, step3EndMs.longValue),
         ),
     )
 
@@ -205,7 +136,6 @@ fun CloudDeploySheet(
                         label = step.label,
                         isCompleted = step.isCompleted,
                         isActive = step.isActive,
-                        elapsed = step.elapsed,
                     )
                     if (index < steps.lastIndex) {
                         Box(
@@ -247,7 +177,6 @@ private fun DeployStepRow(
     label: String,
     isCompleted: Boolean,
     isActive: Boolean,
-    elapsed: String,
 ) {
     val ds = LocalDesignScale.current
 
@@ -293,13 +222,12 @@ private fun DeployStepRow(
             modifier = Modifier.weight(1f),
         )
 
-        // ── 耗时 ──
-        if (elapsed.isNotEmpty()) {
-            Text(
-                text = elapsed,
-                color = StepTimeColor,
-                fontSize = ds.sp(14f),
-                fontWeight = FontWeight.Normal,
+        // ── loading ──
+        if (isActive) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(ds.sm(18.dp)),
+                color = StepCompletedColor,
+                strokeWidth = ds.sm(2.dp),
             )
         }
     }

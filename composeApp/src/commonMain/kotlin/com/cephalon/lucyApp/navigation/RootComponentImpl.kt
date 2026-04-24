@@ -251,7 +251,7 @@ class RootComponentImpl(
                                     val connectData = connectResult.getOrThrow()
                                     missionId = connectData.bootstrapMissionId
                                     bootstrapCompleted = connectData.bootstrapStatus == "completed"
-                                    println("RootComponent: 获得 bootstrapMissionId=$missionId, status=${connectData.bootstrapStatus}, code=${connectData.responseCode}")
+                                    println("RootComponent: 获得 id=${connectData.id}, bootstrapMissionId=$missionId, status=${connectData.bootstrapStatus}, code=${connectData.responseCode}")
                                     // step 1 完成：创建云端应用
                                     onStep(1)
                                     // 非首次连接（如 40088 "已经链接"）→ toast 提示服务端 msg
@@ -263,11 +263,11 @@ class RootComponentImpl(
                                 // 快速路径：bootstrap_status 已 completed → 先尝试一次 binding-status
                                 if (bootstrapCompleted) {
                                     println("RootComponent: bootstrap_status=completed，尝试快速路径")
-                                    onStep(2) // 快速路径直接跳到 step2
                                     sdkSessionManager.ensureConnectedIfTokenValid()
                                     val statusResp = authRepository.getDeviceBindingStatus(missionId)
                                     if (statusResp.code == 20000 && statusResp.data != null && statusResp.data.bindingStatus == "bound") {
-                                        onStep(3) // step3 完成
+                                        onStep(2) // 快速路径：设备已绑定，step2+step3 一起完成
+                                        onStep(3)
                                         authRepository.clearBootstrapMissionId()
                                         val deviceId = statusResp.data.deviceId
                                         val devices = authRepository.getDevices()

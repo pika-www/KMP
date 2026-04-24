@@ -131,6 +131,7 @@ data class RechargeRuleItem(
  */
 @Serializable
 data class ConnectLucyAppData(
+    val id: String = "",
     @SerialName("bootstrap_mission_id")
     val bootstrapMissionId: String = "",
     @SerialName("bootstrap_status")
