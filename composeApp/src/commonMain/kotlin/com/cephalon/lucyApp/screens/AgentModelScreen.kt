@@ -1915,17 +1915,29 @@ fun AgentModelScreen(
                                             )
                                         }
                                         // 关闭按钮
-                                        Icon(
-                                            painter = painterResource(Res.drawable.ic_close_circle),
-                                            contentDescription = "Close",
-                                            tint = Color.Unspecified,
-                                            modifier = Modifier
-                                                .size(ds.sm(24.dp))
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) { emptyViewState = 2 }
-                                        )
+                                        Box(
+                                            modifier = Modifier.size(ds.sm(22.dp)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(Res.drawable.ic_close_circle),
+                                                contentDescription = "Close",
+                                                tint = Color.Unspecified,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(RoundedCornerShape(27.5.dp))
+                                                    .border(
+                                                        width = 0.5.dp,
+                                                        color = Color.Black.copy(alpha = 0.10f),
+                                                        shape = RoundedCornerShape(27.5.dp)
+                                                    )
+                                                    .padding(ds.sm(1.dp))
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) { emptyViewState = 2 }
+                                            )
+                                        }
                                     }
                                 }
                             }
