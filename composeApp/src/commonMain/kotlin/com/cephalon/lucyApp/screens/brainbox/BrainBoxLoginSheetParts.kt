@@ -484,6 +484,14 @@ internal fun BrainBoxWifiStep(
         }
 
         // ── Wi‑Fi 卡片 ──
+        Text(
+            text = "当前本机 Wi‑Fi",
+            fontSize = ds.sp(14f),
+            fontWeight = FontWeight.Medium,
+            color = TextDefault,
+        )
+        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
         GlassCard {
             Row(
                 modifier = Modifier

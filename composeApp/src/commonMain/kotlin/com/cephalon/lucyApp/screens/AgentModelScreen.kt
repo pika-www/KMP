@@ -2532,7 +2532,7 @@ private fun NasNotSupportedDialog(
             Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
             Text(
-                text = "只有 AI NPC 支持 NAS 功能",
+                text = "只有 AI NPC 支持 NAS 功能，请点击按钮前往购买 AI NPC",
                 fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF717580),

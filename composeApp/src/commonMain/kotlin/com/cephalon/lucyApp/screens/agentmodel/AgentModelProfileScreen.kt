@@ -3730,7 +3730,7 @@ private fun WifiConfigContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "目标 Wi‑Fi",
+                            text = "当前手机 Wi‑Fi",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF999999),
                         )
