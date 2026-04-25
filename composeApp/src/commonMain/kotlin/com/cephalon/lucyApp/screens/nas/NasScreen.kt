@@ -1201,14 +1201,16 @@ fun NasScreen(onBack: () -> Unit) {
                                     fontSize = ds.sp(14f)
                                 ),
                                 decorationBox = { innerTextField ->
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = "搜索",
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            fontSize = ds.sp(14f)
-                                        )
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "搜索",
+                                                color = Color.White.copy(alpha = 0.5f),
+                                                fontSize = ds.sp(14f)
+                                            )
+                                        }
+                                        innerTextField()
                                     }
-                                    innerTextField()
                                 }
                             )
                             Spacer(modifier = Modifier.width(8.dp))

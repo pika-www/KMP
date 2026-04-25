@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
 import com.cephalon.lucyApp.api.LucyDevice
 import com.cephalon.lucyApp.components.LocalDesignScale
+import com.cephalon.lucyApp.components.PasswordInput
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxProvisionController
 
@@ -526,14 +528,13 @@ internal fun BrainBoxWifiStep(
 
         if (!isSelectedCurrent) {
             Spacer(modifier = Modifier.height(ds.sh(14.dp)))
-            OutlinedTextField(
+            PasswordInput(
                 value = wifiPassword,
                 onValueChange = onWifiPasswordChange,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("密码") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                label = "Wi-Fi 密码",
+                imeAction = ImeAction.Done,
+                onDone = { onConnectWifi() },
             )
         }
 

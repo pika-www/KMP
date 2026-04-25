@@ -300,9 +300,34 @@ fun LoginSheetContent(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f).defaultMinSize(minHeight = ds.sh(32.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+        }
 
-            // 提交按钮
+        val uriHandler = LocalUriHandler.current
+        val termsText = buildAnnotatedString {
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append("登录即表示同意我们的 ")
+            }
+            pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/service.html")
+            withStyle(SpanStyle(color = LinkColor)) {
+                append("《服务条款》")
+            }
+            pop()
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append(" 和 ")
+            }
+            pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/privacy.html")
+            withStyle(SpanStyle(color = LinkColor)) {
+                append("《隐私政策》")
+            }
+            pop()
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(20.dp))
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -334,26 +359,6 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-            // 底部服务条款
-            val uriHandler = LocalUriHandler.current
-            val termsText = buildAnnotatedString {
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append("登录即表示同意我们的 ")
-                }
-                pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/service.html")
-                withStyle(SpanStyle(color = LinkColor)) {
-                    append("《服务条款》")
-                }
-                pop()
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append(" 和 ")
-                }
-                pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/privacy.html")
-                withStyle(SpanStyle(color = LinkColor)) {
-                    append("《隐私政策》")
-                }
-                pop()
-            }
             ClickableText(
                 text = termsText,
                 style = androidx.compose.ui.text.TextStyle(

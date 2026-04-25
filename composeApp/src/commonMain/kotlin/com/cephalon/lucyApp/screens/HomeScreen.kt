@@ -7,6 +7,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +44,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.cloud
+import androidios.composeapp.generated.resources.local
 import androidios.composeapp.generated.resources.logo
 import androidios.composeapp.generated.resources.reboto
 import androidios.composeapp.generated.resources.roboto_bg
@@ -58,6 +60,7 @@ import com.cephalon.lucyApp.screens.brainbox.BrainBoxLoginSheet
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.absoluteValue
 
@@ -73,23 +76,27 @@ private data class AccessCard(
     val title: String,
     val subtitle: String,
     val buttonText: String,
+    val image: DrawableResource,
 )
 
 private val accessCards = listOf(
+      AccessCard(
+        title = "端脑云用户",
+        subtitle = "我没有龙虾，我要领养一只",
+        buttonText = "点击登录",
+        image = Res.drawable.cloud,
+    ),
     AccessCard(
         title = "脑花盒子用户",
         subtitle = "我拥有 AI NPC/龙虾派",
         buttonText = "点击登录",
-    ),
-    AccessCard(
-        title = "端脑云用户",
-        subtitle = "我没有龙虾，我要领养一只",
-        buttonText = "点击登录",
+        image = Res.drawable.reboto,
     ),
     AccessCard(
         title = "本地部署用户",
         subtitle = "我自己有本地龙虾，我要接入",
         buttonText = "点击登录",
+        image = Res.drawable.local,
     ),
 )
 
@@ -133,7 +140,7 @@ fun HomeScreen(
         }
     }
     val pagerState = rememberPagerState(
-        initialPage = 0,
+        initialPage = 1,
         pageCount = { accessCards.size }
     )
 
@@ -146,172 +153,93 @@ fun HomeScreen(
         val currentPage = pagerState.currentPage
 
         Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.weight(1f))
-
-            // ── 主标题 ──
-            Text(
-                text = "选择 Lucy 接入方式",
-                color = TitleColor,
-                textAlign = TextAlign.Center,
-                fontSize = ds.sp(28f),
-                fontWeight = FontWeight.Medium,
-            )
-
-            // 间隔 8px
-            Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-
-            // ── 副标题 ──
-            Text(
-                text = "不同的接入方式决定了您的数据存储位置和算\n力来源",
-                color = SubtitleColor,
-                textAlign = TextAlign.Center,
-                fontSize = ds.sp(16f),
-                fontWeight = FontWeight.Light,
-            )
-
-            // 副标题距卡片 81px
-            Spacer(modifier = Modifier.height(ds.sh(81.dp)))
-
-            // ── 卡片轮播 ──
-            HorizontalPager(
-                state = pagerState,
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = ds.sw(98.dp)),
-                pageSpacing = ds.sw(16.dp),
-                beyondViewportPageCount = 1,
-            ) { pageIndex ->
-                val pageOffset = ((pagerState.currentPage - pageIndex) +
-                        pagerState.currentPageOffsetFraction).absoluteValue
-                val scale = lerp(start = 0.85f, stop = 1f, fraction = 1f - pageOffset.coerceIn(0f, 1f))
-                val alpha = lerp(start = 0.5f, stop = 1f, fraction = 1f - pageOffset.coerceIn(0f, 1f))
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.weight(1f))
 
-                val card = accessCards[pageIndex]
+                // ── 主标题 ──
+                Text(
+                    text = "选择 Lucy 接入方式",
+                    color = TitleColor,
+                    textAlign = TextAlign.Center,
+                    fontSize = ds.sp(28f),
+                    fontWeight = FontWeight.Medium,
+                )
 
-                Box(
+                // 间隔 8px
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+
+                // ── 副标题 ──
+                Text(
+                    text = "不同的接入方式决定了您的数据存储位置和算\n力来源",
+                    color = SubtitleColor,
+                    textAlign = TextAlign.Center,
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Light,
+                )
+
+                // 副标题距卡片 81px
+                Spacer(modifier = Modifier.height(ds.sh(81.dp)))
+
+                // ── 卡片轮播 ──
+                HorizontalPager(
+                    state = pagerState,
                     modifier = Modifier
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            this.alpha = alpha
-                        }
-                        .width(ds.sw(180.dp))
-                        .shadow(
-                            elevation = 15.dp,
-                            shape = RoundedCornerShape(ds.sm(16.dp)),
-                            ambientColor = Color.Black.copy(alpha = 0.05f),
-                            spotColor = Color.Black.copy(alpha = 0.05f),
-                        )
-                        .clip(RoundedCornerShape(ds.sm(16.dp)))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            if (pagerState.currentPage == pageIndex) {
-                                when (pageIndex) {
-                                    0 -> showBrainBoxLoginSheet = true
-                                    1 -> if (!isCloudLoading) {
-                                        cloudDeployStep = 0
-                                        cloudDeployError = null
-                                        onOpenAgentModel(
-                                            { isCloudLoading = it },
-                                            { step -> cloudDeployStep = step },
-                                            { msg ->
-                                                cloudDeployError = msg
-                                                toastState.show(msg)
-                                            },
-                                        )
-                                    }
-                                    2 -> openScanWithPermission()
-                                }
-                            } else {
-                                scope.launch { pagerState.animateScrollToPage(pageIndex) }
-                            }
-                        }
-                ) {
-                    // 卡片背景图
-                    Image(
-                        painter = painterResource(Res.drawable.roboto_bg),
-                        contentDescription = null,
-                        modifier = Modifier.matchParentSize(),
-                        contentScale = ContentScale.Crop,
-                    )
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = ds.sw(98.dp)),
+                    pageSpacing = ds.sw(16.dp),
+                    beyondViewportPageCount = 1,
+                ) { pageIndex ->
+                    val rawPageOffset = (pagerState.currentPage - pageIndex) +
+                            pagerState.currentPageOffsetFraction
+                    val pageOffset = rawPageOffset.absoluteValue.coerceIn(0f, 1f)
+                    val scale = lerp(start = 0.75f, stop = 1f, fraction = 1f - pageOffset)
+                    val alpha = lerp(start = 0.5f, stop = 1f, fraction = 1f - pageOffset)
+                    val cardWidth = ds.sw(180.dp)
+                    val cardHeight = ds.sh(240.dp)
+                    val edgeInset = cardWidth * ((1f - scale) / 2f)
+                    val cardOffsetX = when {
+                        rawPageOffset > 0.001f -> edgeInset
+                        rawPageOffset < -0.001f -> edgeInset * -1f
+                        else -> 0.dp
+                    }
 
-                    Column(
+                    val card = accessCards[pageIndex]
+
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start = ds.sw(16.dp),
-                                end = ds.sw(16.dp),
-                                top = ds.sh(16.dp),
-                                bottom = ds.sh(20.dp)
-                            ),
-                        horizontalAlignment = Alignment.Start,
+                            .size(width = cardWidth, height = cardHeight),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        // 卡片大标题 14sp/#000/400
-                        Text(
-                            text = card.title,
-                            color = Color.Black,
-                            fontSize = ds.sp(14f),
-                            fontWeight = FontWeight.Normal,
-                        )
-
-                        // 间距 2px
-                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
-
-                        // 卡片小字 10sp/rgba(0,0,0,0.60)/400
-                        Text(
-                            text = card.subtitle,
-                            color = Color.Black.copy(alpha = 0.60f),
-                            fontSize = ds.sp(10f),
-                            fontWeight = FontWeight.Normal,
-                        )
-
-                        // 图片距小字 12px
-                        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-
-                        // 中间图片 124×121 居中
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Image(
-                                painter = painterResource(Res.drawable.reboto),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(
-                                        width = ds.sw(124.dp),
-                                        height = ds.sh(121.dp)
-                                    ),
-                                contentScale = ContentScale.Fit,
-                            )
-                        }
-
-                        // 按钮距图片 7px
-                        Spacer(modifier = Modifier.height(ds.sh(7.dp)))
-
-                        // 按钮 border-radius:16px, bg:#1F2535
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(ds.sh(32.dp))
+                                .fillMaxSize()
+                                .offset(x = cardOffsetX)
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                    this.alpha = alpha
+                                }
+                                .shadow(
+                                    elevation = 15.dp,
+                                    shape = RoundedCornerShape(ds.sm(16.dp)),
+                                    ambientColor = Color.Black.copy(alpha = 0.05f),
+                                    spotColor = Color.Black.copy(alpha = 0.05f),
+                                )
                                 .clip(RoundedCornerShape(ds.sm(16.dp)))
-                                .background(CardButtonColor)
+                                .background(Color.White)
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                 ) {
                                     if (pagerState.currentPage == pageIndex) {
                                         when (pageIndex) {
-                                            0 -> showBrainBoxLoginSheet = true
-                                            1 -> if (!isCloudLoading) {
+                                            0 -> if (!isCloudLoading) {
                                                 cloudDeployStep = 0
                                                 cloudDeployError = null
                                                 onOpenAgentModel(
@@ -323,27 +251,114 @@ fun HomeScreen(
                                                     },
                                                 )
                                             }
+                                            1 -> showBrainBoxLoginSheet = true
                                             2 -> openScanWithPermission()
                                         }
                                     } else {
                                         scope.launch { pagerState.animateScrollToPage(pageIndex) }
                                     }
-                                },
-                            contentAlignment = Alignment.Center
+                                }
                         ) {
-                            Text(
-                                text = card.buttonText,
-                                color = Color.White,
-                                fontSize = ds.sp(12f),
-                                fontWeight = FontWeight.Normal,
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(
+                                        start = ds.sw(16.dp),
+                                        end = ds.sw(16.dp),
+                                        top = ds.sh(16.dp),
+                                        bottom = ds.sh(20.dp)
+                                    ),
+                                horizontalAlignment = Alignment.Start,
+                            ) {
+                                // 卡片大标题 14sp/#000/400
+                                Text(
+                                    text = card.title,
+                                    color = Color.Black,
+                                    fontSize = ds.sp(14f),
+                                    fontWeight = FontWeight.Normal,
+                                )
+
+                                // 间距 2px
+                                Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+
+                                // 卡片小字 10sp/rgba(0,0,0,0.60)/400
+                                Text(
+                                    text = card.subtitle,
+                                    color = Color.Black.copy(alpha = 0.60f),
+                                    fontSize = ds.sp(10f),
+                                    fontWeight = FontWeight.Normal,
+                                )
+
+                                // 图片距小字 12px
+                                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                                // 中间图片 124×121 居中
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Image(
+                                        painter = painterResource(card.image),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(
+                                                width = ds.sw(124.dp),
+                                                height = ds.sh(121.dp)
+                                            ),
+                                        contentScale = ContentScale.Fit,
+                                    )
+                                }
+
+                                // 按钮距图片 7px
+                                Spacer(modifier = Modifier.height(ds.sh(7.dp)))
+
+                                // 按钮 border-radius:16px, bg:#1F2535
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(ds.sh(40.dp))
+                                        .clip(RoundedCornerShape(ds.sm(16.dp)))
+                                        .background(CardButtonColor)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                        ) {
+                                            if (pagerState.currentPage == pageIndex) {
+                                                when (pageIndex) {
+                                                    0 -> if (!isCloudLoading) {
+                                                        cloudDeployStep = 0
+                                                        cloudDeployError = null
+                                                        onOpenAgentModel(
+                                                            { isCloudLoading = it },
+                                                            { step -> cloudDeployStep = step },
+                                                            { msg ->
+                                                                cloudDeployError = msg
+                                                                toastState.show(msg)
+                                                            },
+                                                        )
+                                                    }
+                                                    1 -> showBrainBoxLoginSheet = true
+                                                    2 -> openScanWithPermission()
+                                                }
+                                            } else {
+                                                scope.launch { pagerState.animateScrollToPage(pageIndex) }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = card.buttonText,
+                                        color = Color.White,
+                                        fontSize = ds.sp(16f),
+                                        fontWeight = FontWeight.Normal,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            // 卡片下方距进度点 82px
-            Spacer(modifier = Modifier.height(ds.sh(82.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(82.dp)))
 
             // ── 进度点 ──
             Row(

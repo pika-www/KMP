@@ -2521,7 +2521,7 @@ private fun FeedbackContent(
                     singleLine = true,
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(inputTextColor),
                     decorationBox = { innerTextField ->
-                        Box {
+                        Box(contentAlignment = Alignment.CenterStart) {
                             if (title.isEmpty()) {
                                 Text(
                                     text = "请输入反馈标题",
@@ -3270,9 +3270,9 @@ private fun DeviceCard(
             .clip(RoundedCornerShape(ds.sm(16.dp)))
             .background(Color(0xFFF3F3F3))
             .border(1.dp, Color.White, RoundedCornerShape(ds.sm(16.dp)))
-            .padding(start = ds.sw(16.dp), top = ds.sh(15.dp), end = ds.sw(16.dp), bottom = ds.sh(17.dp)),
+            .padding(start = 16.dp, top = 15.dp, end = 16.dp, bottom = 17.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 56x56 深色图标容器
         Box(
@@ -3310,12 +3310,12 @@ private fun DeviceCard(
         }
     }
 
-    Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+    Spacer(modifier = Modifier.height(20.dp))
 
     // ── 切换设备 + 添加新设备 ──
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(ds.sw(10.dp))
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         DeviceActionButton(
             text = "切换设备",
@@ -3361,8 +3361,8 @@ private fun DeviceActionButton(
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.35f),
-                Color.Black.copy(alpha = 0.05f),
+                Color(0xFFEBEBEB),
+                Color(0xFFEBEBEB),
             )
         )
     }
@@ -3429,7 +3429,7 @@ private fun SwitchDeviceContent(
                 onClick = { onDeviceClicked(device) }
             )
             if (index != devices.lastIndex) {
-                Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }
@@ -4230,9 +4230,9 @@ private fun SwitchDeviceItem(
             .background(cardBgBrush)
             .border(1.dp, Color.White, shape)
             .clickable { onClick() }
-            .padding(ds.sm(16.dp)),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp)),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // 56x56 图标容器（选中态为白色，默认为深色）
         Box(
@@ -4261,7 +4261,7 @@ private fun SwitchDeviceItem(
                             .size(ds.sm(8.dp))
                             .background(Color(0xFF19D166), CircleShape)
                     )
-                    Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
                     text = deviceIdDisplay,
@@ -4272,7 +4272,7 @@ private fun SwitchDeviceItem(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = statusText,
                 fontSize = ds.sp(14f),

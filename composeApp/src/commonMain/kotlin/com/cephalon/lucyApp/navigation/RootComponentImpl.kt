@@ -254,8 +254,20 @@ class RootComponentImpl(
                                     println("RootComponent: 获得 id=${connectData.id}, bootstrapMissionId=$missionId, status=${connectData.bootstrapStatus}, code=${connectData.responseCode}")
                                     // step 1 完成：创建云端应用
                                     onStep(1)
-                                    // 非首次连接（如 40088 "已经链接"）→ toast 提示服务端 msg
-                                    if (connectData.responseCode != 20000 && connectData.responseMsg.isNotBlank()) {
+                                    if (connectData.responseCode == 40088) {
+                                        val devices = authRepository.getDevices()
+                                        val matchedDevice = devices.firstOrNull { it.id == connectData.id }
+                                            ?: devices.firstOrNull { it.channelDeviceId.isNotBlank() }
+                                        if (matchedDevice != null) {
+                                            val cdi = matchedDevice.channelDeviceId
+                                            println("RootComponent: 端脑云已连接，直接跳转对话页 cdi=$cdi")
+                                            authRepository.clearBootstrapMissionId()
+                                            onLoading(false)
+                                            navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
+                                            return@launch
+                                        }
+                                        println("RootComponent: 端脑云已连接但设备列表为空，继续按 missionId=$missionId 兜底轮询")
+                                    } else if (connectData.responseCode != 20000 && connectData.responseMsg.isNotBlank()) {
                                         onError(connectData.responseMsg)
                                     }
                                 }
