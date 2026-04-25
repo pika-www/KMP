@@ -61,6 +61,7 @@ import com.cephalon.lucyApp.sdk.MediaAttachment
 import org.jetbrains.compose.resources.painterResource
 import androidios.composeapp.generated.resources.ic_audio
 import androidios.composeapp.generated.resources.ic_doc
+import androidx.compose.foundation.layout.offset
 
 @Composable
 internal fun AgentModelComposer(
