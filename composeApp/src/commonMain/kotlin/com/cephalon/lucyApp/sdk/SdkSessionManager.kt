@@ -2319,6 +2319,9 @@ private fun String.escapeForJson(): String {
     return this
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
 }
 
 private fun buildNasRegisterBlobsPayload(
