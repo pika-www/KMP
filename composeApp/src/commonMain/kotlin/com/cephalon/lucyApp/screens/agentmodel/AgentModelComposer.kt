@@ -248,6 +248,7 @@ internal fun AgentModelComposer(
                         Box(
                             modifier = Modifier
                                 .size(ds.sm(10.dp))
+                                .offset(y = (-ds.sh(1.dp)))
                                 .clip(RoundedCornerShape(ds.sm(2.dp)))
                                 .background(Color.White)
                         )
