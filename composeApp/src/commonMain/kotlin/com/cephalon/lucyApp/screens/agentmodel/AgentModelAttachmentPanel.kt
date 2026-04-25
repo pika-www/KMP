@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
@@ -162,10 +163,10 @@ internal fun AgentModelAttachmentPanel(
             ) {
                 Text(
                     text = "上传照片",
-                    color = Color(0xFF12192B),
-                    fontSize = ds.sp(20f),
-                    fontWeight = FontWeight.SemiBold,
-                    lineHeight = ds.sp(26f),
+                    color = Color(0xFF717580),
+                    fontSize = ds.sp(14f),
+                    fontWeight = FontWeight.Normal,
+                    lineHeight = ds.sp(20f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Start,
@@ -173,7 +174,7 @@ internal fun AgentModelAttachmentPanel(
                 )
                 Text(
                     text = if (expanded) "收起全部" else "查看全部",
-                    color = Color(0xFF0A59F7),
+                    color = Color(0xFF717580),
                     fontSize = ds.sp(14f),
                     fontWeight = FontWeight.Normal,
                     maxLines = 1,
@@ -300,14 +301,15 @@ internal fun AgentModelAttachmentPanel(
             ) {
                 Text(
                     text = "上传系统文件",
-                    color = Color(0xFF1F2535),
+                    color = Color(0xFF717580),
                     fontSize = ds.sp(14f),
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier
                 )
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowRight,
                     contentDescription = "上传系统文件",
-                    tint = Color(0xFF1F2535),
+                    tint = Color(0xFF717580),
                     modifier = Modifier.size(ds.sm(16.dp))
                 )
             }
