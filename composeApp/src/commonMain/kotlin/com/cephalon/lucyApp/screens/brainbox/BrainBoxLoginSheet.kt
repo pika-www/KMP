@@ -413,7 +413,7 @@ fun BrainBoxLoginSheet(
                     provisionManager.forceReconnect()
                     return@launch
                 }
-                toastState.show(errorMsg.ifBlank { "获取 OTP 失败，请重试" })
+                toastState.show("设备连接异常，请点击按钮重试")
                 isBinding = false
                 return@launch
             }
@@ -448,7 +448,7 @@ fun BrainBoxLoginSheet(
 
             val otp = pairingInfo.otp
             if (otp.isBlank()) {
-                toastState.show("获取 OTP 失败，请重试")
+                toastState.show("设备连接异常，请点击按钮重试")
                 isBinding = false
                 return@launch
             }
@@ -465,11 +465,11 @@ fun BrainBoxLoginSheet(
                         }
                         .onFailure { verifyError ->
                             println("[BrainBox] UI: 绑定确认失败 - ${verifyError.message}")
-                            toastState.show(verifyError.message ?: "读取 pairing_info 失败，绑定未确认")
+                            toastState.show("设备连接异常，请点击按钮重试")
                         }
                 }
                 .onFailure { error ->
-                    toastState.show(error.message ?: "绑定失败，请稍后重试")
+                    toastState.show("设备连接异常，请点击按钮重试")
                 }
             isBinding = false
         }

@@ -62,6 +62,7 @@ import org.jetbrains.compose.resources.painterResource
 import androidios.composeapp.generated.resources.ic_audio
 import androidios.composeapp.generated.resources.ic_doc
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.TextUnit
 
 @Composable
 internal fun AgentModelComposer(
@@ -160,13 +161,15 @@ internal fun AgentModelComposer(
                     Box {
                         if (inputText.text.isEmpty()) {
                             Text(
-                                text = if (isRecording) "录音中..."
-                                else if (isVoiceBusy) "正在转写语音..."
-                                else "请输入你想问的问题",
-                                color = Color(0xFF9A9A9A),
-                                fontSize = ds.sp(15f),
-                                fontWeight = FontWeight.Medium,
-                                lineHeight = inputLineHeight
+                                text = when {
+                                    isRecording -> "录音中..."
+                                    isVoiceBusy -> "正在转写语音..."
+                                    else -> "请输入你想问的问题"
+                                },
+                                color = Color(0xFF717580),
+                                fontSize = ds.sp(14f),
+                                fontWeight = FontWeight.Normal,
+                                lineHeight = TextUnit.Unspecified,
                             )
                         }
                         innerTextField()

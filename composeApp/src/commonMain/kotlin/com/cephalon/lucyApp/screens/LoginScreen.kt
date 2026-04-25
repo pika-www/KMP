@@ -2,7 +2,7 @@ package com.cephalon.lucyApp.screens
 
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.login_bg
-import androidios.composeapp.generated.resources.logo
+import androidios.composeapp.generated.resources.logo_img
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
@@ -268,6 +268,7 @@ fun LoginScreen(
     DesignScaleProvider(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFFF5F5F7))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -298,10 +299,9 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(ds.sh(88.dp)))
 
                 // Logo — 无背景无边框, 64px
-                Icon(
-                    painter = painterResource(Res.drawable.logo),
+                Image(
+                    painter = painterResource(Res.drawable.logo_img),
                     contentDescription = null,
-                    tint = Color.Unspecified,
                     modifier = Modifier.size(ds.sm(64.dp))
                 )
 

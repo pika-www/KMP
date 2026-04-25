@@ -46,7 +46,7 @@ import androidx.compose.material3.Text
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.cloud
 import androidios.composeapp.generated.resources.local
-import androidios.composeapp.generated.resources.logo
+import androidios.composeapp.generated.resources.logo_img
 import androidios.composeapp.generated.resources.reboto
 import androidios.composeapp.generated.resources.roboto_bg
 import androidx.compose.runtime.snapshotFlow
@@ -394,7 +394,7 @@ fun HomeScreen(
 
             // ── 底部 Logo 64px ──
             Image(
-                painter = painterResource(Res.drawable.logo),
+                painter = painterResource(Res.drawable.logo_img),
                 contentDescription = null,
                 modifier = Modifier.size(ds.sm(64.dp)),
             )

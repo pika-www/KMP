@@ -260,8 +260,11 @@ class RootComponentImpl(
                                             ?: devices.firstOrNull { it.channelDeviceId.isNotBlank() }
                                         if (matchedDevice != null) {
                                             val cdi = matchedDevice.channelDeviceId
-                                            println("RootComponent: 端脑云已连接，直接跳转对话页 cdi=$cdi")
+                                            println("RootComponent: 端脑云已连接，等待 3s 后跳转对话页 cdi=$cdi")
+                                            onStep(2)
+                                            onStep(3)
                                             authRepository.clearBootstrapMissionId()
+                                            delay(CLOUD_BOUND_NAVIGATION_DELAY_MS)
                                             onLoading(false)
                                             navigation.replaceAll(Config.AgentModel(targetCdi = cdi))
                                             return@launch
@@ -284,7 +287,7 @@ class RootComponentImpl(
                                         val deviceId = statusResp.data.deviceId
                                         val devices = authRepository.getDevices()
                                         val matchedDevice = devices.firstOrNull { it.id == deviceId }
-                                        delay(2000L) // 绑定成功后等待 2s 再跳转
+                                        delay(CLOUD_BOUND_NAVIGATION_DELAY_MS) // 绑定成功后等待 3s 再跳转
                                         if (matchedDevice != null) {
                                             val cdi = matchedDevice.channelDeviceId
                                             println("RootComponent: completed 快速路径，找到设备 cdi=$cdi")
@@ -351,8 +354,8 @@ class RootComponentImpl(
                                                     // 4. 查询设备列表，匹配 device_id 获取 cdi
                                                     val devices = authRepository.getDevices()
                                                     val matchedDevice = devices.firstOrNull { it.id == deviceId }
-                                                    // 绑定成功后等待 2s 再跳转
-                                                    delay(2000L)
+                                                    // 绑定成功后等待 3s 再跳转
+                                                    delay(CLOUD_BOUND_NAVIGATION_DELAY_MS)
                                                     if (matchedDevice != null) {
                                                         val cdi = matchedDevice.channelDeviceId
                                                         println("RootComponent: 找到匹配设备 cdi=$cdi，跳转对话页")
@@ -671,5 +674,6 @@ class RootComponentImpl(
         //   留足够余量避免"首次绑完刚好赶上重启窗口"把用户卡在首页
         // 与 DeviceChatManager.DEFAULT_ONLINE_TIMEOUT_MS (30s) 对齐。
         private const val CDI_ONLINE_WAIT_TIMEOUT_MS = 30_000L
+        private const val CLOUD_BOUND_NAVIGATION_DELAY_MS = 3_000L
     }
 }

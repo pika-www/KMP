@@ -30,6 +30,13 @@ import com.cephalon.lucyApp.api.LucyDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxBleDevice
 import com.cephalon.lucyApp.brainbox.BrainBoxWifiNetwork
 import com.cephalon.lucyApp.components.LocalDesignScale
+import androidx.compose.foundation.border
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_device_storage
+import org.jetbrains.compose.resources.painterResource
 
 @Composable
 internal fun BrainBoxActionCard(
@@ -289,79 +296,76 @@ internal fun BrainBoxBindDeviceCard(
     connectedWifi: String?,
 ) {
     val ds = LocalDesignScale.current
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(ds.sm(24.dp)),
-        color = Color(0xFFE9E9E9),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(ds.sm(18.dp)),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(ds.sm(60.dp))
-                    .background(Color.White, RoundedCornerShape(ds.sm(16.dp)))
+    val containerShape = RoundedCornerShape(ds.sm(16.dp))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 15.dp,
+                shape = containerShape,
+                ambientColor = Color.Black.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.3f),
             )
-            Spacer(modifier = Modifier.width(ds.sw(14.dp)))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = serverDevice?.name?.ifBlank { selectedDevice?.name ?: "Lucy" }
-                            ?: selectedDevice?.name
-                            ?: "Lucy",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF111111),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(ds.sm(10.dp)),
-                        color = Color.White,
-                    ) {
-                        Text(
-                            text = if (connectedWifi.isNullOrBlank()) "待联网" else "已联网",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color(0xFF1F2535),
-                            modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(6.dp)),
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+            .clip(containerShape)
+            .background(Color(0xFFF3F3F3))
+            .border(1.dp, Color.White, containerShape)
+            .padding(start = 16.dp, top = 15.dp, end = 16.dp, bottom = 17.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(ds.sm(56.dp))
+                .clip(RoundedCornerShape(ds.sm(16.dp)))
+                .background(Color(0xFF1F2535)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_device_storage),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(width = ds.sm(26.dp), height = ds.sm(21.dp)),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = connectedWifi ?: serverDevice?.serialNumber?.ifBlank { selectedDevice?.subtitle.orEmpty() }.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF666666),
+                    text = serverDevice?.name?.ifBlank { selectedDevice?.name ?: "Lucy" }
+                        ?: selectedDevice?.name
+                        ?: "Lucy",
+                    fontSize = ds.sp(18f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF12192B),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                Surface(
+                    shape = RoundedCornerShape(ds.sm(10.dp)),
+                    color = Color(0xFFE0E0E0),
                 ) {
                     Text(
-                        text = "Device ID",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF444444),
-                    )
-                    Text(
-                        text = serverDevice?.serialNumber?.ifBlank { serverDevice.id }
-                            ?: selectedDevice?.id
-                            ?: "-",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF444444),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = if (connectedWifi.isNullOrBlank()) "待联网" else "已联网",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF1F2535),
+                        modifier = Modifier.padding(horizontal = ds.sw(10.dp), vertical = ds.sh(6.dp)),
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+            Text(
+                text = connectedWifi ?: serverDevice?.serialNumber?.ifBlank { selectedDevice?.subtitle.orEmpty() }.orEmpty(),
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF595E6B),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
