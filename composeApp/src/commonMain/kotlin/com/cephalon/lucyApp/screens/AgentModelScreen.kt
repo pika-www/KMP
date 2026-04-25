@@ -1244,7 +1244,6 @@ fun AgentModelScreen(
                         a.copy(
                             messageId = msgId, isStreaming = true,
                             streamEvents = a.streamEvents
-                                .addOrUpdate(StreamEvent("typing", "正在输入")) // 标记 typing 完成
                                 .addOrUpdate(StreamEvent("tool", toolName, isActive = true)),
                         )
                     }
@@ -1282,7 +1281,7 @@ fun AgentModelScreen(
                             a.copy(
                                 text = mergeStreamingAssistantText(a.text, event.text), messageId = msgId, isStreaming = true,
                                 streamEvents = a.streamEvents
-                                    .addOrUpdate(StreamEvent("typing", "正在输入")), // 标记完成
+                                    .addOrUpdate(StreamEvent("typing", "输入完成")), // 标记完成
                             )
                         }
                     }

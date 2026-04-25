@@ -942,7 +942,7 @@ private fun ThinkingBubble(
                     Spacer(Modifier.height(ds.sh(4.dp)))
                     val summary = when (lastEvent.type) {
                         "delivered" -> "已送达"
-                        "typing" -> "正在输入"
+                        "typing" -> if (lastEvent.isActive) "正在输入" else "输入完成"
                         "reasoning" -> "思考中"
                         "tool" -> "🔧 ${lastEvent.label}"
                         "finish" -> "✓ ${lastEvent.label}"
@@ -1069,9 +1069,13 @@ private fun StatusEventRow(
     ) {
         EventCheckIcon(isActive = event.isActive, ds = ds)
         Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        val displayLabel = when (event.type) {
+            "typing" -> if (event.isActive) "正在输入" else "输入完成"
+            else -> event.label
+        }
         val dots = if (event.isActive) rememberAnimatedDots() else ""
         Text(
-            text = "${event.label}$dots",
+            text = "$displayLabel$dots",
             fontSize = ds.sp(11f),
             color = if (event.isActive) Color(0xFF999999) else Color(0xFF666666),
             fontWeight = FontWeight.Normal,
