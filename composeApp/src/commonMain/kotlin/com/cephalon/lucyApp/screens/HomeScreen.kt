@@ -164,7 +164,7 @@ fun HomeScreen(
 
                 // ── 主标题 ──
                 Text(
-                    text = "选择 Lucy 接入方式",
+                    text = "选择脑花接入方式",
                     color = TitleColor,
                     textAlign = TextAlign.Center,
                     fontSize = ds.sp(28f),
@@ -176,15 +176,15 @@ fun HomeScreen(
 
                 // ── 副标题 ──
                 Text(
-                    text = "不同的接入方式决定了您的数据存储位置和算\n力来源",
+                    text = "不同的接入方式\n决定了您的数据存储位置和算力来源",
                     color = SubtitleColor,
                     textAlign = TextAlign.Center,
-                    fontSize = ds.sp(16f),
+                    fontSize = ds.sp(14f),
                     fontWeight = FontWeight.Light,
                 )
 
-                // 副标题距卡片 81px
-                Spacer(modifier = Modifier.height(ds.sh(81.dp)))
+                // 副标题距卡片 80px
+                Spacer(modifier = Modifier.height(ds.sh(80.dp)))
 
                 // ── 卡片轮播 ──
                 HorizontalPager(
@@ -292,9 +292,9 @@ fun HomeScreen(
                                 // 图片距小字 12px
                                 Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-                                // 中间图片 124×121 居中
+                                // 中间图片 124×121 居中，weight(1f) 弹性填充
                                 Box(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().weight(1f),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Image(
@@ -317,7 +317,7 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(ds.sh(40.dp))
-                                        .clip(RoundedCornerShape(ds.sm(16.dp)))
+                                        .clip(RoundedCornerShape(ds.sm(88.dp)))
                                         .background(CardButtonColor)
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
