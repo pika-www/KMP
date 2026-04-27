@@ -59,7 +59,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.time.currentTimeMillis
 import com.cephalon.lucyApp.sdk.NasCategoryCache
@@ -125,6 +128,7 @@ fun NasScreen(onBack: () -> Unit) {
     var isSearchMode by remember { mutableStateOf(false) }
     var isSearchSelectionMode by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var debouncedSearchQuery by remember { mutableStateOf("") }
     var isPhotoSelectionMode by remember { mutableStateOf(false) }
     var isAudioSelectionMode by remember { mutableStateOf(false) }
     var isDocumentSelectionMode by remember { mutableStateOf(false) }
@@ -142,18 +146,12 @@ fun NasScreen(onBack: () -> Unit) {
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
     val uploadTasks = NasUploadTaskStore.tasks
     val nasCacheMap by sdkSessionManager.nasCache.collectAsState()
-    val imageItems = remember(nasCacheMap["image"]) {
-        nasCacheMap["image"]?.items?.map { it.toNasImageItem() } ?: emptyList()
-    }
-    val audioItems = remember(nasCacheMap["audio"]) {
-        nasCacheMap["audio"]?.items?.map { it.toNasAudioItem() } ?: emptyList()
-    }
-    val documentItems = remember(nasCacheMap["doc"]) {
-        nasCacheMap["doc"]?.items?.map { it.toNasDocumentItem() } ?: emptyList()
-    }
+    val searchCacheMap = remember { mutableStateMapOf<String, NasCategoryCache>() }
     val errorMap = remember { mutableStateMapOf<NasCategory, String?>() }
     val loadingMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val loadingMoreMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
+    val searchErrorMap = remember { mutableStateMapOf<NasCategory, String?>() }
+    val searchLoadingMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val activeTasks = uploadTasks.filter {
         it.status == NasUploadTaskStatus.Uploading ||
             it.status == NasUploadTaskStatus.Downloading ||
@@ -191,6 +189,27 @@ fun NasScreen(onBack: () -> Unit) {
     val imeBottomPx = imeInsets.getBottom(density)
     var searchFieldFocused by remember { mutableStateOf(false) }
     var pendingImeScroll by remember { mutableStateOf(false) }
+    val selectionActionTextStyle = remember(ds) {
+        TextStyle(
+            fontSize = ds.sp(18f),
+            fontStyle = FontStyle.Normal,
+            fontWeight = FontWeight.W600,
+            lineHeight = TextUnit(0f, TextUnitType.Unspecified)
+        )
+    }
+    val searchActive = isSearchMode && debouncedSearchQuery.isNotBlank()
+    val imageItems = remember(nasCacheMap["image"], searchCacheMap["image"], searchActive) {
+        val source = if (searchActive) searchCacheMap["image"] else nasCacheMap["image"]
+        source?.items?.map { it.toNasImageItem() } ?: emptyList()
+    }
+    val audioItems = remember(nasCacheMap["audio"], searchCacheMap["audio"], searchActive) {
+        val source = if (searchActive) searchCacheMap["audio"] else nasCacheMap["audio"]
+        source?.items?.map { it.toNasAudioItem() } ?: emptyList()
+    }
+    val documentItems = remember(nasCacheMap["doc"], searchCacheMap["doc"], searchActive) {
+        val source = if (searchActive) searchCacheMap["doc"] else nasCacheMap["doc"]
+        source?.items?.map { it.toNasDocumentItem() } ?: emptyList()
+    }
 
     if (selectedImage != null) rememberedSelectedImage.value = selectedImage
     if (selectedAudio != null) rememberedSelectedAudio.value = selectedAudio
@@ -309,6 +328,19 @@ fun NasScreen(onBack: () -> Unit) {
         loadingMoreMap.clear()
     }
 
+    fun clearNasSearchState(category: NasCategory? = null) {
+        if (category == null) {
+            searchCacheMap.clear()
+            searchErrorMap.clear()
+            searchLoadingMap.clear()
+            return
+        }
+        val kind = category.toNasListKind()
+        searchCacheMap.remove(kind)
+        searchErrorMap.remove(category)
+        searchLoadingMap.remove(category)
+    }
+
     fun requestNasList(category: NasCategory, loadMore: Boolean = false) {
         if (loadingMap[category] == true || loadingMoreMap[category] == true) return
         val kind = category.toNasListKind()
@@ -352,6 +384,70 @@ fun NasScreen(onBack: () -> Unit) {
 
             loadingMap[category] = false
             loadingMoreMap[category] = false
+        }
+    }
+
+    fun requestNasSearch(category: NasCategory, keyword: String) {
+        val normalizedKeyword = keyword.trim()
+        if (normalizedKeyword.isBlank()) {
+            clearNasSearchState(category)
+            return
+        }
+        if (searchLoadingMap[category] == true) return
+
+        val kind = category.toNasListKind()
+        searchLoadingMap[category] = true
+        searchErrorMap.remove(category)
+
+        coroutineScope.launch {
+            sdkSessionManager
+                .searchFilesFromNas(
+                    targetCdi = targetCdi,
+                    kind = kind,
+                    keyword = normalizedKeyword,
+                )
+                .onSuccess { response ->
+                    if (
+                        !isSearchMode ||
+                        selectedCategory != category ||
+                        debouncedSearchQuery != normalizedKeyword
+                    ) {
+                        return@onSuccess
+                    }
+                    val responseError = response.error?.takeIf { it.isNotBlank() }
+                    if (responseError != null) {
+                        searchErrorMap[category] = responseError
+                        searchCacheMap.remove(kind)
+                        return@onSuccess
+                    }
+                    searchErrorMap.remove(category)
+                    searchCacheMap[kind] =
+                        NasCategoryCache(
+                            items = response.items,
+                            nextCursor = response.nextCursor,
+                            hasLoaded = true,
+                        )
+                }
+                .onFailure { error ->
+                    if (
+                        isSearchMode &&
+                        selectedCategory == category &&
+                        debouncedSearchQuery == normalizedKeyword
+                    ) {
+                        searchErrorMap[category] = error.message ?: "搜索失败"
+                        searchCacheMap.remove(kind)
+                    }
+                }
+
+            if (
+                isSearchMode &&
+                selectedCategory == category &&
+                debouncedSearchQuery == normalizedKeyword
+            ) {
+                searchLoadingMap[category] = false
+            } else {
+                searchLoadingMap.remove(category)
+            }
         }
     }
 
@@ -670,12 +766,34 @@ fun NasScreen(onBack: () -> Unit) {
             loadingMap.clear()
             loadingMoreMap.clear()
         }
+        clearNasSearchState()
+        debouncedSearchQuery = ""
     }
 
     LaunchedEffect(selectedCategory, targetCdi) {
         val kind = selectedCategory.toNasListKind()
         if (nasCacheMap[kind]?.hasLoaded == true) return@LaunchedEffect
         requestNasList(selectedCategory, loadMore = false)
+    }
+
+    LaunchedEffect(isSearchMode, selectedCategory, targetCdi, searchQuery) {
+        if (!isSearchMode) {
+            debouncedSearchQuery = ""
+            return@LaunchedEffect
+        }
+        val normalizedQuery = searchQuery.trim()
+        if (normalizedQuery.isEmpty()) {
+            debouncedSearchQuery = ""
+            clearNasSearchState(selectedCategory)
+            return@LaunchedEffect
+        }
+
+        delay(350)
+        val latestQuery = searchQuery.trim()
+        if (!isSearchMode || latestQuery != normalizedQuery) return@LaunchedEffect
+
+        debouncedSearchQuery = latestQuery
+        requestNasSearch(selectedCategory, latestQuery)
     }
 
     val imageMonths = remember(imageItems) { imageItems.toImageMonthGroups() }
@@ -745,6 +863,8 @@ fun NasScreen(onBack: () -> Unit) {
                 isSearchMode = false
                 isSearchSelectionMode = false
                 searchQuery = ""
+                debouncedSearchQuery = ""
+                clearNasSearchState()
             }
             isPhotoSelectionMode || isAudioSelectionMode || isDocumentSelectionMode -> exitAllSelectionModes()
             else -> onBack()
@@ -758,10 +878,16 @@ fun NasScreen(onBack: () -> Unit) {
         NasCategory.Recordings -> isAudioSelectionMode
         NasCategory.Documents -> isDocumentSelectionMode
     }
-    val currentCategoryError = errorMap[selectedCategory]
-    val currentCategoryLoading = loadingMap[selectedCategory] == true
-    val currentCategoryLoadingMore = loadingMoreMap[selectedCategory] == true
-    val currentCategoryHasMore = !nasCacheMap[selectedCategory.toNasListKind()]?.nextCursor.isNullOrBlank()
+    val currentCategoryError = if (searchActive) searchErrorMap[selectedCategory] else errorMap[selectedCategory]
+    val currentCategoryLoading = if (searchActive) searchLoadingMap[selectedCategory] == true else loadingMap[selectedCategory] == true
+    val currentCategoryLoadingMore = if (searchActive) false else loadingMoreMap[selectedCategory] == true
+    val currentCategoryHasMore = if (searchActive) false else !nasCacheMap[selectedCategory.toNasListKind()]?.nextCursor.isNullOrBlank()
+    val currentSearchEmptyText = when {
+        currentCategoryLoading -> null
+        currentCategoryError != null -> currentCategoryError
+        searchActive -> "暂无搜索结果"
+        else -> null
+    }
     val contentBottomPadding = ds.sm(
         when {
             isSearchMode -> 120.dp
@@ -787,8 +913,14 @@ fun NasScreen(onBack: () -> Unit) {
                     style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
                 )
                 NasGlassTextButton(
-                    text = if (nasCacheMap[selectedCategory.toNasListKind()]?.hasLoaded == true) "重新加载" else "重试",
-                    onClick = { requestNasList(selectedCategory, loadMore = false) },
+                    text = if (searchActive) "重新搜索" else if (nasCacheMap[selectedCategory.toNasListKind()]?.hasLoaded == true) "重新加载" else "重试",
+                    onClick = {
+                        if (searchActive) {
+                            requestNasSearch(selectedCategory, debouncedSearchQuery)
+                        } else {
+                            requestNasList(selectedCategory, loadMore = false)
+                        }
+                    },
                     modifier = Modifier.width(ds.sm(132.dp))
                 )
             } else if (!currentCategoryLoading && currentCategoryHasMore) {
@@ -861,7 +993,7 @@ fun NasScreen(onBack: () -> Unit) {
                                 fontWeight = FontWeight.SemiBold
                             )
                         )
-                        Spacer(modifier = Modifier.height(ds.sm(18.dp)))
+                        Spacer(modifier = Modifier.height(ds.sm(8.dp)))
                     } else if (activeTaskCount > 0) {
                         Spacer(modifier = Modifier.height(ds.sm(44.dp)))
                     }
@@ -874,13 +1006,14 @@ fun NasScreen(onBack: () -> Unit) {
                                 imageMonths = imageMonths,
                                 bottomPadding = contentBottomPadding,
                                 scrollState = photoScrollState,
+                                showMonthHeaders = !isSearchMode,
                                 selectionMode = isPhotoSelectionMode,
                                 selectedImageIds = selectedPhotoIds,
                                 onImageClick = { image -> selectedImage = image },
                                 onImageLongClick = { image -> previewImage = image },
                                 onImageSelectionToggle = { image -> togglePhotoSelection(image) },
-                                emptyText = if (currentCategoryLoading) null else "暂无图片",
-                                footer = currentCategoryFooter,
+                                emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无图片",
+                                footer = if (isSearchMode) null else currentCategoryFooter,
                             )
                             NasCategory.Recordings -> NasRecordingsContent(
                                 audioMonths = audios,
@@ -890,8 +1023,8 @@ fun NasScreen(onBack: () -> Unit) {
                                 selectedAudioIds = selectedAudioIds,
                                 onAudioClick = { audio -> selectedAudio = audio },
                                 onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) },
-                                emptyText = if (currentCategoryLoading) null else "暂无音频",
-                                footer = currentCategoryFooter,
+                                emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无音频",
+                                footer = if (isSearchMode) null else currentCategoryFooter,
                             )
                             NasCategory.Documents -> NasDocumentsContent(
                                 documentMonths = documents,
@@ -901,8 +1034,8 @@ fun NasScreen(onBack: () -> Unit) {
                                 selectedDocumentIds = selectedDocumentIds,
                                 onDocumentClick = { document -> selectedDocument = document },
                                 onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) },
-                                emptyText = if (currentCategoryLoading) null else "暂无文档",
-                                footer = currentCategoryFooter,
+                                emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无文档",
+                                footer = if (isSearchMode) null else currentCategoryFooter,
                             )
                         }
                     }
@@ -1120,6 +1253,8 @@ fun NasScreen(onBack: () -> Unit) {
                                 isSearchMode = false
                                 isSearchSelectionMode = false
                                 searchQuery = ""
+                                debouncedSearchQuery = ""
+                                clearNasSearchState()
                             }
                         )
                         if (activeTaskCount > 0) {
@@ -1195,6 +1330,9 @@ fun NasScreen(onBack: () -> Unit) {
                                         exitAllSelectionModes()
                                         isSearchSelectionMode = false
                                         isSearchMode = false
+                                        searchQuery = ""
+                                        debouncedSearchQuery = ""
+                                        clearNasSearchState()
                                         onBack()
                                     }
                                 },
@@ -1311,6 +1449,8 @@ fun NasScreen(onBack: () -> Unit) {
                                 onClick = {
                                     isSearchMode = false
                                     searchQuery = ""
+                                    debouncedSearchQuery = ""
+                                    clearNasSearchState()
                                 },
                                 modifier = Modifier.size(44.dp)
                             )
@@ -1327,11 +1467,12 @@ fun NasScreen(onBack: () -> Unit) {
                             text = "取消选择",
                             onClick = { exitAllSelectionModes() },
                             selected = true,
+                            textStyle = selectionActionTextStyle,
                             modifier = Modifier
-                                .width(140.dp)
-                                .height(48.dp)
+                                .width(ds.sw(140.dp))
+                                .height(ds.sh(48.dp))
                         )
-                        Spacer(modifier = Modifier.size(width = 96.dp, height = 44.dp))
+                        Spacer(modifier = Modifier.size(width = ds.sw(96.dp), height = ds.sh(44.dp)))
                     }
                 } else {
                     NasBottomQuickActions(

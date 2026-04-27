@@ -59,10 +59,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -334,6 +337,14 @@ internal fun NasBottomQuickActions(
     onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val ds = LocalDesignScale.current
+    val selectionActionTextStyle = TextStyle(
+        fontSize = ds.sp(18f),
+        fontStyle = FontStyle.Normal,
+        fontWeight = FontWeight.W600,
+        lineHeight = TextUnit(0f, TextUnitType.Unspecified)
+    )
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -342,9 +353,10 @@ internal fun NasBottomQuickActions(
         NasGlassTextButton(
             text = "选择",
             onClick = onSelectionClick,
+            textStyle = selectionActionTextStyle,
             modifier = Modifier
-                .width(140.dp)
-                .height(48.dp)
+                .width(ds.sw(140.dp))
+                .height(ds.sh(48.dp))
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NasBottomQuickActionIconButton(
@@ -687,6 +699,7 @@ internal fun NasPhotosContent(
     imageMonths: List<NasImageMonthGroup>,
     bottomPadding: Dp = 64.dp,
     scrollState: ScrollState = rememberScrollState(),
+    showMonthHeaders: Boolean = true,
     selectionMode: Boolean = false,
     selectedImageIds: Collection<String> = emptyList(),
     onImageClick: (NasImageItem) -> Unit = {},
@@ -711,11 +724,13 @@ internal fun NasPhotosContent(
             )
         } else {
             imageMonths.forEach { monthGroup ->
-                Text(
-                    text = monthGroup.label,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = Color.White
-                )
+                if (showMonthHeaders) {
+                    Text(
+                        text = monthGroup.label,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.White
+                    )
+                }
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1010,7 +1025,8 @@ internal fun NasGlassTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: DrawableResource? = null,
-    selected: Boolean = false
+    selected: Boolean = false,
+    textStyle: TextStyle? = null
 ) {
     val ds = LocalDesignScale.current
     val shape = RoundedCornerShape(100.dp)
@@ -1061,7 +1077,7 @@ internal fun NasGlassTextButton(
             }
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelLarge.copy(
+                style = textStyle ?: MaterialTheme.typography.labelLarge.copy(
                     fontSize = ds.sp(12f),
                     fontWeight = FontWeight.SemiBold
                 ),
