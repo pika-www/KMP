@@ -7,8 +7,6 @@ import androidios.composeapp.generated.resources.ic_doc
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_image
 import androidios.composeapp.generated.resources.ic_share
-import androidios.composeapp.generated.resources.ic_modal_close
-import androidios.composeapp.generated.resources.`return`
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -246,9 +244,9 @@ internal fun NasUploadProgressDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                painter = painterResource(Res.drawable.`return`),
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "关闭上传进度",
-                                tint = Color.Unspecified,
+                                tint = Color(0xFF717580),
                                 modifier = Modifier.size(ds.sm(16.dp))
                             )
                         }
@@ -272,12 +270,21 @@ internal fun NasUploadProgressDialog(
                         onClick = onDismiss,
                         modifier = Modifier.size(ds.sm(36.dp))
                     ) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_modal_close),
-                            contentDescription = "收起进度",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(ds.sm(32.dp))
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(ds.sm(32.dp))
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.10f))
+                                .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "收起进度",
+                                tint = Color(0xFF717580),
+                                modifier = Modifier.size(ds.sm(18.dp))
+                            )
+                        }
                     }
                 }
 

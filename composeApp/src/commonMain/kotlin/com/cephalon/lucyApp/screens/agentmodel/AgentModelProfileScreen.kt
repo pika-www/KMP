@@ -96,8 +96,6 @@ import androidios.composeapp.generated.resources.cep_bg
 import androidios.composeapp.generated.resources.tc_bg
 import androidios.composeapp.generated.resources.other_bg
 import androidios.composeapp.generated.resources.ic_device_storage
-import androidios.composeapp.generated.resources.ic_modal_close
-import androidios.composeapp.generated.resources.`return`
 import org.jetbrains.compose.resources.painterResource
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.channelDeviceId
@@ -184,7 +182,7 @@ internal fun AgentModelProfileScreen(
             showBackButton = false,
             showCloseButton = false,
             showTopBar = false,
-            topPadding = ds.sh(72.dp),
+            topPadding = 32.dp,
             containerShape = RoundedCornerShape(0.dp),
             containerColor = Color.Transparent,
             contentPadding = PaddingValues(0.dp)
@@ -448,9 +446,9 @@ internal fun AgentModelProfileScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        painter = painterResource(Res.drawable.`return`),
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Back",
-                                        tint = Color.Unspecified,
+                                        tint = Color(0xFF717580),
                                         modifier = Modifier.size(ds.sm(16.dp)),
                                     )
                                 }
@@ -594,9 +592,9 @@ internal fun AgentModelProfileScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        painter = painterResource(Res.drawable.`return`),
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Back",
-                                        tint = Color.Unspecified,
+                                        tint = Color(0xFF717580),
                                         modifier = Modifier.size(ds.sm(16.dp)),
                                     )
                                 }
@@ -943,9 +941,9 @@ private fun ProfileTopBar(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painter = painterResource(Res.drawable.`return`),
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.Unspecified,
+                        tint = Color(0xFF717580),
                         modifier = Modifier.size(ds.sm(16.dp))
                     )
                 }
@@ -974,12 +972,21 @@ private fun ProfileTopBar(
                 onClick = onClose,
                 modifier = Modifier.size(ds.sm(40.dp))
             ) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_modal_close),
-                    contentDescription = "Close",
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(ds.sm(32.dp))
-                )
+                Box(
+                    modifier = Modifier
+                        .size(ds.sm(32.dp))
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = Color(0xFF717580),
+                        modifier = Modifier.size(ds.sm(18.dp))
+                    )
+                }
             }
         } else {
             Spacer(modifier = Modifier.size(ds.sm(40.dp)))

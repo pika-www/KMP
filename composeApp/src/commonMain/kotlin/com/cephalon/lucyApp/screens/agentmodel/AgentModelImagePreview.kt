@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,10 +21,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidios.composeapp.generated.resources.Res
-import androidios.composeapp.generated.resources.ic_modal_close
-import org.jetbrains.compose.resources.painterResource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -77,12 +78,20 @@ internal fun AgentModelImagePreview(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_modal_close),
-                        contentDescription = "Close preview",
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(ds.sm(32.dp))
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(32.dp))
+                            .background(Color.White.copy(alpha = 0.10f), CircleShape)
+                            .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close preview",
+                            tint = Color(0xFF717580),
+                            modifier = Modifier.size(ds.sm(18.dp))
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
