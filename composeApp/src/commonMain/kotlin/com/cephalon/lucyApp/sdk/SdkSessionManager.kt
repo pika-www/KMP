@@ -377,6 +377,17 @@ class SdkSessionManager(
     private val _completedEventKeys = linkedSetOf<String>()
     private val COMPLETED_EVENT_KEYS_MAX_SIZE = 1000
 
+    private data class RequestTimingTrace(
+        val clientSendAt: Long,
+        val payloadTimestamp: Long?,
+        val firstReceiveAt: Long? = null,
+        val finalReceiveAt: Long? = null,
+        val firstReceiveEventType: String? = null,
+        val finalReceiveEventType: String? = null,
+    )
+
+    private val requestTimingTraceMap = mutableMapOf<String, RequestTimingTrace>()
+
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
@@ -647,6 +658,12 @@ class SdkSessionManager(
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
+            val clientSendAt = currentTimeMillis()
+            val payloadTimestamp = extractPayloadTimestamp(payload)
+            requestTimingTraceMap[outgoingMessageId] = RequestTimingTrace(
+                clientSendAt = clientSendAt,
+                payloadTimestamp = payloadTimestamp,
+            )
             _activeRequestIds.update { it + outgoingMessageId }
             _replyStateMap.update { it + (outgoingMessageId to ReplyState()) }
             _latestRequestId = outgoingMessageId
@@ -655,6 +672,12 @@ class SdkSessionManager(
             _streamingStatusText.value = null
             _reasoningText.value = ""
             appLogD(TAG, "发送请求 messageId=$outgoingMessageId，当前活跃: ${_activeRequestIds.value}")
+            logTimingTrace(
+                messageId = outgoingMessageId,
+                phase = "send",
+                clientSendAt = clientSendAt,
+                payloadTimestamp = payloadTimestamp,
+            )
         }
         val userId = activeSession.userId
         val natsSubject = "cephalon.im.npc.$userId.$cdi"
@@ -667,6 +690,7 @@ class SdkSessionManager(
             if (outgoingMessageId != null) {
                 _activeRequestIds.update { it - outgoingMessageId }
                 _replyStateMap.update { it - outgoingMessageId }
+                requestTimingTraceMap.remove(outgoingMessageId)
                 if (_latestRequestId == outgoingMessageId) {
                     _latestRequestId = _activeRequestIds.value.lastOrNull()
                 }
@@ -1678,6 +1702,13 @@ class SdkSessionManager(
             return
         }
         val isLatest = msgId == _latestRequestId
+        val receivedAt = currentTimeMillis()
+        recordReceiveTiming(
+            messageId = msgId,
+            eventType = event.type,
+            backendEventTimestamp = event.timestamp,
+            receivedAt = receivedAt,
+        )
         appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
 
         when (event.type) {
@@ -1908,6 +1939,19 @@ class SdkSessionManager(
             _assistantReplyStreaming.value = false
             _latestRequestId = _activeRequestIds.value.lastOrNull()
         }
+        requestTimingTraceMap[msgId]?.let { trace ->
+            logTimingTrace(
+                messageId = msgId,
+                phase = "complete",
+                clientSendAt = trace.clientSendAt,
+                payloadTimestamp = trace.payloadTimestamp,
+                firstReceiveAt = trace.firstReceiveAt,
+                finalReceiveAt = trace.finalReceiveAt,
+                firstReceiveEventType = trace.firstReceiveEventType,
+                finalReceiveEventType = trace.finalReceiveEventType,
+            )
+        }
+        requestTimingTraceMap.remove(msgId)
         appLogD(TAG, "====== $logLabel msgId=$msgId ====== 剩余活跃: ${_activeRequestIds.value}")
     }
 
@@ -2065,6 +2109,85 @@ class SdkSessionManager(
     private fun extractSourceMessageId(payload: String): String? {
         val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
         return root["source_message_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+
+    private fun extractPayloadTimestamp(payload: String): Long? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        return root["timestamp"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+    }
+
+    private fun recordReceiveTiming(
+        messageId: String,
+        eventType: String,
+        backendEventTimestamp: Long?,
+        receivedAt: Long,
+    ) {
+        val currentTrace = requestTimingTraceMap[messageId]
+        if (currentTrace == null) {
+            logTimingTrace(
+                messageId = messageId,
+                phase = "receive_without_send_trace",
+                backendEventTimestamp = backendEventTimestamp,
+                receivedAt = receivedAt,
+                eventType = eventType,
+            )
+            return
+        }
+
+        val isTerminalEvent = eventType == "assistant.complete" || eventType == "error"
+        val updatedTrace = currentTrace.copy(
+            firstReceiveAt = currentTrace.firstReceiveAt ?: receivedAt,
+            firstReceiveEventType = currentTrace.firstReceiveEventType ?: eventType,
+            finalReceiveAt = if (isTerminalEvent) receivedAt else currentTrace.finalReceiveAt,
+            finalReceiveEventType = if (isTerminalEvent) eventType else currentTrace.finalReceiveEventType,
+        )
+        requestTimingTraceMap[messageId] = updatedTrace
+
+        logTimingTrace(
+            messageId = messageId,
+            phase = if (currentTrace.firstReceiveAt == null) "first_receive" else "receive",
+            clientSendAt = updatedTrace.clientSendAt,
+            payloadTimestamp = updatedTrace.payloadTimestamp,
+            backendEventTimestamp = backendEventTimestamp,
+            receivedAt = receivedAt,
+            firstReceiveAt = updatedTrace.firstReceiveAt,
+            finalReceiveAt = updatedTrace.finalReceiveAt,
+            eventType = eventType,
+            firstReceiveEventType = updatedTrace.firstReceiveEventType,
+            finalReceiveEventType = updatedTrace.finalReceiveEventType,
+        )
+    }
+
+    private fun logTimingTrace(
+        messageId: String,
+        phase: String,
+        clientSendAt: Long? = null,
+        payloadTimestamp: Long? = null,
+        backendEventTimestamp: Long? = null,
+        receivedAt: Long? = null,
+        firstReceiveAt: Long? = null,
+        finalReceiveAt: Long? = null,
+        eventType: String? = null,
+        firstReceiveEventType: String? = null,
+        finalReceiveEventType: String? = null,
+    ) {
+        val sendToFirst = if (clientSendAt != null && firstReceiveAt != null) firstReceiveAt - clientSendAt else null
+        val sendToFinal = if (clientSendAt != null && finalReceiveAt != null) finalReceiveAt - clientSendAt else null
+        val payloadToBackend = if (payloadTimestamp != null && backendEventTimestamp != null) backendEventTimestamp - payloadTimestamp else null
+        val backendToReceive = if (backendEventTimestamp != null && receivedAt != null) receivedAt - backendEventTimestamp else null
+        val payloadToReceive = if (payloadTimestamp != null && receivedAt != null) receivedAt - payloadTimestamp else null
+
+        appLogD(
+            TAG,
+            "[MsgTiming] phase=$phase msgId=$messageId eventType=${eventType ?: "-"} " +
+                "clientSendAt=${clientSendAt ?: "-"} payloadTimestamp=${payloadTimestamp ?: "-"} " +
+                "backendEventTimestamp=${backendEventTimestamp ?: "-"} receivedAt=${receivedAt ?: "-"} " +
+                "firstReceiveAt=${firstReceiveAt ?: "-"}(${firstReceiveEventType ?: "-"}) " +
+                "finalReceiveAt=${finalReceiveAt ?: "-"}(${finalReceiveEventType ?: "-"}) " +
+                "sendToFirst=${sendToFirst ?: "-"}ms sendToFinal=${sendToFinal ?: "-"}ms " +
+                "payloadToBackend=${payloadToBackend ?: "-"}ms backendToReceive=${backendToReceive ?: "-"}ms " +
+                "payloadToReceive=${payloadToReceive ?: "-"}ms",
+        )
     }
 
     private fun hasActiveTransportWork(): Boolean {

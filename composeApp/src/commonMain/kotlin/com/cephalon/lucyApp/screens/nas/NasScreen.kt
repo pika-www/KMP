@@ -98,6 +98,13 @@ internal object NasUploadTaskStore {
     }
 }
 
+internal data class NasSingleDeleteTarget(
+    val fileId: Long,
+    val category: NasCategory,
+    val categoryName: String,
+    val onDeleted: () -> Unit
+)
+
 @Composable
 fun NasScreen(onBack: () -> Unit) {
     val ds = LocalDesignScale.current
@@ -124,6 +131,7 @@ fun NasScreen(onBack: () -> Unit) {
     var lastPickedImagesSize by remember { mutableIntStateOf(0) }
     var lastPickedFilesSize by remember { mutableIntStateOf(0) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var singleDeleteTarget by remember { mutableStateOf<NasSingleDeleteTarget?>(null) }
     val selectedPhotoIds = remember { mutableStateListOf<String>() }
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
@@ -381,6 +389,31 @@ fun NasScreen(onBack: () -> Unit) {
                 refreshNasListAfterUpload(category)
             }
         }
+    }
+
+    fun queueDeleteConfirmation(
+        fileId: Long?,
+        category: NasCategory,
+        categoryName: String,
+        onDeleted: () -> Unit
+    ) {
+        val validFileId = fileId ?: return
+        singleDeleteTarget = NasSingleDeleteTarget(
+            fileId = validFileId,
+            category = category,
+            categoryName = categoryName,
+            onDeleted = onDeleted
+        )
+    }
+
+    fun submitSingleNasSendItem(
+        item: NasSendItem?,
+        afterSubmit: () -> Unit = {}
+    ) {
+        if (item == null) return
+        NasSendToChatStore.submit(listOf(item))
+        afterSubmit()
+        onBack()
     }
 
     fun launchBatchUpload(
@@ -1225,7 +1258,7 @@ fun NasScreen(onBack: () -> Unit) {
                             )
                         }
                     }
-                } else if (isPhotoSelectionMode || isAudioSelectionMode || isDocumentSelectionMode) {
+                } else if (isCurrentSelectionMode) {
                     // 选择模式：退出选择 + 占位符平衡布局
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1302,7 +1335,18 @@ fun NasScreen(onBack: () -> Unit) {
                 targetCdi = targetCdi,
                 onBack = ::handleNasBack,
                 onShare = { currentImage ->
-                    println("分享图片: ${currentImage.name}")
+                    submitSingleNasSendItem(
+                        item = currentImage.fileId?.let {
+                            NasSendItem(
+                                fileId = it,
+                                fileName = currentImage.name,
+                                fileType = NasSendFileType.Image,
+                                previewBlobRef = currentImage.path,
+                                sizeKB = currentImage.sizeKB,
+                                format = currentImage.format,
+                            )
+                        }
+                    )
                 },
                 onDownload = { currentImage ->
                     downloadNasFile(
@@ -1312,8 +1356,13 @@ fun NasScreen(onBack: () -> Unit) {
                     )
                 },
                 onDelete = { currentImage ->
-                    deleteNasFile(currentImage.fileId, NasCategory.Photos)
-                    selectedImage = null
+                    queueDeleteConfirmation(
+                        fileId = currentImage.fileId,
+                        category = NasCategory.Photos,
+                        categoryName = "张照片",
+                    ) {
+                        selectedImage = null
+                    }
                 }
             )
         }
@@ -1332,7 +1381,19 @@ fun NasScreen(onBack: () -> Unit) {
                 mediaController = mediaController,
                 onBack = ::handleNasBack,
                 onShare = {
-                    println("分享音频: ${audio.name}")
+                    submitSingleNasSendItem(
+                        item = audio.fileId?.let {
+                            NasSendItem(
+                                fileId = it,
+                                fileName = audio.name,
+                                fileType = NasSendFileType.Audio,
+                                previewBlobRef = audio.path,
+                                sizeKB = audio.sizeKB,
+                                format = audio.format,
+                            )
+                        },
+                        afterSubmit = { mediaController.stopAudioPlayback() }
+                    )
                 },
                 onDownload = {
                     downloadNasFile(
@@ -1342,9 +1403,14 @@ fun NasScreen(onBack: () -> Unit) {
                     )
                 },
                 onDelete = {
-                    deleteNasFile(audio.fileId, NasCategory.Recordings)
-                    mediaController.stopAudioPlayback()
-                    selectedAudio = null
+                    queueDeleteConfirmation(
+                        fileId = audio.fileId,
+                        category = NasCategory.Recordings,
+                        categoryName = "个音频",
+                    ) {
+                        mediaController.stopAudioPlayback()
+                        selectedAudio = null
+                    }
                 }
             )
         }
@@ -1362,7 +1428,18 @@ fun NasScreen(onBack: () -> Unit) {
                 targetCdi = targetCdi,
                 onBack = ::handleNasBack,
                 onShare = {
-                    println("分享文档: ${document.name}")
+                    submitSingleNasSendItem(
+                        item = document.fileId?.let {
+                            NasSendItem(
+                                fileId = it,
+                                fileName = document.name,
+                                fileType = NasSendFileType.Document,
+                                previewBlobRef = document.path,
+                                sizeKB = document.sizeKB,
+                                format = document.format,
+                            )
+                        }
+                    )
                 },
                 onDownload = {
                     downloadNasFile(
@@ -1372,11 +1449,29 @@ fun NasScreen(onBack: () -> Unit) {
                     )
                 },
                 onDelete = {
-                    deleteNasFile(document.fileId, NasCategory.Documents)
-                    selectedDocument = null
+                    queueDeleteConfirmation(
+                        fileId = document.fileId,
+                        category = NasCategory.Documents,
+                        categoryName = "个文档",
+                    ) {
+                        selectedDocument = null
+                    }
                 }
             )
         }
+    }
+
+    singleDeleteTarget?.let { target ->
+        NasDeleteConfirmPopup(
+            count = 1,
+            categoryName = target.categoryName,
+            onConfirm = {
+                singleDeleteTarget = null
+                deleteNasFile(target.fileId, target.category)
+                target.onDeleted()
+            },
+            onDismiss = { singleDeleteTarget = null }
+        )
     }
 
     previewImage?.let { image ->
