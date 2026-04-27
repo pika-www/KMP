@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
@@ -116,6 +117,7 @@ import com.cephalon.lucyApp.ws.BalanceWsManager
 import com.russhwolf.settings.Settings
 import org.koin.compose.koinInject
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -703,9 +705,12 @@ fun AgentModelScreen(
     val processedEventIds = remember { mutableStateListOf<String>() }
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var composerHeightPx by remember { mutableStateOf(0) }
+    var composerInputFocused by remember { mutableStateOf(false) }
     val audioBlobCacheMap = remember { mutableStateMapOf<String, String>() }
     val loadingAudioBlobRefs = remember { mutableStateListOf<String>() }
     val density = LocalDensity.current
+    val keyboardFollowExtraPx = with(density) { 24.dp.roundToPx() }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
     val toastBottomPadding = with(density) { composerHeightPx.toDp() + 16.dp }
 
     LaunchedEffect(currentCdi, NasSendToChatStore.pendingItems.size) {
@@ -787,6 +792,29 @@ fun AgentModelScreen(
             // +2: top_spacer + bottom_spacer
             val lastIndex = currentMessages.size + 1
             messageListState.animateScrollToItem(lastIndex)
+        }
+    }
+
+    LaunchedEffect(composerInputFocused, imeBottomPx, bottomDistancePx, currentMessages.size) {
+        if (!composerInputFocused || imeBottomPx <= 0 || currentMessages.isEmpty()) return@LaunchedEffect
+        delay(180)
+        if (!composerInputFocused || imeBottomPx <= 0 || currentMessages.isEmpty()) return@LaunchedEffect
+
+        val scrollByPx = (imeBottomPx + bottomDistancePx + keyboardFollowExtraPx).coerceAtLeast(0)
+        if (scrollByPx > 0) {
+            shouldAutoFollowBottom = true
+            var previousValue = 0f
+            animate(
+                initialValue = 0f,
+                targetValue = scrollByPx.toFloat(),
+                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+            ) { value, _ ->
+                val delta = value - previousValue
+                if (delta != 0f) {
+                    messageListState.dispatchRawDelta(delta)
+                }
+                previousValue = value
+            }
         }
     }
 
@@ -2084,6 +2112,7 @@ fun AgentModelScreen(
                         isStopMode = isStopMode,
                         isSendDisabled = false,
                         onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) },
+                        onInputFocusChanged = { composerInputFocused = it },
                         uploadStates = attachmentUploadStates,
                         modifier = Modifier.onSizeChanged { composerHeightPx = it.height },
                     )

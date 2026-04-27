@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -684,6 +685,8 @@ internal fun NasPhotoSelectionRow(
 @Composable
 internal fun NasPhotosContent(
     imageMonths: List<NasImageMonthGroup>,
+    bottomPadding: Dp = 64.dp,
+    scrollState: ScrollState = rememberScrollState(),
     selectionMode: Boolean = false,
     selectedImageIds: Collection<String> = emptyList(),
     onImageClick: (NasImageItem) -> Unit = {},
@@ -696,8 +699,8 @@ internal fun NasPhotosContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 56.dp, bottom = 64.dp),
+            .verticalScroll(scrollState)
+            .padding(top = 56.dp, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (imageMonths.isEmpty() && !emptyText.isNullOrBlank()) {
@@ -762,6 +765,8 @@ internal fun NasPhotosContent(
 @Composable
 internal fun NasRecordingsContent(
     audioMonths: List<NasAudioMonthGroup>,
+    bottomPadding: Dp = 64.dp,
+    scrollState: ScrollState = rememberScrollState(),
     selectionMode: Boolean = false,
     selectedAudioIds: Collection<String> = emptyList(),
     onAudioClick: (NasAudioItem) -> Unit = {},
@@ -773,8 +778,8 @@ internal fun NasRecordingsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(top = ds.sm(56.dp), bottom = ds.sm(64.dp)),
+            .verticalScroll(scrollState)
+            .padding(top = ds.sm(56.dp), bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
         if (audioMonths.isEmpty() && !emptyText.isNullOrBlank()) {
@@ -826,6 +831,8 @@ internal fun NasRecordingsContent(
 @Composable
 internal fun NasDocumentsContent(
     documentMonths: List<NasDocumentMonthGroup>,
+    bottomPadding: Dp = 64.dp,
+    scrollState: ScrollState = rememberScrollState(),
     selectionMode: Boolean = false,
     selectedDocumentIds: Collection<String> = emptyList(),
     onDocumentClick: (NasDocumentItem) -> Unit = {},
@@ -837,8 +844,8 @@ internal fun NasDocumentsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(top = ds.sm(56.dp), bottom = ds.sm(64.dp)),
+            .verticalScroll(scrollState)
+            .padding(top = ds.sm(56.dp), bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
         if (documentMonths.isEmpty() && !emptyText.isNullOrBlank()) {

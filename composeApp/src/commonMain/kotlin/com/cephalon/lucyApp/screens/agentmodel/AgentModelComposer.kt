@@ -62,6 +62,7 @@ import org.jetbrains.compose.resources.painterResource
 import androidios.composeapp.generated.resources.ic_audio
 import androidios.composeapp.generated.resources.ic_doc
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.TextUnit
 
 @Composable
@@ -86,6 +87,7 @@ internal fun AgentModelComposer(
     isStopMode: Boolean = false,
     isSendDisabled: Boolean = false,
     onSuggestionClick: (String) -> Unit,
+    onInputFocusChanged: (Boolean) -> Unit = {},
     uploadStates: Map<String, AttachmentUploadState> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
@@ -156,6 +158,7 @@ internal fun AgentModelComposer(
                     .fillMaxWidth()
                     .heightIn(max = inputLineHeight.value.dp * 6)
                     .verticalScroll(inputScrollState)
+                    .onFocusChanged { onInputFocusChanged(it.isFocused) }
                     .padding(vertical = ds.sm(3.dp)),
                 decorationBox = { innerTextField ->
                     Box {

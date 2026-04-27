@@ -15,15 +15,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -163,6 +168,7 @@ fun NasScreen(onBack: () -> Unit) {
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
     )
+    val imeInsets = WindowInsets.ime
     val detailEnter = slideInHorizontally(
         animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
         initialOffsetX = { it / 3 }
@@ -174,10 +180,35 @@ fun NasScreen(onBack: () -> Unit) {
     val rememberedSelectedImage = remember { mutableStateOf<NasImageItem?>(null) }
     val rememberedSelectedAudio = remember { mutableStateOf<NasAudioItem?>(null) }
     val rememberedSelectedDocument = remember { mutableStateOf<NasDocumentItem?>(null) }
+    val photoScrollState = rememberScrollState()
+    val audioScrollState = rememberScrollState()
+    val documentScrollState = rememberScrollState()
+    val activeScrollState = when (selectedCategory) {
+        NasCategory.Photos -> photoScrollState
+        NasCategory.Recordings -> audioScrollState
+        NasCategory.Documents -> documentScrollState
+    }
+    val imeBottomPx = imeInsets.getBottom(density)
+    var searchFieldFocused by remember { mutableStateOf(false) }
+    var pendingImeScroll by remember { mutableStateOf(false) }
 
     if (selectedImage != null) rememberedSelectedImage.value = selectedImage
     if (selectedAudio != null) rememberedSelectedAudio.value = selectedAudio
     if (selectedDocument != null) rememberedSelectedDocument.value = selectedDocument
+
+    LaunchedEffect(searchFieldFocused, pendingImeScroll, imeBottomPx, activeScrollState.maxValue) {
+        if (!searchFieldFocused || !pendingImeScroll) return@LaunchedEffect
+        if (imeBottomPx <= 0 || activeScrollState.maxValue <= 0) return@LaunchedEffect
+
+        delay(180)
+        if (!searchFieldFocused || !pendingImeScroll) return@LaunchedEffect
+        if (imeBottomPx <= 0 || activeScrollState.maxValue <= 0) return@LaunchedEffect
+
+        if (activeScrollState.maxValue > activeScrollState.value) {
+            activeScrollState.animateScrollTo(activeScrollState.maxValue)
+        }
+        pendingImeScroll = false
+    }
 
     fun appendUploadTasks(tasks: List<NasUploadTaskItem>) {
         NasUploadTaskStore.append(tasks)
@@ -731,6 +762,13 @@ fun NasScreen(onBack: () -> Unit) {
     val currentCategoryLoading = loadingMap[selectedCategory] == true
     val currentCategoryLoadingMore = loadingMoreMap[selectedCategory] == true
     val currentCategoryHasMore = !nasCacheMap[selectedCategory.toNasListKind()]?.nextCursor.isNullOrBlank()
+    val contentBottomPadding = ds.sm(
+        when {
+            isSearchMode -> 120.dp
+            isCurrentSelectionMode -> 112.dp
+            else -> 96.dp
+        }
+    )
     val currentCategoryFooter: @Composable (() -> Unit) = {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -772,6 +810,7 @@ fun NasScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .pointerInput(::handleNasBack, swipeStartEdgePx, swipeBackThresholdPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(pass = PointerEventPass.Initial)
@@ -827,10 +866,14 @@ fun NasScreen(onBack: () -> Unit) {
                         Spacer(modifier = Modifier.height(ds.sm(44.dp)))
                     }
 
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier.weight(1f)
+                    ) {
                         when (selectedCategory) {
                             NasCategory.Photos -> NasPhotosContent(
                                 imageMonths = imageMonths,
+                                bottomPadding = contentBottomPadding,
+                                scrollState = photoScrollState,
                                 selectionMode = isPhotoSelectionMode,
                                 selectedImageIds = selectedPhotoIds,
                                 onImageClick = { image -> selectedImage = image },
@@ -841,6 +884,8 @@ fun NasScreen(onBack: () -> Unit) {
                             )
                             NasCategory.Recordings -> NasRecordingsContent(
                                 audioMonths = audios,
+                                bottomPadding = contentBottomPadding,
+                                scrollState = audioScrollState,
                                 selectionMode = isAudioSelectionMode,
                                 selectedAudioIds = selectedAudioIds,
                                 onAudioClick = { audio -> selectedAudio = audio },
@@ -850,6 +895,8 @@ fun NasScreen(onBack: () -> Unit) {
                             )
                             NasCategory.Documents -> NasDocumentsContent(
                                 documentMonths = documents,
+                                bottomPadding = contentBottomPadding,
+                                scrollState = documentScrollState,
                                 selectionMode = isDocumentSelectionMode,
                                 selectedDocumentIds = selectedDocumentIds,
                                 onDocumentClick = { document -> selectedDocument = document },
@@ -1092,6 +1139,8 @@ fun NasScreen(onBack: () -> Unit) {
                     .align(Alignment.BottomStart)
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 16.dp)
+                    .navigationBarsPadding()
+                    .imePadding()
             ) {
                 if (isSearchMode) {
                     if (isSearchSelectionMode) {
@@ -1224,6 +1273,15 @@ fun NasScreen(onBack: () -> Unit) {
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(44.dp)
+                                    .onFocusChanged { focusState ->
+                                        val isFocused = focusState.isFocused
+                                        if (isFocused && !searchFieldFocused) {
+                                            pendingImeScroll = true
+                                        } else if (!isFocused) {
+                                            pendingImeScroll = false
+                                        }
+                                        searchFieldFocused = isFocused
+                                    }
                                     .background(
                                         color = Color.White.copy(alpha = 0.2f),
                                         shape = RoundedCornerShape(12.dp)
