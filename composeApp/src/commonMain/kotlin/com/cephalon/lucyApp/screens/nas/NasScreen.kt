@@ -114,7 +114,10 @@ internal data class NasSingleDeleteTarget(
 )
 
 @Composable
-fun NasScreen(onBack: () -> Unit) {
+fun NasScreen(
+    onBack: () -> Unit,
+    isVisible: Boolean = true
+) {
     val ds = LocalDesignScale.current
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
@@ -189,6 +192,8 @@ fun NasScreen(onBack: () -> Unit) {
     val imeBottomPx = imeInsets.getBottom(density)
     var searchFieldFocused by remember { mutableStateOf(false) }
     var pendingImeScroll by remember { mutableStateOf(false) }
+    var hasBeenVisible by remember { mutableStateOf(false) }
+    var visibilityRefreshTick by remember { mutableIntStateOf(0) }
     val selectionActionTextStyle = remember(ds) {
         TextStyle(
             fontSize = ds.sp(18f),
@@ -375,6 +380,7 @@ fun NasScreen(onBack: () -> Unit) {
                             items = if (loadMore) cache.items + response.items else response.items,
                             nextCursor = response.nextCursor,
                             hasLoaded = true,
+                            refreshVersion = currentTimeMillisSafe(),
                         )
                     }
                 }
@@ -426,6 +432,7 @@ fun NasScreen(onBack: () -> Unit) {
                             items = response.items,
                             nextCursor = response.nextCursor,
                             hasLoaded = true,
+                            refreshVersion = currentTimeMillisSafe(),
                         )
                 }
                 .onFailure { error ->
@@ -470,6 +477,7 @@ fun NasScreen(onBack: () -> Unit) {
                             items = response.items,
                             nextCursor = response.nextCursor,
                             hasLoaded = true,
+                            refreshVersion = currentTimeMillisSafe(),
                         )
                     }
                 }
@@ -770,9 +778,20 @@ fun NasScreen(onBack: () -> Unit) {
         debouncedSearchQuery = ""
     }
 
-    LaunchedEffect(selectedCategory, targetCdi) {
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        if (hasBeenVisible) {
+            visibilityRefreshTick += 1
+        } else {
+            hasBeenVisible = true
+        }
+    }
+
+    LaunchedEffect(selectedCategory, targetCdi, isVisible, visibilityRefreshTick) {
+        if (!isVisible || targetCdi.isBlank()) return@LaunchedEffect
         val kind = selectedCategory.toNasListKind()
-        if (nasCacheMap[kind]?.hasLoaded == true) return@LaunchedEffect
+        val shouldForceRefresh = visibilityRefreshTick > 0
+        if (!shouldForceRefresh && nasCacheMap[kind]?.hasLoaded == true) return@LaunchedEffect
         requestNasList(selectedCategory, loadMore = false)
     }
 
@@ -1255,6 +1274,9 @@ fun NasScreen(onBack: () -> Unit) {
                                 searchQuery = ""
                                 debouncedSearchQuery = ""
                                 clearNasSearchState()
+                                if (isVisible && targetCdi.isNotBlank()) {
+                                    requestNasList(it, loadMore = false)
+                                }
                             }
                         )
                         if (activeTaskCount > 0) {

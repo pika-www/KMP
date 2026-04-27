@@ -164,6 +164,7 @@ data class NasCategoryCache(
     val items: List<NasFileListItem> = emptyList(),
     val nextCursor: String? = null,
     val hasLoaded: Boolean = false,
+    val refreshVersion: Long = 0L,
 )
 
 private data class PendingNasFileListRequest(

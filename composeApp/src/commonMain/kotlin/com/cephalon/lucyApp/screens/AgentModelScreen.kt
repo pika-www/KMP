@@ -2160,7 +2160,8 @@ fun AgentModelScreen(
                     exit = nasExitSlide,
                 ) {
                     NasScreen(
-                        onBack = { showNasScreen = false }
+                        onBack = { showNasScreen = false },
+                        isVisible = showNasScreen
                     )
                 }
 
