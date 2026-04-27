@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -132,7 +133,7 @@ internal fun NasTopCategoryRow(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         NasCategory.values().forEach { category ->
@@ -141,7 +142,7 @@ internal fun NasTopCategoryRow(
                 icon = category.icon,
                 selected = selected == category,
                 onClick = { onSelect(category) },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
             )
         }
     }
@@ -339,20 +340,54 @@ internal fun NasBottomQuickActions(
     ) {
         NasGlassTextButton(
             text = "选择",
-            onClick = onSelectionClick
+            onClick = onSelectionClick,
+            modifier = Modifier
+                .width(140.dp)
+                .height(48.dp)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NasGlassCircleButton(
+            NasBottomQuickActionIconButton(
                 imageVector = Icons.Outlined.Add,
                 contentDescription = "新增",
                 onClick = onAddClick,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(48.dp)
             )
-            NasGlassCircleButton(
+            NasBottomQuickActionIconButton(
                 imageVector = Icons.Outlined.Search,
                 contentDescription = "搜索",
                 onClick = onSearchClick,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(48.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun NasBottomQuickActionIconButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = CircleShape
+
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        color = NasGlassButtonBg,
+        border = BorderStroke(1.dp, NasGlassButtonBorder)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                tint = Color.White
             )
         }
     }
@@ -1445,7 +1480,10 @@ internal fun NasDeleteConfirmPopup(
     val ds = LocalDesignScale.current
     Popup(
         alignment = Alignment.TopEnd,
-        offset = IntOffset(0, with(LocalDensity.current) { ds.sm(40.dp).roundToPx() }),
+        offset = IntOffset(
+            with(LocalDensity.current) { (-20).dp.roundToPx() },
+            with(LocalDensity.current) { ds.sm(52.dp).roundToPx() }
+        ),
         onDismissRequest = onDismiss
     ) {
         Surface(

@@ -834,7 +834,7 @@ fun NasScreen(onBack: () -> Unit) {
                     .fillMaxWidth()
                     .align(Alignment.TopStart)
                     .padding(horizontal = 16.dp)
-                    .padding(top = 8.dp, bottom = 16.dp)
+                    .padding(top = 9.dp, bottom = 9.dp)
             ) {
                 if (isSearchMode) {
                     if (isSearchSelectionMode) {
@@ -1233,9 +1233,12 @@ fun NasScreen(onBack: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         NasGlassTextButton(
-                            text = "退出选择",
+                            text = "取消选择",
                             onClick = { exitAllSelectionModes() },
-                            selected = true
+                            selected = true,
+                            modifier = Modifier
+                                .width(140.dp)
+                                .height(48.dp)
                         )
                         Spacer(modifier = Modifier.size(width = 96.dp, height = 44.dp))
                     }
