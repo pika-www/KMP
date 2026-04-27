@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.media.PlatformImagePreview
@@ -121,10 +122,27 @@ internal fun AgentModelImagePreview(
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
-                    PlatformImagePreview(
-                        uri = images[page],
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    val imageSource = images[page]
+                    if (imageSource.isLocalAttachmentSource()) {
+                        PlatformImagePreview(
+                            uri = imageSource,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        BlobImage(
+                            blobRef = imageSource,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            errorContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black)
+                                )
+                            }
+                        )
+                    }
                 }
             }
 
@@ -155,14 +173,32 @@ internal fun AgentModelImagePreview(
                                 containerColor = if (isSelected) Color(0xFF2A2A2A) else Color(0xFF161616)
                             )
                         ) {
-                            PlatformImageThumbnail(
-                                uri = uri,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (uri.isLocalAttachmentSource()) {
+                                PlatformImageThumbnail(
+                                    uri = uri,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                BlobImage(
+                                    blobRef = uri,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+private fun String.isLocalAttachmentSource(): Boolean {
+    val value = trim()
+    return value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("ph://") ||
+        value.startsWith("ios-phasset://") ||
+        value.startsWith("assets-library://") ||
+        value.startsWith("/")
 }
