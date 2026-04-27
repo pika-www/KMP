@@ -141,6 +141,7 @@ import com.cephalon.lucyApp.screens.nas.NasDocumentDetailScreen
 import com.cephalon.lucyApp.screens.nas.NasDocumentItem
 import com.cephalon.lucyApp.screens.nas.NasImageDetailScreen
 import com.cephalon.lucyApp.screens.nas.NasImageItem
+import com.cephalon.lucyApp.screens.nas.NasScreen
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -684,6 +685,7 @@ fun AgentModelScreen(
     var showRechargePage by remember { mutableStateOf(false) }
     var showRechargePackagePage by remember { mutableStateOf(false) }
     var showNasNotSupportedDialog by remember { mutableStateOf(false) }
+    var showNasScreen by remember { mutableStateOf(false) }
     var taobaoLinkUrl by remember { mutableStateOf<String?>(null) }
     var showSearchPage by remember { mutableStateOf(false) }
     var emptyViewState by remember { mutableStateOf(0) }
@@ -1775,6 +1777,14 @@ fun AgentModelScreen(
     val detailExitSlide = slideOutHorizontally(
         animationSpec = tween(200, easing = FastOutSlowInEasing)
     ) { it / 5 } + fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing))
+    val nasEnterSlide = slideInHorizontally(
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        initialOffsetX = { it / 3 }
+    ) + fadeIn(animationSpec = tween(durationMillis = 240))
+    val nasExitSlide = slideOutHorizontally(
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        targetOffsetX = { it / 3 }
+    ) + fadeOut(animationSpec = tween(durationMillis = 180))
     val imageEnter = fadeIn(animationSpec = tween(260)) + scaleIn(
         initialScale = 0.92f, animationSpec = tween(260, easing = FastOutSlowInEasing)
     )
@@ -1795,6 +1805,13 @@ fun AgentModelScreen(
     if (selectedChatAudio != null) rememberedChatAudio.value = selectedChatAudio
     if (selectedChatDocument != null) rememberedChatDocument.value = selectedChatDocument
     if (selectedRecordingAudio != null) rememberedRecordingAudio.value = selectedRecordingAudio
+
+    fun openNasScreen() {
+        focusManager.clearFocus()
+        attachmentsExpanded = false
+        previewState = null
+        showNasScreen = true
+    }
 
     DesignScaleProvider {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1836,7 +1853,7 @@ fun AgentModelScreen(
                                         val device = if (!cdi.isNullOrBlank())
                                             authRepository.findDeviceByChannelDeviceId(cdi) else null
                                         if (device?.deviceType == "ai_npc") {
-                                            onNavigateToNas()
+                                            openNasScreen()
                                         } else {
                                             showNasNotSupportedDialog = true
                                         }
@@ -2102,11 +2119,21 @@ fun AgentModelScreen(
                 AgentModelProfileScreen(
                     isVisible = showProfilePage,
                     onDismiss = { showProfilePage = false },
-                    onNavigateToNas = onNavigateToNas,
+                    onNavigateToNas = ::openNasScreen,
                     onNavigateToHome = onNavigateToHome,
                     onLogout = onLogout,
                     modifier = Modifier.fillMaxSize()
                 )
+
+                AnimatedVisibility(
+                    visible = showNasScreen,
+                    enter = nasEnterSlide,
+                    exit = nasExitSlide,
+                ) {
+                    NasScreen(
+                        onBack = { showNasScreen = false }
+                    )
+                }
 
                 AnimatedVisibility(
                     visible = showRechargePage,
