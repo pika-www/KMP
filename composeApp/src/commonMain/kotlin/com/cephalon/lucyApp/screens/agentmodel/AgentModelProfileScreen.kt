@@ -16,6 +16,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +42,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.ButtonDefaults
@@ -373,6 +376,7 @@ internal fun AgentModelProfileScreen(
                                     ProfileMenuItemNew(
                                         icon = ClearCacheIcon,
                                         title = "清除缓存",
+                                        showArrow = false,
                                         onClick = { showClearCacheDialog = true }
                                     )
                                 }
@@ -1147,37 +1151,34 @@ internal fun BrainPowerBalancePage(
     onNavigateToPackage: () -> Unit,
 ) {
     val authRepository: AuthRepository = koinInject()
+    val iapManager: IAPManager = koinInject()
     val balanceWsManager: BalanceWsManager = koinInject()
     val balanceData by balanceWsManager.balance.collectAsState()
     val uriHandler = LocalUriHandler.current
     val isIos = remember { getPlatform().name.startsWith("iOS", ignoreCase = true) }
     val coroutineScope = rememberCoroutineScope()
     val ds = LocalDesignScale.current
+    val toastState = rememberToastState()
+
+    // 支付状态（与原 RechargePackagePage 一致）
+    var isPurchasing by remember { mutableStateOf(false) }
+    var purchasingPkgPrice by remember { mutableStateOf<Double?>(null) }
+    var resultMessage by remember { mutableStateOf("") }
 
     val paidBalance = balanceData.balances["1"] ?: 0L
     val freeBalance = balanceData.balances["4"] ?: 0L
     val totalBalance = paidBalance + freeBalance
 
-    // 用量记录分页状态：
-    //  - [records] 累积列表，随滚动不断 append；
-    //  - [nextPage] 下一次要请求的页码（从 1 开始），请求成功后 +1；
-    //  - [hasMore]  用 "本页长度 < pageSize" 作为 "已到末页" 的启发式判断；
-    //  - [isLoading]/[loadError] 驱动 UI 显示 loading footer / 错误 footer。
+    // 用量记录分页
     val records = remember { mutableStateListOf<ModelRecordItem>() }
     var nextPage by remember { mutableStateOf(1) }
     var isLoading by remember { mutableStateOf(false) }
     var hasMore by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
 
-    // 触发下一页加载。**`isLoading=true` 必须同步写**（在 launch 外面），否则 LaunchedEffect(Unit)
-    // 的 loadMore 和 LaunchedEffect(shouldLoadMore,...) 的 loadMore 可能在同一帧先后触发：
-    // 第一次 load 把 `isLoading=true` 放在协程里等调度，LazyColumn 首次 layout 时 `shouldLoadMore`
-    // 会瞬间为 true（records 还空、总项数只有 4），第二个 LaunchedEffect 检查到 `isLoading=false`
-    // 直接放行，两次 loadMore 都以 pageIndex=1 发出去 → `records.addAll` 同一批两次
-    // → LazyColumn `key` 冲突 → IllegalArgumentException 崩溃。
-    //
-    // 失败时 hasMore 仍保留为 true，方便用户点 "重试" footer；
-    // 成功返回空页或不足一页时关掉 hasMore，UI 切到 "已加载全部" footer。
+    // 充值规则（赠送比例）
+    var rules by remember { mutableStateOf<List<RechargeRuleItem>>(emptyList()) }
+
     val loadMore: () -> Unit = load@{
         if (isLoading || !hasMore) return@load
         isLoading = true
@@ -1191,8 +1192,6 @@ internal fun BrainPowerBalancePage(
                 )
                 val data = resp.data
                 if (resp.code == 20000 && data != null) {
-                    // 兜底去重：后端极端情况下可能因分页边界返回重叠行；LazyColumn key
-                    // 用的是 record.id，重复 id 会直接抛 IllegalArgumentException。
                     val existingIds = records.mapNotNullTo(HashSet()) {
                         it.id.takeIf { id -> id.isNotBlank() }
                     }
@@ -1209,16 +1208,16 @@ internal fun BrainPowerBalancePage(
         }
     }
 
-    // 首次进入：刷新余额 + 拉第一页。
     LaunchedEffect(Unit) {
         balanceWsManager.refreshBalance()
         loadMore()
+        // 拉取充值规则
+        val rulesResp = authRepository.getRechargeRules()
+        if (rulesResp.code == 20000 && rulesResp.data != null) {
+            rules = rulesResp.data
+        }
     }
 
-    // 分页触底检测：scrollState 绑定到 UsageRecordsCard 内部的 verticalScroll，
-    // 页面其余部分（返回按钮、标题、余额卡片、用量详情标题）固定不动。
-    // scroll.maxValue = 可滚距离，value = 当前偏移，
-    // 剩余 < 240dp 时就提前预取下一页，避免用户滚到底看到 loading。
     val scrollState = rememberScrollState()
     LaunchedEffect(scrollState.value, scrollState.maxValue, hasMore, isLoading) {
         if (scrollState.maxValue > 0 &&
@@ -1229,9 +1228,19 @@ internal fun BrainPowerBalancePage(
         }
     }
 
-    // 扣费规则弹窗开合状态。放在 Page 里而不是父级：关闭 sheet 时整段 Page 被 unmount，
-    // 弹窗也就自动消失；不需要外层再额外持有 / 同步状态。
     var showRulesDialog by remember { mutableStateOf(false) }
+    var showRechargeRulesDialog by remember { mutableStateOf(false) }
+    var showPackageDialog by remember { mutableStateOf(false) }
+    var selectedPackageIndex by remember { mutableStateOf(0) }
+
+    val onRechargeClick: () -> Unit = {
+        if (isIos) {
+            selectedPackageIndex = 0
+            showPackageDialog = true
+        } else {
+            uriHandler.openUri("https://cephalon.cloud")
+        }
+    }
 
     Box(
         modifier = modifier.background(Color(0xFFFAFAFC)),
@@ -1239,7 +1248,7 @@ internal fun BrainPowerBalancePage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (showRulesDialog) Modifier.blur(ds.sm(2.dp)) else Modifier)
+                .then(if (showRulesDialog || showRechargeRulesDialog || showPackageDialog) Modifier.blur(ds.sm(2.dp)) else Modifier)
                 .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
@@ -1257,54 +1266,234 @@ internal fun BrainPowerBalancePage(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = ds.sw(20.dp)),
+                    .weight(1f),
             ) {
+                // ── 脑花 · 脑力值总额 (距离顶部返回按钮 28px) ──
                 Spacer(modifier = Modifier.height(ds.sh(28.dp)))
-
-                // ── 「脑力值」section label ──
                 Text(
-                    text = "脑力值",
-                    fontSize = ds.sp(12f),
+                    text = "脑花 · 脑力值总额",
+                    fontSize = ds.sp(10f),
                     fontWeight = FontWeight.Medium,
                     color = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-
-                // ── 余额大卡片 ──
-                BrainPowerBalanceCard(
-                    totalBalance = totalBalance,
-                    paidBalance = paidBalance,
-                    freeBalance = freeBalance,
-                    onRechargeClick = {
-                        if (isIos) {
-                            onNavigateToPackage()
-                        } else {
-                            uriHandler.openUri("https://cephalon.cloud")
-                        }
-                    },
-                )
-
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
-
-                // ── "用量详情" 小标题 + ⓘ ──
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // ── 余额总数 (距离小标题 4px) ──
+                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = ds.sw(20.dp)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        text = "用量详情",
-                        fontSize = ds.sp(12f),
+                        text = formatWithCommas(totalBalance),
+                        fontSize = ds.sp(48f),
                         fontWeight = FontWeight.Medium,
-                        color = Color.Black.copy(alpha = 0.60f),
+                        color = Color.Black,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                    Spacer(modifier = Modifier.width(ds.sw(16.dp)))
+                    // ── 充值按钮 ──
+                    Box(
+                        modifier = Modifier
+                            .shadow(
+                                elevation = 30.dp,
+                                shape = RoundedCornerShape(ds.sm(100.dp)),
+                                ambientColor = Color.Black.copy(alpha = 0.05f),
+                                spotColor = Color.Black.copy(alpha = 0.05f),
+                            )
+                            .clip(RoundedCornerShape(ds.sm(100.dp)))
+                            .background(Color.Black)
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            ) { onRechargeClick() }
+                            .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(8.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "充值",
+                            fontSize = ds.sp(14f),
+                            fontWeight = FontWeight.Normal,
+                            color = Color.White,
+                        )
+                    }
+                }
+
+                // ── 余额构成 (距离余额 16px) ──
+                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                Text(
+                    text = "余额构成",
+                    fontSize = ds.sp(10f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
+                )
+
+                // ── 条形图 (距离标题 12px) ──
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                val barHeight = ds.sh(8.dp)
+                val barShape = RoundedCornerShape(ds.sm(4.dp))
+                val total = (paidBalance + freeBalance).coerceAtLeast(1L).toFloat()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = ds.sw(20.dp))
+                        .height(barHeight)
+                        .clip(barShape)
+                        .background(Color(0xFFE1E1E3)),
+                ) {
+                    if (paidBalance > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = paidBalance / total)
+                                .background(Color.Black),
+                        )
+                    }
+                }
+
+                // ── 图例 (距离条形图 12px) ──
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = ds.sw(20.dp)),
+                ) {
+                    // 充值脑力值
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(ds.sm(8.dp))
+                                    .background(Color.Black),
+                            )
+                            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                            Text(
+                                text = "充值脑力值",
+                                fontSize = ds.sp(10f),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black.copy(alpha = 0.60f),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                        Text(
+                            text = formatWithCommas(paidBalance),
+                            fontSize = ds.sp(10f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Black.copy(alpha = 0.90f),
+                            modifier = Modifier.padding(start = ds.sw(16.dp)),
+                        )
+                    }
+                    // 免费脑力值
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(ds.sm(8.dp))
+                                    .background(Color(0xFFE1E1E3)),
+                            )
+                            Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                            Text(
+                                text = "免费脑力值",
+                                fontSize = ds.sp(10f),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black.copy(alpha = 0.60f),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                        Text(
+                            text = formatWithCommas(freeBalance),
+                            fontSize = ds.sp(10f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Black.copy(alpha = 0.90f),
+                            modifier = Modifier.padding(start = ds.sw(16.dp)),
+                        )
+                    }
+                }
+
+                // ── 快速充值 (距离上方 24px) ──
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = ds.sw(20.dp)),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "快速充值",
+                        fontSize = ds.sp(10f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Black.copy(alpha = 0.60f),
+                        lineHeight = ds.sp(16f),
+                    )
+                    Text(
+                        text = "更多 >",
+                        fontSize = ds.sp(10f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Black.copy(alpha = 0.60f),
+                        lineHeight = ds.sp(16f),
+                        modifier = Modifier.clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        ) {
+                            selectedPackageIndex = 0
+                            showPackageDialog = true
+                        },
+                    )
+                }
+
+                // ── 横向可滑动套餐卡片 ──
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = ds.sw(20.dp)),
+                    horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp)),
+                ) {
+                    fixedPackages.forEach { pkg ->
+                        val giftPercent = findGiftPercent(pkg.price, rules)
+                        val gift = pkg.base * giftPercent / 100
+                        val totalCep = pkg.base + gift
+                        val tagText = pkg.tag ?: if (giftPercent > 0) "赠 ${giftPercent}%" else ""
+                        QuickRechargeCard(
+                            tagText = tagText,
+                            cepValue = totalCep,
+                            price = pkg.price,
+                            onClick = {
+                                val idx = fixedPackages.indexOf(pkg)
+                                selectedPackageIndex = if (idx >= 0) idx else 0
+                                showPackageDialog = true
+                            },
+                        )
+                    }
+                }
+
+                // ── 用量明细 (距离上方 24px) ──
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Row(
+                    modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "用量明细",
+                        fontSize = ds.sp(10f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Black.copy(alpha = 0.60f),
+                        lineHeight = ds.sp(16f),
+                    )
+                    Spacer(modifier = Modifier.width(ds.sw(4.dp)))
                     Icon(
                         imageVector = Icons.Outlined.Info,
                         contentDescription = "脑力值扣费规则",
                         tint = Color.Black.copy(alpha = 0.40f),
                         modifier = Modifier
-                            .size(ds.sm(20.dp))
+                            .size(ds.sm(14.dp))
                             .clickable(
                                 indication = null,
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -1312,18 +1501,90 @@ internal fun BrainPowerBalancePage(
                     )
                 }
 
+                // ── 用量记录列表 (距离标题 12px) ──
                 Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = ds.sw(20.dp))
+                        .verticalScroll(scrollState),
+                ) {
+                    records.forEachIndexed { idx, record ->
+                        if (idx > 0) {
+                            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                        }
+                        UsageRecordRow(
+                            time = formatRecordTime(record.createdAt),
+                            modelName = record.edges?.model?.name.orEmpty(),
+                            amount = "-${record.inputCepCost + record.outputCepCost}",
+                        )
+                    }
 
-                // ── 用量列表卡片 ──
-                UsageRecordsCard(
-                    modifier = Modifier.weight(1f),
-                    scrollState = scrollState,
-                    records = records,
-                    isLoading = isLoading,
-                    loadError = loadError,
-                    hasMore = hasMore,
-                    onRetry = { loadMore() },
-                )
+                    when {
+                        isLoading -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = ds.sh(16.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(ds.sm(20.dp)),
+                                    strokeWidth = 2.dp,
+                                    color = Color.Black.copy(alpha = 0.40f),
+                                )
+                            }
+                        }
+                        loadError != null -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = ds.sh(12.dp)),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    text = loadError ?: "",
+                                    fontSize = ds.sp(12f),
+                                    color = Color.Black.copy(alpha = 0.60f),
+                                )
+                                TextButton(onClick = { loadMore() }) {
+                                    Text(text = "点击重试", color = Color.Black)
+                                }
+                            }
+                        }
+                        records.isEmpty() && !hasMore -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = ds.sh(24.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "暂无用量记录",
+                                    fontSize = ds.sp(12f),
+                                    color = Color.Black.copy(alpha = 0.60f),
+                                )
+                            }
+                        }
+                        !hasMore -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = ds.sh(12.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "已加载全部",
+                                    fontSize = ds.sp(12f),
+                                    color = Color.Black.copy(alpha = 0.40f),
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+                }
             }
         }
 
@@ -1342,251 +1603,588 @@ internal fun BrainPowerBalancePage(
                 BrainPowerRulesDialog(onDismiss = { showRulesDialog = false })
             }
         }
-    }
-}
 
-/* ───────── Brain-power balance card (light) ───────── */
-
-@Composable
-private fun BrainPowerBalanceCard(
-    totalBalance: Long,
-    paidBalance: Long,
-    freeBalance: Long,
-    onRechargeClick: () -> Unit,
-) {
-    val ds = LocalDesignScale.current
-    val cardShape = RoundedCornerShape(ds.sm(16.dp))
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 30.dp,
-                shape = cardShape,
-                ambientColor = Color.Black.copy(alpha = 0.05f),
-                spotColor = Color.Black.copy(alpha = 0.05f),
-            )
-            .clip(cardShape)
-            .background(Color.White)
-            .padding(ds.sm(20.dp)),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // ── 顶部行：余额 + 充值按钮 ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "账户余额/脑力值",
-                        fontSize = ds.sp(10f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color.Black.copy(alpha = 0.60f),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                    Text(
-                        text = totalBalance.toString(),
-                        fontSize = ds.sp(32f),
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
-
-                // ── 充值按钮：96x40, black bg, 100dp radius ──
-                Box(
-                    modifier = Modifier
-                        .width(ds.sw(96.dp))
-                        .height(ds.sh(40.dp))
-                        .shadow(
-                            elevation = 30.dp,
-                            shape = RoundedCornerShape(ds.sm(100.dp)),
-                            ambientColor = Color.Black.copy(alpha = 0.05f),
-                            spotColor = Color.Black.copy(alpha = 0.05f),
-                        )
-                        .clip(RoundedCornerShape(ds.sm(100.dp)))
-                        .background(Color.Black)
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        ) { onRechargeClick() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "充值",
-                        fontSize = ds.sp(16f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color.White,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-
-            // ── 0.5dp 分割线 ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(0.5.dp)
-                    .background(Color.Black.copy(alpha = 0.10f)),
-            )
-
-            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
-            // ── 底部双列：充值脑力值余额 / 免费脑力值余额 ──
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "充值脑力值余额",
-                        fontSize = ds.sp(10f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color.Black.copy(alpha = 0.60f),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-                    Text(
-                        text = paidBalance.toString(),
-                        fontSize = ds.sp(12f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "免费脑力值余额",
-                        fontSize = ds.sp(10f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color.Black.copy(alpha = 0.60f),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-                    Text(
-                        text = freeBalance.toString(),
-                        fontSize = ds.sp(12f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/* ───────── Usage records card (light) ───────── */
-
-@Composable
-private fun UsageRecordsCard(
-    modifier: Modifier = Modifier,
-    scrollState: ScrollState = rememberScrollState(),
-    records: List<ModelRecordItem>,
-    isLoading: Boolean,
-    loadError: String?,
-    hasMore: Boolean,
-    onRetry: () -> Unit,
-) {
-    val ds = LocalDesignScale.current
-    val cardShape = RoundedCornerShape(ds.sm(16.dp))
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 30.dp,
-                shape = cardShape,
-                ambientColor = Color.Black.copy(alpha = 0.05f),
-                spotColor = Color.Black.copy(alpha = 0.05f),
-            )
-            .clip(cardShape)
-            .background(Color.White)
-            .padding(horizontal = ds.sw(20.dp)),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(scrollState),
-        ) {
-            records.forEachIndexed { idx, record ->
-                if (idx > 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(Color.Black.copy(alpha = 0.10f)),
-                    )
-                }
-                UsageRecordRow(
-                    time = formatRecordTime(record.createdAt),
-                    modelName = record.edges?.model?.name.orEmpty(),
-                    amount = "-${record.inputCepCost + record.outputCepCost}",
-                )
-            }
-
-            when {
-                isLoading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = ds.sh(16.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(ds.sm(20.dp)),
-                            strokeWidth = 2.dp,
-                            color = Color.Black.copy(alpha = 0.40f),
-                        )
-                    }
-                }
-                loadError != null -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = ds.sh(12.dp)),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = loadError,
-                            fontSize = ds.sp(12f),
-                            color = Color.Black.copy(alpha = 0.60f),
-                        )
-                        TextButton(onClick = onRetry) {
-                            Text(text = "点击重试", color = Color.Black)
+        // 充值套餐弹窗（使用项目 HalfModalBottomSheet）
+        RechargePackageSheet(
+            isVisible = showPackageDialog,
+            rules = rules,
+            initialSelectedIndex = selectedPackageIndex,
+            onDismiss = { showPackageDialog = false },
+            onShowRechargeRules = { showRechargeRulesDialog = true },
+            isPurchasing = isPurchasing,
+            onConfirmPay = { pkg ->
+                if (!isPurchasing) {
+                    coroutineScope.launch {
+                        purchasingPkgPrice = pkg.price
+                        isPurchasing = true
+                        try {
+                            val ok = handleRechargePackageClick(
+                                pkg = pkg,
+                                authRepository = authRepository,
+                                iapManager = iapManager,
+                                onResult = { msg -> resultMessage = msg },
+                            )
+                            toastState.show(resultMessage)
+                            if (ok) {
+                                runCatching { balanceWsManager.refreshBalance() }
+                                showPackageDialog = false
+                            }
+                        } finally {
+                            isPurchasing = false
+                            purchasingPkgPrice = null
+                            resultMessage = ""
                         }
                     }
                 }
-                records.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = ds.sh(24.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "暂无用量记录",
-                            fontSize = ds.sp(12f),
-                            color = Color.Black.copy(alpha = 0.60f),
-                        )
-                    }
-                }
-                !hasMore -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = ds.sh(12.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "已加载全部",
-                            fontSize = ds.sp(12f),
-                            color = Color.Black.copy(alpha = 0.40f),
-                        )
+            },
+        )
+
+        // 充值协议规则弹窗（放在 Sheet 之后，确保渲染在最上层）
+        if (showRechargeRulesDialog) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color(0x99000000))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    ) { showRechargeRulesDialog = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                RechargeRulesInfoDialog(onDismiss = { showRechargeRulesDialog = false })
+            }
+        }
+
+        ToastHost(toastState)
+    }
+}
+
+/* ───────── Quick recharge card ───────── */
+
+@Composable
+private fun QuickRechargeCard(
+    tagText: String,
+    cepValue: Long,
+    price: Double,
+    onClick: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val cardShape = RoundedCornerShape(ds.sm(16.dp))
+    Column(
+        modifier = Modifier
+            .width(ds.sw(120.dp))
+            .shadow(
+                elevation = 30.dp,
+                shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.05f),
+                spotColor = Color.Black.copy(alpha = 0.05f),
+            )
+            .clip(cardShape)
+            .background(Color.Black.copy(alpha = 0.05f))
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            ) { onClick() }
+            .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(8.dp)),
+    ) {
+        // 标签 (体验 / 赠 3% / …)
+        Text(
+            text = tagText,
+            fontSize = ds.sp(10f),
+            fontWeight = FontWeight.Medium,
+            color = Color.Black.copy(alpha = 0.90f),
+        )
+        // 脑力值
+        Text(
+            text = "脑力值 ${formatWithCommas(cepValue)}",
+            fontSize = ds.sp(10f),
+            fontWeight = FontWeight.Normal,
+            color = Color.Black.copy(alpha = 0.40f),
+        )
+        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+        // 价格
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = "¥",
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Medium,
+                color = Color.Black.copy(alpha = 0.60f),
+            )
+            Text(
+                text = if (price == price.toLong().toDouble()) price.toLong().toString()
+                       else price.toString(),
+                fontSize = ds.sp(32f),
+                fontWeight = FontWeight.Medium,
+                color = Color.Black.copy(alpha = 0.90f),
+            )
+        }
+    }
+}
+
+/* ───────── Number formatting helper ───────── */
+
+private fun formatWithCommas(value: Long): String {
+    val s = value.toString()
+    val sb = StringBuilder()
+    var count = 0
+    for (i in s.lastIndex downTo 0) {
+        if (s[i] == '-') { sb.append('-'); continue }
+        if (count > 0 && count % 3 == 0) sb.append(',')
+        sb.append(s[i])
+        count++
+    }
+    return sb.reverse().toString()
+}
+
+/* ───────── Recharge Package Sheet (HalfModalBottomSheet) ───────── */
+
+@Composable
+private fun RechargePackageSheet(
+    isVisible: Boolean,
+    rules: List<RechargeRuleItem>,
+    initialSelectedIndex: Int,
+    onDismiss: () -> Unit,
+    onShowRechargeRules: () -> Unit,
+    isPurchasing: Boolean,
+    onConfirmPay: (FixedPackage) -> Unit,
+) {
+    val ds = LocalDesignScale.current
+
+    var selectedIndex by remember { mutableStateOf(initialSelectedIndex.coerceIn(fixedPackages.indices)) }
+
+    // 弹窗打开时同步外部传入的 initialSelectedIndex
+    LaunchedEffect(isVisible, initialSelectedIndex) {
+        if (isVisible) {
+            selectedIndex = initialSelectedIndex.coerceIn(fixedPackages.indices)
+        }
+    }
+
+    val selectedPkg = fixedPackages[selectedIndex]
+    val priceText = if (selectedPkg.price == selectedPkg.price.toLong().toDouble())
+        selectedPkg.price.toLong().toString() else selectedPkg.price.toString()
+
+    HalfModalBottomSheet(
+        isVisible = isVisible,
+        onDismissRequest = onDismiss,
+        onDismissed = {},
+        showTopBar = false,
+        topPadding = ds.sh(60.dp),
+        containerColor = Color(0xFFFAFAFC),
+        contentPadding = PaddingValues(start = ds.sw(20.dp), end = ds.sw(20.dp), bottom = ds.sh(24.dp)),
+    ) {
+        // ── 标题行 ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "选择充值金额",
+                fontSize = ds.sp(20f),
+                fontWeight = FontWeight.Medium,
+                color = Color.Black.copy(alpha = 0.90f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "关闭",
+                tint = Color.Black.copy(alpha = 0.40f),
+                modifier = Modifier
+                    .size(ds.sm(24.dp))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    ) { onDismiss() },
+            )
+        }
+
+        Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+
+        // ── 3列套餐网格 ──
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(ds.sh(12.dp)),
+        ) {
+            for (rowStart in fixedPackages.indices step 3) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp)),
+                ) {
+                    for (col in 0 until 3) {
+                        val idx = rowStart + col
+                        if (idx < fixedPackages.size) {
+                            val pkg = fixedPackages[idx]
+                            val giftPercent = findGiftPercent(pkg.price, rules)
+                            val gift = pkg.base * giftPercent / 100
+                            val totalCep = pkg.base + gift
+                            val tagText = pkg.tag ?: if (giftPercent > 0) "赠 ${giftPercent}%" else ""
+                            val isSelected = idx == selectedIndex
+                            DialogPackageCard(
+                                tagText = tagText,
+                                cepValue = totalCep,
+                                price = pkg.price,
+                                isSelected = isSelected,
+                                onClick = { selectedIndex = idx },
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
         }
+
+        // ── 充值方式 (距离上方 24px) ──
+        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+        Text(
+            text = "充值方式",
+            fontSize = ds.sp(12f),
+            fontWeight = FontWeight.Medium,
+            color = Color.Black.copy(alpha = 0.60f),
+        )
+        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+        // ── Apple Pay 卡片 ──
+        val payCardShape = RoundedCornerShape(ds.sm(16.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(
+                    elevation = 30.dp,
+                    shape = payCardShape,
+                    ambientColor = Color.Black.copy(alpha = 0.05f),
+                    spotColor = Color.Black.copy(alpha = 0.05f),
+                )
+                .clip(payCardShape)
+                .background(Color.White)
+                .padding(ds.sm(16.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Apple icon 黑底圆角方块
+            Box(
+                modifier = Modifier
+                    .size(ds.sm(32.dp))
+                    .clip(RoundedCornerShape(ds.sm(11.dp)))
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                AppleLogoIcon(modifier = Modifier.size(ds.sm(20.dp)))
+            }
+            Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+            Text(
+                text = "Apple Pay",
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.Medium,
+                color = Color.Black.copy(alpha = 0.90f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            // 选中对勾
+            Box(
+                modifier = Modifier
+                    .size(ds.sm(28.dp))
+                    .clip(CircleShape)
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                CheckIcon(modifier = Modifier.size(ds.sm(14.dp)), tint = Color.White)
+            }
+        }
+
+        // ── 协议提示 (距离上方 12px) ──
+        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "充值即视为同意",
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.40f),
+            )
+            Text(
+                text = "《脑花充值协议》",
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.90f),
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier.clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                ) { onShowRechargeRules() },
+            )
+            Text(
+                text = "。余额仅可用于本应用内 AI 服务消费，不支持提现。",
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.40f),
+            )
+        }
+
+        // ── 确认支付按钮 ──
+        Spacer(modifier = Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ds.sh(52.dp))
+                .clip(RoundedCornerShape(ds.sm(80.dp)))
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(ds.sm(80.dp)),
+                )
+                .background(Color.Black.copy(alpha = 0.90f))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                ) {
+                    onConfirmPay(selectedPkg)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isPurchasing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(ds.sm(24.dp)),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+            } else {
+                Text(
+                    text = "确认支付 $priceText",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
+            }
+        }
+
+    }
+}
+
+/**
+ * 脑花充值协议 — 规则和信息弹窗
+ */
+@Composable
+private fun RechargeRulesInfoDialog(
+    onDismiss: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val cardShape = RoundedCornerShape(ds.sm(24.dp))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = ds.sw(20.dp))
+            .shadow(
+                elevation = 15.dp,
+                shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.15f),
+            )
+            .clip(cardShape)
+            .border(
+                width = 0.5.dp,
+                color = Color.White,
+                shape = cardShape,
+            )
+            .background(Color.White)
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            ) { /* consume click so backdrop doesn't dismiss */ }
+            .padding(
+                horizontal = ds.sw(20.dp),
+                vertical = ds.sh(24.dp),
+            ),
+    ) {
+        // ── 标题 ──
+        Text(
+            text = "规则和信息",
+            fontSize = ds.sp(18f),
+            fontWeight = FontWeight.Medium,
+            color = Color.Black.copy(alpha = 0.90f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        // ── 规则小字 (距离标题 4px) ──
+        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+
+        val ruleTexts = listOf(
+            "当日免费脑力值会每天刷新，次日失效",
+            "活动脑力值可以通过参加活动获得，活动结束时过期",
+            "充值脑力值永不过期",
+            "赠送脑力值计入活动脑力值",
+            "脑力值按以下顺序消耗：活动脑力值,当日免费脑力值,充值脑力值",
+        )
+        ruleTexts.forEach { txt ->
+            Text(
+                text = txt,
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.60f),
+            )
+        }
+
+        // ── 知道了 按钮 (距离小字 24px) ──
+        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ds.sh(40.dp))
+                .shadow(
+                    elevation = 15.dp,
+                    shape = RoundedCornerShape(ds.sm(100.dp)),
+                    ambientColor = Color.Black.copy(alpha = 0.025f),
+                    spotColor = Color.Black.copy(alpha = 0.025f),
+                )
+                .clip(RoundedCornerShape(ds.sm(100.dp)))
+                .background(Color.Black.copy(alpha = 0.90f))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                ) { onDismiss() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "知道了",
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/* ───────── Dialog Package Card (selected/unselected) ───────── */
+
+@Composable
+private fun DialogPackageCard(
+    tagText: String,
+    cepValue: Long,
+    price: Double,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDesignScale.current
+    val cardShape = RoundedCornerShape(ds.sm(16.dp))
+    val bgColor = if (isSelected) Color.Black else Color.Black.copy(alpha = 0.05f)
+    val tagColor = if (isSelected) Color.White else Color.Black.copy(alpha = 0.90f)
+    val cepColor = if (isSelected) Color.White.copy(alpha = 0.60f) else Color.Black.copy(alpha = 0.40f)
+    val symbolColor = if (isSelected) Color.White.copy(alpha = 0.60f) else Color.Black.copy(alpha = 0.60f)
+    val priceColor = if (isSelected) Color.White else Color.Black.copy(alpha = 0.90f)
+
+    Column(
+        modifier = modifier
+            .then(
+                if (isSelected) Modifier.shadow(
+                    elevation = 30.dp,
+                    shape = cardShape,
+                    ambientColor = Color.Black.copy(alpha = 0.05f),
+                    spotColor = Color.Black.copy(alpha = 0.05f),
+                ) else Modifier
+            )
+            .clip(cardShape)
+            .background(bgColor)
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            ) { onClick() }
+            .padding(horizontal = ds.sw(12.dp), vertical = ds.sh(8.dp)),
+    ) {
+        Text(
+            text = tagText,
+            fontSize = ds.sp(10f),
+            fontWeight = FontWeight.Medium,
+            color = tagColor,
+        )
+        Text(
+            text = "脑力值 ${formatWithCommas(cepValue)}",
+            fontSize = ds.sp(10f),
+            fontWeight = FontWeight.Normal,
+            color = cepColor,
+        )
+        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = "¥",
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Medium,
+                color = symbolColor,
+            )
+            Text(
+                text = if (price == price.toLong().toDouble()) price.toLong().toString()
+                       else price.toString(),
+                fontSize = ds.sp(32f),
+                fontWeight = FontWeight.Medium,
+                color = priceColor,
+            )
+        }
+    }
+}
+
+/* ───────── Apple Logo Icon ───────── */
+
+@Composable
+private fun AppleLogoIcon(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            // Scaled from 20x20 viewBox
+            moveTo(0.818f * w, 0.693f * h)
+            cubicTo(0.817f * w, 0.696f * h, 0.800f * w, 0.755f * h, 0.759f * w, 0.815f * h)
+            cubicTo(0.723f * w, 0.867f * h, 0.686f * w, 0.919f * h, 0.627f * w, 0.920f * h)
+            cubicTo(0.570f * w, 0.921f * h, 0.551f * w, 0.886f * h, 0.485f * w, 0.886f * h)
+            cubicTo(0.420f * w, 0.886f * h, 0.399f * w, 0.919f * h, 0.344f * w, 0.921f * h)
+            cubicTo(0.288f * w, 0.923f * h, 0.245f * w, 0.864f * h, 0.209f * w, 0.813f * h)
+            cubicTo(0.135f * w, 0.707f * h, 0.078f * w, 0.513f * h, 0.154f * w, 0.384f * h)
+            cubicTo(0.192f * w, 0.319f * h, 0.259f * w, 0.277f * h, 0.332f * w, 0.276f * h)
+            cubicTo(0.387f * w, 0.275f * h, 0.440f * w, 0.313f * h, 0.473f * w, 0.313f * h)
+            cubicTo(0.508f * w, 0.313f * h, 0.571f * w, 0.267f * h, 0.638f * w, 0.274f * h)
+            cubicTo(0.667f * w, 0.275f * h, 0.745f * w, 0.286f * h, 0.796f * w, 0.358f * h)
+            cubicTo(0.791f * w, 0.361f * h, 0.702f * w, 0.414f * h, 0.703f * w, 0.521f * h)
+            cubicTo(0.704f * w, 0.650f * h, 0.817f * w, 0.693f * h, 0.818f * w, 0.693f * h)
+            close()
+            moveTo(0.595f * w, 0.205f * h)
+            cubicTo(0.625f * w, 0.168f * h, 0.645f * w, 0.118f * h, 0.639f * w, 0.068f * h)
+            cubicTo(0.596f * w, 0.070f * h, 0.544f * w, 0.096f * h, 0.513f * w, 0.133f * h)
+            cubicTo(0.485f * w, 0.164f * h, 0.461f * w, 0.216f * h, 0.467f * w, 0.265f * h)
+            cubicTo(0.515f * w, 0.268f * h, 0.565f * w, 0.240f * h, 0.595f * w, 0.205f * h)
+            close()
+        }
+        drawPath(path, color = androidx.compose.ui.graphics.Color.White)
+    }
+}
+
+/* ───────── Check Icon ───────── */
+
+@Composable
+private fun CheckIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            // Scaled from 14x14 viewBox
+            moveTo(0.437f * w, 0.786f * h)
+            cubicTo(0.420f * w, 0.786f * h, 0.403f * w, 0.780f * h, 0.390f * w, 0.767f * h)
+            lineTo(0.126f * w, 0.513f * h)
+            cubicTo(0.101f * w, 0.488f * h, 0.101f * w, 0.448f * h, 0.126f * w, 0.423f * h)
+            cubicTo(0.152f * w, 0.399f * h, 0.194f * w, 0.399f * h, 0.220f * w, 0.423f * h)
+            lineTo(0.437f * w, 0.632f * h)
+            lineTo(0.852f * w, 0.233f * h)
+            cubicTo(0.877f * w, 0.208f * h, 0.919f * w, 0.208f * h, 0.945f * w, 0.233f * h)
+            cubicTo(0.971f * w, 0.258f * h, 0.971f * w, 0.298f * h, 0.945f * w, 0.323f * h)
+            lineTo(0.483f * w, 0.767f * h)
+            cubicTo(0.470f * w, 0.780f * h, 0.454f * w, 0.786f * h, 0.437f * w, 0.786f * h)
+            close()
+        }
+        drawPath(path, color = tint)
     }
 }
 
@@ -1601,8 +2199,7 @@ private fun UsageRecordRow(
     val ds = LocalDesignScale.current
     Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = ds.sh(14.dp)),
+            .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -1724,9 +2321,14 @@ private fun BrainPowerRulesDialog(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = ds.sw(20.dp))
+            .shadow(
+                elevation = 15.dp,
+                shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.025f),
+                spotColor = Color.Black.copy(alpha = 0.025f),
+            )
             .clip(cardShape)
-            .background(Color(0xFF1A1A1A))
-            .border(width = 0.5.dp, color = Color.White, shape = cardShape)
+            .background(Color.White)
             .clickable(
                 indication = null,
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -1738,9 +2340,9 @@ private fun BrainPowerRulesDialog(
     ) {
         Text(
             text = "脑力值扣费规则",
-            fontSize = ds.sp(20f),
+            fontSize = ds.sp(18f),
             fontWeight = FontWeight.Medium,
-            color = Color.White,
+            color = Color.Black.copy(alpha = 0.90f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1753,16 +2355,16 @@ private fun BrainPowerRulesDialog(
                 text = rule.modelName,
                 fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Medium,
-                color = Color.White,
+                color = Color.Black.copy(alpha = 0.90f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(ds.sh(4.dp)))
             Text(
                 text = rule.tokensDesc,
-                fontSize = ds.sp(12f),
+                fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
-                color = Color.White.copy(alpha = 0.60f),
+                color = Color.Black.copy(alpha = 0.60f),
             )
         }
 
@@ -1772,9 +2374,16 @@ private fun BrainPowerRulesDialog(
         Box(
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .width(ds.sw(200.dp))
-                .height(ds.sh(48.dp))
-                .glassButton(cornerRadius = ds.sm(100.dp))
+                .fillMaxWidth()
+                .height(ds.sh(40.dp))
+                .shadow(
+                    elevation = 15.dp,
+                    shape = RoundedCornerShape(ds.sm(100.dp)),
+                    ambientColor = Color.Black.copy(alpha = 0.025f),
+                    spotColor = Color.Black.copy(alpha = 0.025f),
+                )
+                .clip(RoundedCornerShape(ds.sm(100.dp)))
+                .background(Color.Black.copy(alpha = 0.90f))
                 .clickable(
                     indication = null,
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -1784,7 +2393,7 @@ private fun BrainPowerRulesDialog(
             Text(
                 text = "知道了",
                 fontSize = ds.sp(16f),
-                fontWeight = FontWeight.Normal,
+                fontWeight = FontWeight.Medium,
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1830,16 +2439,14 @@ private const val MAX_STALE_TX_RETRIES = 2
 
 private val fixedPackages = listOf(
     FixedPackage(9.9, "¥9.9", 7000, tag = "体验"),
-    FixedPackage(99.0, "¥99", 70000, tag = "推荐"),
-    FixedPackage(999.0, "¥999", 700000, tag = "最佳价值"),
     FixedPackage(39.9, "¥39.9", 28000),
     FixedPackage(69.9, "¥69.9", 49000),
+    FixedPackage(99.0, "¥99", 70000, tag = "推荐"),
     FixedPackage(299.0, "¥299", 210000),
     FixedPackage(499.0, "¥499", 350000),
-    FixedPackage(500.0, "¥500", 350000),
     FixedPackage(699.0, "¥699", 490000),
     FixedPackage(899.0, "¥899", 630000),
-    FixedPackage(1000.0, "¥1000", 700000),
+    FixedPackage(999.0, "¥999", 700000, tag = "最佳价值"),
 )
 
 // 注：前端不再维护 price → appleProductId 的映射。所有 productId 以后端
@@ -2685,11 +3292,12 @@ private fun FeedbackContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = ds.sh(16.dp))
-                .height(ds.sh(48.dp))
-                .clip(RoundedCornerShape(ds.sm(100.dp)))
+                .height(ds.sh(40.dp))
+                .clip(RoundedCornerShape(ds.sm(80.dp)))
+                .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
                 .background(
-                    if (canSubmit) Color(0xFF1F2535)
-                    else Color(0xFF1F2535).copy(alpha = 0.5f)
+                    if (canSubmit) Color.Black.copy(alpha = 0.90f)
+                    else Color.Black.copy(alpha = 0.6f)
                 )
                 .clickable(enabled = canSubmit) {
                     errorMessage = null
@@ -3037,7 +3645,7 @@ private fun ClearCacheConfirmDialog(
                         text = "取消",
                         fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
-                        color = Color(0xFF1F2535),
+                        color = Color.Black.copy(alpha = 0.9f),
                     )
                 }
 
@@ -3045,7 +3653,7 @@ private fun ClearCacheConfirmDialog(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(ds.sm(100.dp)))
-                        .background(Color.Black.copy(alpha = 0.05f))
+                        .background(Color.Black.copy(alpha = 0.9f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -3057,7 +3665,7 @@ private fun ClearCacheConfirmDialog(
                         text = "清除",
                         fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
-                        color = Color(0xFFE84026),
+                        color = Color.White,
                     )
                 }
             }
@@ -3220,7 +3828,7 @@ private fun MyDevicesContent(
         device = currentDevice,
         isOnline = currentIsOnline,
         isCheckingOnline = !observerHasEmitted,
-        actionText = if (currentIsOnline) "已连接" else null,
+        actionText = null,
         actionColor = Color(0xFF007AFF),
         onClick = {},
     )
@@ -3280,6 +3888,7 @@ private fun MyDeviceRow(
     actionText: String?,
     actionColor: Color,
     onClick: () -> Unit,
+    showOnlineStatus: Boolean = true,
 ) {
     val ds = LocalDesignScale.current
     val deviceIdDisplay = device.channelDeviceId.ifBlank {
@@ -3287,6 +3896,7 @@ private fun MyDeviceRow(
     }
     val typeLabel = deviceTypeDisplayName(device.deviceType)
     val statusText = when {
+        !showOnlineStatus -> typeLabel.ifEmpty { null }
         isCheckingOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 检测中…" else "检测中…"
         isOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备在线" else "设备在线"
         else -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备离线" else "设备离线"
@@ -3339,13 +3949,15 @@ private fun MyDeviceRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.height(ds.sh(2.dp)))
-            Text(
-                text = statusText,
-                fontSize = ds.sp(12f),
-                fontWeight = FontWeight.Normal,
-                color = Color.Black.copy(alpha = 0.60f),
-            )
+            if (statusText != null) {
+                Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                Text(
+                    text = statusText,
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Normal,
+                    color = Color.Black.copy(alpha = 0.60f),
+                )
+            }
         }
 
         // 右侧操作文字
@@ -3592,6 +4204,8 @@ private sealed interface WifiConfigState {
     data object PhoneWifiUnavailable : WifiConfigState
     /** BLE 连接断开 */
     data object BleDisconnected : WifiConfigState
+    /** BLE 扫描未找到目标设备 */
+    data class DeviceNotFound(val deviceId: String) : WifiConfigState
 }
 
 @Composable
@@ -3642,12 +4256,18 @@ private fun WifiConfigContent(
         }
         val ns = readDeviceNetworkStatus(provisionManager, device)
         if (isAndroid) coroutineContext.ensureActive()
+        if (ns == null) {
+            val id = device.channelDeviceId.ifBlank { device.id }
+            configState = WifiConfigState.DeviceNotFound(id)
+            didLoadDeviceNetworkStatus = true
+            return@LaunchedEffect
+        }
         deviceNetworkStatus = ns
         didLoadDeviceNetworkStatus = true
         when (phoneWifi) {
             is com.cephalon.lucyApp.brainbox.PhoneWifiState.Connected -> {
                 val phoneSsid = phoneWifi.ssid
-                val deviceSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
+                val deviceSsid = ns.ssid?.trim()?.takeIf { it.isNotBlank() }
                 if (deviceSsid != null && deviceSsid.equals(phoneSsid, ignoreCase = true)) {
                     configState = WifiConfigState.SsidMatch(phoneSsid)
                 } else {
@@ -3713,94 +4333,75 @@ private fun WifiConfigContent(
         }
     }
 
-    // ── 设备信息卡片（始终显示） ──
+    // ── 设备信息卡片（非错误状态时显示） ──
     val deviceIdDisplay = device.channelDeviceId.ifBlank { device.id }
     val ns = deviceNetworkStatus
     val wifiSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
-    val wifiIp = ns?.ip?.trim()?.takeIf { it.isNotBlank() }
     val isDeviceWifiConnected = ns?.isConnected == true
-    val wifiStatusText = when {
-        wifiSsid != null -> wifiSsid
-        isDeviceWifiConnected -> "已连接（设备未返回名称）"
-        !didLoadDeviceNetworkStatus -> "读取中…"
-        else -> "未读取到"
-    }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(ds.sm(16.dp)),
-        color = Color.White
-    ) {
-        Column(
+    val isDeviceErrorState = configState is WifiConfigState.DeviceNotFound ||
+        configState is WifiConfigState.BleDisconnected
+    if (!isDeviceErrorState) {
+        val deviceWifiText = when {
+            !didLoadDeviceNetworkStatus -> "设备 WIFI 读取中…"
+            wifiSsid != null -> "设备 WIFI $wifiSsid"
+            isDeviceWifiConnected -> "设备 WIFI 已连接"
+            else -> "设备 WIFI 未读取到"
+        }
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(ds.sm(14.dp)),
-            verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp)),
+                .shadow(
+                    elevation = 15.dp,
+                    shape = RoundedCornerShape(ds.sm(16.dp)),
+                    ambientColor = Color.Black.copy(alpha = 0.025f),
+                    spotColor = Color.Black.copy(alpha = 0.025f),
+                )
+                .clip(RoundedCornerShape(ds.sm(16.dp)))
+                .background(Color.White)
+                .padding(ds.sm(16.dp)),
         ) {
-            // 设备 ID
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "设备 ID",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF999999),
-                    modifier = Modifier.width(ds.sw(56.dp)),
-                )
-                Text(
-                    text = deviceIdDisplay,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = Color(0xFF111111),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            // Wi-Fi
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Wi‑Fi",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF999999),
-                    modifier = Modifier.width(ds.sw(56.dp)),
-                )
-                Text(
-                    text = wifiStatusText,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = if (wifiSsid != null || isDeviceWifiConnected) Color(0xFF111111) else Color(0xFFBBBBBB),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            // IP
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "IP",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF999999),
-                    modifier = Modifier.width(ds.sw(56.dp)),
-                )
-                Text(
-                    text = wifiIp ?: if (!didLoadDeviceNetworkStatus) "读取中…" else "—",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = if (wifiIp != null) Color(0xFF111111) else Color(0xFFBBBBBB),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(ds.sm(40.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = com.cephalon.lucyApp.screens.brainbox.DeviceBoxIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(ds.sm(20.dp)),
+                        tint = Color.Black.copy(alpha = 0.40f),
+                    )
+                }
+                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = deviceIdDisplay,
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Black.copy(alpha = 0.90f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                    Text(
+                        text = deviceWifiText,
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
+                        lineHeight = ds.sp(16f),
+                    )
+                }
             }
         }
+        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
     }
-
-    Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
     // ── 根据状态展示不同内容 ──
     when (val state = configState) {
@@ -3811,124 +4412,280 @@ private fun WifiConfigContent(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(
-                        color = Color(0xFF1F2535),
+                        color = Color.Black.copy(alpha = 0.90f),
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(ds.sm(24.dp)),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(12.dp)))
                     Text(
                         text = "正在检测 Wi‑Fi 状态…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF999999),
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                 }
             }
         }
 
-        is WifiConfigState.SsidMatch -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(ds.sm(16.dp)),
-                color = Color(0xFFE8F5E9),
-            ) {
-                Column(modifier = Modifier.padding(ds.sm(16.dp))) {
-                    Text(
-                        text = "Wi‑Fi 配置一致",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFF34C759),
+        is WifiConfigState.DeviceNotFound -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 15.dp,
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                        ambientColor = Color.Black.copy(alpha = 0.025f),
+                        spotColor = Color.Black.copy(alpha = 0.025f),
                     )
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color(0xFFFCCFCD),
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                    )
+                    .background(Color.Red.copy(alpha = 0.05f))
+                    .padding(ds.sm(16.dp)),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(40.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color(0xFFCC301F).copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = WifiConfigIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(20.dp)),
+                            tint = Color(0xFFCC301F),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                        Text(
+                            text = "未找到目标设备",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                        Text(
+                            text = "请确保设备已接通电源，且手机蓝牙已开启",
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F).copy(alpha = 0.60f),
+                            lineHeight = ds.sp(16f),
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+            Text(
+                text = "目标设备：${state.deviceId}",
+                fontSize = ds.sp(12f),
+                fontWeight = FontWeight.Medium,
+                color = Color.Black.copy(alpha = 0.60f),
+                lineHeight = ds.sp(16f),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(ds.sm(80.dp)))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                    .background(Color.Black.copy(alpha = 0.90f))
+                    .clickable {
+                        configState = WifiConfigState.Loading
+                        retryKey++
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "重新查找",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
+            }
+        }
+
+        is WifiConfigState.SsidMatch -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color(0xFF34C759).copy(alpha = 0.30f),
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                    )
+                    .background(Color(0xFFE8F5E9))
+                    .padding(ds.sm(16.dp)),
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = com.cephalon.lucyApp.screens.brainbox.WifiStepIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(18.dp)),
+                            tint = Color(0xFF34C759),
+                        )
+                        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                        Text(
+                            text = "Wi‑Fi 配置一致",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF34C759),
+                        )
+                    }
                     Spacer(modifier = Modifier.height(ds.sh(8.dp)))
                     Text(
                         text = "设备当前连接的 Wi‑Fi「${state.ssid}」与本机一致，无需重新配置。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF333333),
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                 }
             }
         }
 
         is WifiConfigState.SsidMismatch -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(ds.sm(16.dp)),
-                color = Color(0xFFFFF8E1),
-            ) {
-                Column(modifier = Modifier.padding(ds.sm(16.dp))) {
-                    Text(
-                        text = "Wi‑Fi 不一致",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFFF9800),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                    Text(
-                        text = buildString {
-                            append("本机已连接「${state.phoneSsid}」")
-                            if (!state.deviceSsid.isNullOrBlank()) {
-                                append("，设备当前连接「${state.deviceSsid}」")
-                            } else if (deviceNetworkStatus?.isConnected == true) {
-                                append("，设备已联网但未返回 Wi‑Fi 名称")
-                            }
-                            append("。\n可将设备切换到本机所在的 Wi‑Fi 网络。")
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF333333),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
-            // 本机 Wi‑Fi 名称展示
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(ds.sm(16.dp)),
-                color = Color.White,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(ds.sm(14.dp)),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "当前手机 Wi‑Fi",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF999999),
-                        )
-                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-                        Text(
-                            text = state.phoneSsid,
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                            color = Color(0xFF111111),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-
-            // 密码输入
-            androidx.compose.material3.OutlinedTextField(
-                value = wifiPassword,
-                onValueChange = { wifiPassword = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Wi‑Fi 密码") },
-                singleLine = true,
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
-                ),
-            )
-
-            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-
-            // 配置按钮
-            Surface(
+            var passwordVisible by remember { mutableStateOf(false) }
+            // ── 当前手机 Wi-Fi 卡片 ──
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .background(Color.White)
+                    .padding(
+                        start = ds.sw(16.dp),
+                        top = ds.sh(16.dp),
+                        end = ds.sw(16.dp),
+                        bottom = ds.sh(24.dp),
+                    ),
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(ds.sm(40.dp))
+                                .shadow(
+                                    elevation = 15.dp,
+                                    shape = RoundedCornerShape(ds.sm(12.dp)),
+                                    ambientColor = Color.Black.copy(alpha = 0.025f),
+                                    spotColor = Color.Black.copy(alpha = 0.025f),
+                                )
+                                .clip(RoundedCornerShape(ds.sm(12.dp)))
+                                .background(Color.Black.copy(alpha = 0.05f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = com.cephalon.lucyApp.screens.brainbox.WifiStepIcon,
+                                contentDescription = null,
+                                modifier = Modifier.size(ds.sm(18.dp)),
+                                tint = Color.Black.copy(alpha = 0.40f),
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "当前手机 Wi-Fi",
+                                fontSize = ds.sp(16f),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black.copy(alpha = 0.90f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = state.phoneSsid,
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.Normal,
+                                color = Color.Black.copy(alpha = 0.60f),
+                                lineHeight = ds.sp(16f),
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                    // ── 密码输入框 ──
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = wifiPassword,
+                        onValueChange = { wifiPassword = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(ds.sm(99.dp)))
+                            .background(Color.Black.copy(alpha = 0.05f))
+                            .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(12.dp)),
+                        textStyle = TextStyle(
+                            color = Color(0xFF12192B),
+                            fontSize = ds.sp(14f),
+                            fontWeight = FontWeight.Normal,
+                        ),
+                        singleLine = true,
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFF12192B)),
+                        visualTransformation = if (passwordVisible)
+                            androidx.compose.ui.text.input.VisualTransformation.None
+                        else
+                            androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                        ),
+                        decorationBox = { innerTextField ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    if (wifiPassword.isEmpty()) {
+                                        Text(
+                                            text = "输入 Wi-Fi 密码",
+                                            fontSize = ds.sp(14f),
+                                            fontWeight = FontWeight.Normal,
+                                            color = Color.Black.copy(alpha = 0.30f),
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                                Icon(
+                                    imageVector = if (passwordVisible)
+                                        Icons.Default.Visibility
+                                    else
+                                        Icons.Default.VisibilityOff,
+                                    contentDescription = null,
+                                    tint = Color.Black.copy(alpha = 0.30f),
+                                    modifier = Modifier
+                                        .size(ds.sm(20.dp))
+                                        .clickable { passwordVisible = !passwordVisible },
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+            // ── 配置网络按钮 ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(ds.sm(80.dp)))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                    .background(Color.Black.copy(alpha = 0.90f))
                     .clickable {
                         val ssid = state.phoneSsid
                         val pwd = wifiPassword
@@ -3947,21 +4704,14 @@ private fun WifiConfigContent(
                         }
                         if (isAndroid) bleOperationJob = job
                     },
-                shape = RoundedCornerShape(ds.sm(14.dp)),
-                color = Color(0xFF1F2535),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "配置 Wi‑Fi",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White,
-                    )
-                }
+                Text(
+                    text = "配置网络",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
             }
         }
 
@@ -3972,21 +4722,23 @@ private fun WifiConfigContent(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(
-                        color = Color(0xFF1F2535),
+                        color = Color.Black.copy(alpha = 0.90f),
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(ds.sm(24.dp)),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(12.dp)))
                     Text(
                         text = "正在为设备配置 Wi‑Fi「${state.phoneSsid}」…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF999999),
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(4.dp)))
                     Text(
                         text = "正在搜索蓝牙设备并连接，请保持设备通电",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFBBBBBB),
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.40f),
                     )
                 }
             }
@@ -4001,185 +4753,289 @@ private fun WifiConfigContent(
                 Column(modifier = Modifier.padding(ds.sm(16.dp))) {
                     Text(
                         text = "配置成功",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Medium,
                         color = Color(0xFF34C759),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(8.dp)))
                     Text(
-                        text = "设备已成功连接到 Wi‑Fi「${state.ssid}」，与本机网络一致。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF333333),
+                        text = "设备已成功连接到 Wi‑Fi「${state.ssid}」",
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(ds.sh(48.dp))
+                    .clip(RoundedCornerShape(ds.sm(80.dp)))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                    .background(Color.Black.copy(alpha = 0.90f))
                     .clickable { onDismiss() },
-                shape = RoundedCornerShape(ds.sm(14.dp)),
-                color = Color(0xFF1F2535),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "完成",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White,
-                    )
-                }
+                Text(
+                    text = "完成",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
             }
         }
 
         is WifiConfigState.Error -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(ds.sm(16.dp)),
-                color = Color(0xFFFFEBEE),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 15.dp,
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                        ambientColor = Color.Black.copy(alpha = 0.025f),
+                        spotColor = Color.Black.copy(alpha = 0.025f),
+                    )
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color(0xFFFCCFCD),
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                    )
+                    .background(Color.Red.copy(alpha = 0.05f))
+                    .padding(ds.sm(16.dp)),
             ) {
-                Column(modifier = Modifier.padding(ds.sm(16.dp))) {
-                    Text(
-                        text = "配置失败",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFE84026),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                    Text(
-                        text = state.message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF333333),
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(40.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color(0xFFCC301F).copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = WifiConfigIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(20.dp)),
+                            tint = Color(0xFFCC301F),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                        Text(
+                            text = "配置失败",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                        Text(
+                            text = state.message,
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F).copy(alpha = 0.60f),
+                            lineHeight = ds.sp(16f),
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(ds.sm(80.dp)))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                    .background(Color.Black.copy(alpha = 0.90f))
                     .clickable {
-                        // 重试：回到 Mismatch 状态
                         configState = WifiConfigState.SsidMismatch(state.phoneSsid, null)
                     },
-                shape = RoundedCornerShape(ds.sm(14.dp)),
-                color = Color(0xFF1F2535),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "重试",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White,
-                    )
-                }
+                Text(
+                    text = "重试",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
             }
         }
 
         is WifiConfigState.PhoneWifiUnavailable -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(ds.sm(16.dp)),
-                color = Color(0xFFFFF8E1),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 15.dp,
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                        ambientColor = Color.Black.copy(alpha = 0.025f),
+                        spotColor = Color.Black.copy(alpha = 0.025f),
+                    )
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color(0xFFFCCFCD),
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                    )
+                    .background(Color.Red.copy(alpha = 0.05f))
+                    .padding(ds.sm(16.dp)),
             ) {
-                Column(modifier = Modifier.padding(ds.sm(16.dp))) {
-                    Text(
-                        text = "无法获取本机 Wi‑Fi",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFFF9800),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                    Text(
-                        text = "请确认手机已开启 Wi‑Fi、已连接到目标网络，并已授予定位 / Wi‑Fi 权限；若仍失败，请检查系统定位开关后重试。上方仍会显示设备当前网络状态（若读取成功）。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF333333),
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(40.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color(0xFFCC301F).copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = WifiConfigIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(20.dp)),
+                            tint = Color(0xFFCC301F),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                        Text(
+                            text = "无法获取本机 Wi‑Fi",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                        Text(
+                            text = "请确认手机已开启 Wi‑Fi 并连接到目标网络，且已授予定位权限",
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F).copy(alpha = 0.60f),
+                            lineHeight = ds.sp(16f),
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(ds.sm(80.dp)))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                    .background(Color.Black.copy(alpha = 0.90f))
                     .clickable {
                         configState = WifiConfigState.Loading
                         retryKey++
                     },
-                shape = RoundedCornerShape(ds.sm(14.dp)),
-                color = Color(0xFF1F2535),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "重新检测",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White,
-                    )
-                }
+                Text(
+                    text = "重新检测",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
             }
         }
 
         is WifiConfigState.BleDisconnected -> {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(ds.sm(16.dp)),
-                color = Color(0xFFFFEBEE),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 15.dp,
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                        ambientColor = Color.Black.copy(alpha = 0.025f),
+                        spotColor = Color.Black.copy(alpha = 0.025f),
+                    )
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color(0xFFFCCFCD),
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                    )
+                    .background(Color.Red.copy(alpha = 0.05f))
+                    .padding(ds.sm(16.dp)),
             ) {
-                Column(modifier = Modifier.padding(ds.sm(16.dp))) {
-                    Text(
-                        text = "蓝牙连接已断开",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = Color(0xFFE84026),
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                    Text(
-                        text = "与设备的蓝牙连接已中断，所有操作已停止。请确认设备已通电且在附近，然后重试。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF333333),
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(40.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color(0xFFCC301F).copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = WifiConfigIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(20.dp)),
+                            tint = Color(0xFFCC301F),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                        Text(
+                            text = "蓝牙连接已断开",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                        Text(
+                            text = "与设备的蓝牙连接已中断，请确认设备已通电且在附近",
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFCC301F).copy(alpha = 0.60f),
+                            lineHeight = ds.sp(16f),
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            // 重试按钮
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(ds.sm(80.dp)))
+                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                    .background(Color.Black.copy(alpha = 0.90f))
                     .clickable {
-                        // 重新进入 Loading 状态，递增 retryKey 触发 LaunchedEffect 重新初始化
                         configState = WifiConfigState.Loading
                         retryKey++
                     },
-                shape = RoundedCornerShape(ds.sm(14.dp)),
-                color = Color(0xFF1F2535),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "重试",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White,
-                    )
-                }
+                Text(
+                    text = "重试",
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                )
             }
         }
     }

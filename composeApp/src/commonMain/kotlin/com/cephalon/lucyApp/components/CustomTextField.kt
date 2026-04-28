@@ -127,10 +127,11 @@ fun CustomTextField(
                         color = when {
                             isCountingDown -> PlaceholderColor
                             !canSend -> PlaceholderColor
-                            else -> CodeLinkColor
+                            else -> Color.Black.copy(alpha = 0.90f)
                         },
                         fontSize = ds.sp(12f),
                         fontWeight = FontWeight.Normal,
+                        lineHeight = ds.sp(16f),
                         modifier = Modifier.noRippleClickable(enabled = codeClickable) {
                             onSendCode?.invoke {
                                 timeLeft = 60
@@ -307,6 +308,11 @@ fun PasswordInput(
     imeAction: ImeAction = ImeAction.Next,
     onDone: (() -> Unit)? = null,
     errorText: String? = null,
+    containerShape: Shape = InputShape,
+    containerShadowElevation: androidx.compose.ui.unit.Dp = 10.dp,
+    placeholderFontSize: Float = 14f,
+    placeholderColor: Color = PlaceholderColor,
+    inputFontSize: Float = 14f,
 ) {
     var visible by remember { mutableStateOf(false) }
     val ds = LocalDesignScale.current
@@ -318,6 +324,11 @@ fun PasswordInput(
             label = label,
             leadingIcon = Icons.Default.Lock,
             enabled = enabled,
+            containerShape = containerShape,
+            containerShadowElevation = containerShadowElevation,
+            placeholderFontSize = placeholderFontSize,
+            placeholderColor = placeholderColor,
+            inputFontSize = inputFontSize,
             visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 Icon(

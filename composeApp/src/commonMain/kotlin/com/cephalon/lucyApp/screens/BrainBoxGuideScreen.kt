@@ -217,7 +217,7 @@ fun BrainBoxGuideScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(ds.sh(40.dp)))
+                    Spacer(modifier = Modifier.height(ds.sh(120.dp)))
 
                     // 进度点，点击可跳转
                     Row(
@@ -254,31 +254,13 @@ fun BrainBoxGuideScreen(
 
                     Spacer(modifier = Modifier.height(ds.sh(40.dp)))
 
-                    FrostedGlassButton(
-                        text = page.primaryText,
-                        modifier = Modifier.padding(horizontal = ds.sw(26.dp)),
-                        onClick = {
-                            if (currentPage == guidePages.lastIndex) {
-                                onFinish()
-                            } else {
-                                scope.launch {
-                                    pagerState.animateScrollToPage(currentPage + 1)
-                                }
-                            }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(ds.sh(21.dp)))
-
-                    // 最后一步隐藏"跳过引导"，但保留占位
                     val isLastPage = currentPage == guidePages.lastIndex
                     TextButton(
-                        onClick = { if (!isLastPage) onBack() },
-                        enabled = !isLastPage,
+                        onClick = { if (isLastPage) onFinish() else onBack() },
                     ) {
                         Text(
-                            text = "跳过引导",
-                            color = if (isLastPage) Color.Transparent else Color.White.copy(alpha = 0.60f),
+                            text = if (isLastPage) "点击进入脑花" else "点击跳过引导",
+                            color = Color.White.copy(alpha = 0.60f),
                             fontSize = ds.sp(16f),
                             fontWeight = FontWeight.Normal,
                         )

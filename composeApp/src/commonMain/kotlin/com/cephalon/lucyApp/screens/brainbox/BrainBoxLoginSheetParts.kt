@@ -4,6 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
@@ -415,8 +425,8 @@ private fun BrainBoxBleDeviceRow(
 @Composable
 internal fun BrainBoxWifiStep(
     selectedDevice: BrainBoxBleDevice?,
+    deviceSsid: String?,
     phoneSsid: String?,
-    deviceIp: String?,
     wifiPassword: String,
     onWifiPasswordChange: (String) -> Unit,
     isConnectingWifi: Boolean,
@@ -424,6 +434,8 @@ internal fun BrainBoxWifiStep(
     isSelectedCurrent: Boolean = false,
 ) {
     val ds = LocalDesignScale.current
+    var passwordVisible by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -431,140 +443,205 @@ internal fun BrainBoxWifiStep(
     ) {
         // ── 设备卡片 ──
         selectedDevice?.let { device ->
-            GlassCard {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 15.dp,
+                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                        ambientColor = Color.Black.copy(alpha = 0.025f),
+                        spotColor = Color.Black.copy(alpha = 0.025f),
+                    )
+                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                    .background(Color.White)
+                    .padding(ds.sm(16.dp)),
+            ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(ds.sm(16.dp)),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // icon box
                     Box(
                         modifier = Modifier
-                            .size(ds.sm(54.dp))
-                            .background(Color(0xFF1F2535), RoundedCornerShape(ds.sm(16.dp))),
+                            .size(ds.sm(40.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color.Black.copy(alpha = 0.05f)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = DeviceBoxIcon,
+                            imageVector = DeviceBoxIcon20,
                             contentDescription = null,
-                            modifier = Modifier.size(ds.sm(26.dp), ds.sm(21.dp)),
-                            tint = Color.White,
+                            modifier = Modifier.size(ds.sm(20.dp)),
+                            tint = Color.Unspecified,
                         )
                     }
                     Spacer(modifier = Modifier.width(ds.sw(12.dp)))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = device.name,
-                            fontSize = ds.sp(18f),
+                            fontSize = ds.sp(16f),
                             fontWeight = FontWeight.Medium,
-                            color = TextDefault,
+                            color = Color.Black.copy(alpha = 0.90f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
                         Text(
-                            text = "RSSI ${device.rssi ?: "--"}",
-                            fontSize = ds.sp(14f),
+                            text = if (deviceSsid != null) "设备 WIFI $deviceSsid"
+                                   else "设备 WIFI 读取中",
+                            fontSize = ds.sp(12f),
                             fontWeight = FontWeight.Normal,
-                            color = TextLinkGrey,
+                            color = Color.Black.copy(alpha = 0.60f),
+                            lineHeight = ds.sp(16f),
                         )
                     }
-                    Text(
-                        text = "已配对",
-                        fontSize = ds.sp(12f),
-                        fontWeight = FontWeight.Normal,
-                        color = BlueLink,
-                        textAlign = TextAlign.End,
-                        lineHeight = ds.sp(16f),
-                    )
                 }
             }
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
         }
 
-        // ── Wi‑Fi 卡片 ──
-        Text(
-            text = "当前本机 Wi‑Fi",
-            fontSize = ds.sp(14f),
-            fontWeight = FontWeight.Medium,
-            color = TextDefault,
-        )
-        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
-
-        GlassCard {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(ds.sm(16.dp)),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // wifi icon box
-                Box(
-                    modifier = Modifier
-                        .size(ds.sm(54.dp))
-                        .background(Color(0xFF1F2535), RoundedCornerShape(ds.sm(16.dp))),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = WifiStepIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(ds.sm(18.dp)),
-                        tint = Color.White,
-                    )
-                }
-                Spacer(modifier = Modifier.width(ds.sw(12.dp)))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = phoneSsid ?: "未知网络",
-                        fontSize = ds.sp(18f),
-                        fontWeight = FontWeight.Medium,
-                        color = TextDefault,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-                    Text(
-                        text = deviceIp ?: "--",
-                        fontSize = ds.sp(14f),
-                        fontWeight = FontWeight.Normal,
-                        color = TextLinkGrey,
-                    )
-                }
-            }
-        }
-
-        if (!isSelectedCurrent) {
-            Spacer(modifier = Modifier.height(ds.sh(14.dp)))
-            PasswordInput(
-                value = wifiPassword,
-                onValueChange = onWifiPasswordChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = "Wi-Fi 密码",
-                imeAction = ImeAction.Done,
-                onDone = { onConnectWifi() },
-            )
-        }
-
-        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
-
-        Button(
-            onClick = onConnectWifi,
-            enabled = !isConnectingWifi,
+        // ── 当前手机 Wi‑Fi 卡片 ──
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(ds.sh(52.dp)),
-            shape = RoundedCornerShape(ds.sm(18.dp)),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F2535)),
+                .clip(RoundedCornerShape(ds.sm(16.dp)))
+                .background(Color.White)
+                .padding(
+                    start = ds.sw(16.dp),
+                    top = ds.sh(16.dp),
+                    end = ds.sw(16.dp),
+                    bottom = ds.sh(24.dp),
+                ),
         ) {
-            if (isConnectingWifi) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(ds.sm(18.dp)),
-                )
-            } else {
-                Text(text = if (isSelectedCurrent) "使用当前 Wi‑Fi 并继续" else "配置Wi-Fi")
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(40.dp))
+                            .shadow(
+                                elevation = 15.dp,
+                                shape = RoundedCornerShape(ds.sm(12.dp)),
+                                ambientColor = Color.Black.copy(alpha = 0.025f),
+                                spotColor = Color.Black.copy(alpha = 0.025f),
+                            )
+                            .clip(RoundedCornerShape(ds.sm(12.dp)))
+                            .background(Color.Black.copy(alpha = 0.05f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = WifiIcon20,
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(20.dp)),
+                            tint = Color.Unspecified,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "当前手机 Wi‑Fi",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Black.copy(alpha = 0.90f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+                        Text(
+                            text = phoneSsid ?: "检测中",
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Normal,
+                            color = Color.Black.copy(alpha = 0.60f),
+                            lineHeight = ds.sp(16f),
+                        )
+                    }
+                }
+
+                if (!isSelectedCurrent) {
+                    Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                    // ── 密码输入框 ──
+                    BasicTextField(
+                        value = wifiPassword,
+                        onValueChange = onWifiPasswordChange,
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = ds.sp(14f),
+                            fontWeight = FontWeight.Normal,
+                            color = Color(0xFF12192B),
+                        ),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { onConnectWifi() }),
+                        decorationBox = { innerTextField ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(ds.sm(99.dp)))
+                                    .background(Color.Black.copy(alpha = 0.05f))
+                                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(12.dp)),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    if (wifiPassword.isEmpty()) {
+                                        Text(
+                                            text = "输入 Wi-Fi 密码",
+                                            fontSize = ds.sp(14f),
+                                            fontWeight = FontWeight.Normal,
+                                            color = Color.Black.copy(alpha = 0.30f),
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                                Icon(
+                                    imageVector = if (passwordVisible)
+                                        Icons.Default.Visibility
+                                    else
+                                        Icons.Default.VisibilityOff,
+                                    contentDescription = null,
+                                    tint = Color.Black.copy(alpha = 0.30f),
+                                    modifier = Modifier
+                                        .size(ds.sm(20.dp))
+                                        .clickable { passwordVisible = !passwordVisible },
+                                )
+                            }
+                        },
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                // ── 配置网络按钮 ──
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ds.sh(40.dp))
+                        .clip(RoundedCornerShape(ds.sm(80.dp)))
+                        .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(ds.sm(80.dp)))
+                        .background(Color.Black.copy(alpha = 0.90f))
+                        .clickable(enabled = !isConnectingWifi) { onConnectWifi() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isConnectingWifi) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(ds.sm(18.dp)),
+                        )
+                    } else {
+                        Text(
+                            text = if (isSelectedCurrent) "使用当前 Wi‑Fi 并继续" else "配置网络",
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White,
+                        )
+                    }
+                }
             }
         }
     }

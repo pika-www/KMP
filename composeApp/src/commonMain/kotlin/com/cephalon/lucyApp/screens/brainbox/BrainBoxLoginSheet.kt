@@ -672,24 +672,15 @@ fun BrainBoxLoginSheet(
                     horizontalPadding = ds.sw(28.dp),
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
                 Text(
                     text = currentStep.title,
-                    fontSize = ds.sp(24f),
+                    fontSize = ds.sp(20f),
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF12192B),
+                    color = Color.Black.copy(alpha = 0.90f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-
-                Text(
-                    text = currentStep.subtitle,
-                    fontSize = ds.sp(14f),
-                    fontWeight = FontWeight.Normal,
-                    color = Color(0xFF595E6B),
                 )
 
                 Spacer(modifier = Modifier.height(ds.sh(24.dp)))
@@ -752,8 +743,8 @@ fun BrainBoxLoginSheet(
                     BrainBoxStep.Wifi -> {
                         BrainBoxWifiStep(
                             selectedDevice = selectedBleDevice,
+                            deviceSsid = currentSsid,
                             phoneSsid = selectedWifiSsid.takeIf { it.isNotBlank() } ?: phoneCurrentSsid ?: currentSsid,
-                            deviceIp = provisionState.networkStatus?.ip?.takeIf { it.isNotBlank() },
                             wifiPassword = wifiPassword,
                             onWifiPasswordChange = { wifiPassword = it },
                             isConnectingWifi = isConnectingWifi,
