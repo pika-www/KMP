@@ -1243,7 +1243,12 @@ internal fun BrainPowerBalancePage(
     }
 
     Box(
-        modifier = modifier.background(Color(0xFFFAFAFC)),
+        modifier = modifier
+            .background(Color(0xFFFAFAFC))
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            ) { /* consume touch */ },
     ) {
         Column(
             modifier = Modifier
@@ -1912,7 +1917,7 @@ private fun RechargePackageSheet(
 
         // ── 协议提示 (距离上方 12px) ──
         Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row {
             Text(
                 text = "充值即视为同意",
                 fontSize = ds.sp(10f),
@@ -2117,12 +2122,14 @@ private fun DialogPackageCard(
             fontSize = ds.sp(10f),
             fontWeight = FontWeight.Medium,
             color = tagColor,
+            lineHeight = ds.sp(10f),
         )
         Text(
             text = "脑力值 ${formatWithCommas(cepValue)}",
             fontSize = ds.sp(10f),
             fontWeight = FontWeight.Normal,
             color = cepColor,
+            lineHeight = ds.sp(10f),
         )
         Spacer(modifier = Modifier.height(ds.sh(8.dp)))
         Row(verticalAlignment = Alignment.Bottom) {
@@ -3946,7 +3953,7 @@ private fun MyDeviceRow(
         Box(
             modifier = Modifier
                 .size(ds.sm(40.dp))
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(ds.sm(12.dp)))
                 .background(Color.Black.copy(alpha = 0.05f)),
             contentAlignment = Alignment.Center,
         ) {
@@ -3981,14 +3988,29 @@ private fun MyDeviceRow(
             }
         }
 
-        // 右侧操作文字
+        // 右侧操作按钮
         if (actionText != null) {
-            Text(
-                text = actionText,
-                fontSize = ds.sp(14f),
-                fontWeight = FontWeight.Normal,
-                color = actionColor,
-            )
+            Box(
+                modifier = Modifier
+                    .width(ds.sw(80.dp))
+                    .height(ds.sh(28.dp))
+                    .shadow(
+                        elevation = 15.dp,
+                        shape = RoundedCornerShape(ds.sm(100.dp)),
+                        ambientColor = Color.Black.copy(alpha = 0.025f),
+                        spotColor = Color.Black.copy(alpha = 0.025f),
+                    )
+                    .clip(RoundedCornerShape(ds.sm(100.dp)))
+                    .background(Color.Black.copy(alpha = 0.05f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = actionText,
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Black.copy(alpha = 0.90f),
+                )
+            }
         }
     }
 }

@@ -683,6 +683,16 @@ fun BrainBoxLoginSheet(
                     overflow = TextOverflow.Ellipsis,
                 )
 
+                if (currentStep.subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                    Text(
+                        text = currentStep.subtitle,
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
                 when (currentStep) {

@@ -3,10 +3,7 @@ package com.cephalon.lucyApp.screens
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.login_bg
 import androidios.composeapp.generated.resources.logo_img
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -928,228 +925,230 @@ private fun PasswordLoginPage(
                 )
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Spacer(modifier = Modifier.height(ds.sh(44.dp)))
-                Image(
-                    painter = painterResource(Res.drawable.logo_img),
-                    contentDescription = null,
+            if (showForgotPassword) {
+                // ForgotPasswordForm 需要有界高度才能正常使用 fillMaxSize/weight，
+                // 所以放在 weight(1f) 容器中而非 verticalScroll 内部
+                Column(
                     modifier = Modifier
-                        .size(ds.sm(64.dp))
-                        .clip(RoundedCornerShape(ds.sm(12.dp))),
-                )
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
-                Text(
-                    text = "欢迎使用脑花",
-                    color = Color.Black.copy(alpha = 0.90f),
-                    fontSize = ds.sp(16f),
-                    fontWeight = FontWeight.Medium,
-                )
-                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
-                Text(
-                    text = "AI 驱动的个人数据操作系统",
-                    color = Color.Black.copy(alpha = 0.60f),
-                    fontSize = ds.sp(12f),
-                    fontWeight = FontWeight.Normal,
-                )
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .navigationBarsPadding()
+                        .padding(bottom = ds.sh(10.dp)),
+                ) {
+                    ForgotPasswordForm(
+                        onResetSuccess = onForgotPasswordSuccess,
+                        onShowToast = { toastState.show(it) },
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Spacer(modifier = Modifier.height(ds.sh(44.dp)))
+                    Image(
+                        painter = painterResource(Res.drawable.logo_img),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(ds.sm(64.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp))),
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                    Text(
+                        text = "欢迎使用脑花",
+                        color = Color.Black.copy(alpha = 0.90f),
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                    Text(
+                        text = "AI 驱动的个人数据操作系统",
+                        color = Color.Black.copy(alpha = 0.60f),
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-                AnimatedContent(
-                    targetState = showForgotPassword,
-                    label = "PwdLoginContent",
-                ) { isForgot ->
-                    if (isForgot) {
-                        // ── 忘记密码表单 ──
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            ForgotPasswordForm(
-                                onResetSuccess = onForgotPasswordSuccess,
-                                onShowToast = { toastState.show(it) },
-                            )
-                        }
-                    } else {
-                        // ── 密码登录表单 ──
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            PhoneOnlyInput(
-                                value = username,
-                                onValueChange = onUsernameChange,
-                                label = "请输入您手机号",
-                                enabled = !isLoading,
-                                containerShape = codeInputShape,
-                                containerShadowElevation = 20.dp,
-                                placeholderFontSize = 12f,
-                                placeholderColor = Color.Black.copy(alpha = 0.40f),
-                                inputFontSize = 14f,
-                                modifier = Modifier.onFocusChanged { focusState ->
-                                    if (hadFocus && !focusState.isFocused) onFocusLostValidate()
-                                    hadFocus = focusState.isFocused
-                                },
-                            )
+                    // ── 密码登录表单 ──
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        PhoneOnlyInput(
+                            value = username,
+                            onValueChange = onUsernameChange,
+                            label = "请输入您手机号",
+                            enabled = !isLoading,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                            modifier = Modifier.onFocusChanged { focusState ->
+                                if (hadFocus && !focusState.isFocused) onFocusLostValidate()
+                                hadFocus = focusState.isFocused
+                            },
+                        )
 
-                            // 未注册时弹出验证码输入
-                            AnimatedVisibility(
-                                visible = needsRegister,
-                                enter = fadeIn() + androidx.compose.animation.expandVertically(),
-                                exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
-                            ) {
-                                Column {
-                                    Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                                    CodeInput(
-                                        value = verifyCode,
-                                        onValueChange = onVerifyCodeChange,
-                                        enabled = !isLoading,
-                                        canSend = canSendCode,
-                                        containerShape = codeInputShape,
-                                        containerShadowElevation = 20.dp,
-                                        placeholderFontSize = 12f,
-                                        placeholderColor = Color.Black.copy(alpha = 0.40f),
-                                        inputFontSize = 14f,
-                                        onSendCode = onSendCode,
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
-                            PasswordInput(
-                                value = password,
-                                onValueChange = onPasswordChange,
-                                enabled = !isLoading,
-                                label = if (needsRegister) "设置密码" else "请输入密码",
-                                errorText = passwordErr,
-                                containerShape = codeInputShape,
-                                containerShadowElevation = 20.dp,
-                                placeholderFontSize = 12f,
-                                placeholderColor = Color.Black.copy(alpha = 0.40f),
-                                inputFontSize = 14f,
-                            )
-
-                            // 忘记密码
-                            if (!needsRegister) {
-                                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-                                Text(
-                                    text = "忘记密码",
-                                    color = Color.Black.copy(alpha = 0.90f),
-                                    fontSize = ds.sp(12f),
-                                    fontWeight = FontWeight.Normal,
-                                    textDecoration = TextDecoration.Underline,
-                                    lineHeight = ds.sp(16f),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null,
-                                        ) { showForgotPassword = true },
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                        // 未注册时弹出验证码输入
+                        AnimatedVisibility(
+                            visible = needsRegister,
+                            enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                            exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                CodeInput(
+                                    value = verifyCode,
+                                    onValueChange = onVerifyCodeChange,
+                                    enabled = !isLoading,
+                                    canSend = canSendCode,
+                                    containerShape = codeInputShape,
+                                    containerShadowElevation = 20.dp,
+                                    placeholderFontSize = 12f,
+                                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                                    inputFontSize = 14f,
+                                    onSendCode = onSendCode,
                                 )
                             }
+                        }
 
-                            // 未注册时弹出确认密码
-                            AnimatedVisibility(
-                                visible = needsRegister,
-                                enter = fadeIn() + androidx.compose.animation.expandVertically(),
-                                exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
-                            ) {
-                                Column {
-                                    Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                                    PasswordInput(
-                                        value = confirmPassword,
-                                        onValueChange = onConfirmPasswordChange,
-                                        enabled = !isLoading,
-                                        label = "再次输入密码",
-                                        errorText = confirmPwdErr,
-                                        containerShape = codeInputShape,
-                                        containerShadowElevation = 20.dp,
-                                        placeholderFontSize = 12f,
-                                        placeholderColor = Color.Black.copy(alpha = 0.40f),
-                                        inputFontSize = 14f,
-                                    )
-                                }
-                            }
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
-                            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                        PasswordInput(
+                            value = password,
+                            onValueChange = onPasswordChange,
+                            enabled = !isLoading,
+                            label = if (needsRegister) "设置密码" else "请输入密码",
+                            errorText = passwordErr,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                        )
 
-                            // 登录按钮
-                            Box(
+                        // 忘记密码
+                        if (!needsRegister) {
+                            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                            Text(
+                                text = "忘记密码",
+                                color = Color.Black.copy(alpha = 0.90f),
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.Normal,
+                                textDecoration = TextDecoration.Underline,
+                                lineHeight = ds.sp(16f),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(ds.sh(40.dp))
-                                    .clip(RoundedCornerShape(80.dp))
-                                    .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null,
-                                        enabled = canSubmit,
-                                    ) { onSubmit() },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(ds.sm(24.dp)),
-                                        color = Color.White,
-                                        strokeWidth = 2.dp,
-                                    )
-                                } else {
-                                    Text(
-                                        text = if (needsRegister) "立即注册" else "登录",
-                                        color = Color.White,
-                                        fontSize = ds.sp(16f),
-                                        fontWeight = FontWeight.Normal,
-                                    )
-                                }
+                                    ) { showForgotPassword = true },
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            )
+                        }
+
+                        // 未注册时弹出确认密码
+                        AnimatedVisibility(
+                            visible = needsRegister,
+                            enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                            exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                PasswordInput(
+                                    value = confirmPassword,
+                                    onValueChange = onConfirmPasswordChange,
+                                    enabled = !isLoading,
+                                    label = "再次输入密码",
+                                    errorText = confirmPwdErr,
+                                    containerShape = codeInputShape,
+                                    containerShadowElevation = 20.dp,
+                                    placeholderFontSize = 12f,
+                                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                                    inputFontSize = 14f,
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                        // 登录按钮
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(ds.sh(40.dp))
+                                .clip(RoundedCornerShape(80.dp))
+                                .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    enabled = canSubmit,
+                                ) { onSubmit() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(ds.sm(24.dp)),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = if (needsRegister) "立即注册" else "登录",
+                                    color = Color.White,
+                                    fontSize = ds.sp(16f),
+                                    fontWeight = FontWeight.Normal,
+                                )
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(ds.sh(40.dp)))
                 }
 
-                Spacer(modifier = Modifier.height(ds.sh(40.dp)))
-            }
-
-            // ── 底部协议 ──
-            val termsText = buildAnnotatedString {
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append("登录即表示同意我们的")
-                }
-                withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
-                    uriHandler.openUri("https://app.lucy.run/service.html")
-                }) {
-                    withStyle(SpanStyle(
-                        color = Color.Black,
-                        textDecoration = TextDecoration.Underline,
-                    )) {
-                        append("《服务条款》")
+                // ── 底部协议 ──
+                val termsText = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                        append("登录即表示同意我们的")
+                    }
+                    withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                        uriHandler.openUri("https://app.lucy.run/service.html")
+                    }) {
+                        withStyle(SpanStyle(
+                            color = Color.Black,
+                            textDecoration = TextDecoration.Underline,
+                        )) {
+                            append("《服务条款》")
+                        }
+                    }
+                    withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                        append("和")
+                    }
+                    withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                        uriHandler.openUri("https://app.lucy.run/privacy.html")
+                    }) {
+                        withStyle(SpanStyle(
+                            color = Color.Black,
+                            textDecoration = TextDecoration.Underline,
+                        )) {
+                            append("《隐私政策》")
+                        }
                     }
                 }
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append("和")
-                }
-                withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
-                    uriHandler.openUri("https://app.lucy.run/privacy.html")
-                }) {
-                    withStyle(SpanStyle(
-                        color = Color.Black,
-                        textDecoration = TextDecoration.Underline,
-                    )) {
-                        append("《隐私政策》")
-                    }
-                }
+                Text(
+                    text = termsText,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = ds.sp(10f),
+                        fontWeight = FontWeight.Normal,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(bottom = ds.sh(10.dp)),
+                )
             }
-            Text(
-                text = termsText,
-                style = androidx.compose.ui.text.TextStyle(
-                    fontSize = ds.sp(10f),
-                    fontWeight = FontWeight.Normal,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(bottom = ds.sh(10.dp)),
-            )
         }
 
         ToastHost(state = toastState)

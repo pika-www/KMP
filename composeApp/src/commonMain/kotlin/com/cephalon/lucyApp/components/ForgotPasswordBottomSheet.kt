@@ -31,6 +31,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalUriHandler
@@ -74,6 +75,9 @@ fun ForgotPasswordForm(
         }
         withoutPrefix.trim().takeIf { Regex("^1\\d{10}$").matches(it) }
     }
+
+    val codeInputShape = RoundedCornerShape(80.dp)
+    val canSendCode = normalizePhone() != null
 
     val performReset: () -> Unit = performReset@{
         if (!canSubmit) return@performReset
@@ -125,6 +129,8 @@ fun ForgotPasswordForm(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
             Text(
                 text = "设置新密码",
                 color = TitleColor,
@@ -139,6 +145,11 @@ fun ForgotPasswordForm(
                 onValueChange = { account = it },
                 enabled = !isLoading,
                 imeAction = ImeAction.Next,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -147,7 +158,13 @@ fun ForgotPasswordForm(
                 value = code,
                 onValueChange = { code = it },
                 enabled = !isLoading,
+                canSend = canSendCode,
                 imeAction = ImeAction.Next,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
                 onSendCode = { startTimer ->
                     val phone = normalizePhone()
                     if (phone == null) {
@@ -185,6 +202,11 @@ fun ForgotPasswordForm(
                 label = "设置密码",
                 imeAction = ImeAction.Next,
                 errorText = pwdErr,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -197,62 +219,74 @@ fun ForgotPasswordForm(
                 imeAction = ImeAction.Done,
                 onDone = { performReset() },
                 errorText = confirmPwdErr,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
             )
-        }
 
-        // 固定在底部的按钮和条款
-        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(ds.sh(48.dp))
-                .clip(RoundedCornerShape(80.dp))
-                .background(if (canSubmit) EnabledBtnColor else DisabledBtnColor)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    enabled = canSubmit
-                ) { performReset() },
-            contentAlignment = Alignment.Center
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(ds.sm(24.dp)),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Text(
-                    text = "重置并登录",
-                    color = Color.White,
-                    fontSize = ds.sp(16f),
-                    fontWeight = FontWeight.Normal,
-                )
+            // 重置按钮（跟随输入区域滚动，与密码登录页布局一致）
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(80.dp))
+                    .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = canSubmit
+                    ) { performReset() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(ds.sm(24.dp)),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        text = "重置密码",
+                        color = Color.White,
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(ds.sh(40.dp)))
         }
 
-        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-
+        // ── 底部协议（固定在底部，不跟随滚动） ──
         val uriHandler = LocalUriHandler.current
         val termsText = buildAnnotatedString {
             withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                append("登录即表示同意我们的 ")
+                append("登录即表示同意我们的")
             }
             withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
                 uriHandler.openUri("https://app.lucy.run/service.html")
             }) {
-                withStyle(SpanStyle(color = LinkColor)) {
+                withStyle(SpanStyle(
+                    color = Color.Black,
+                    textDecoration = TextDecoration.Underline,
+                )) {
                     append("《服务条款》")
                 }
             }
             withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                append(" 和 ")
+                append("和")
             }
             withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
                 uriHandler.openUri("https://app.lucy.run/privacy.html")
             }) {
-                withStyle(SpanStyle(color = LinkColor)) {
+                withStyle(SpanStyle(
+                    color = Color.Black,
+                    textDecoration = TextDecoration.Underline,
+                )) {
                     append("《隐私政策》")
                 }
             }
@@ -266,7 +300,5 @@ fun ForgotPasswordForm(
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-
-        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
     }
 }

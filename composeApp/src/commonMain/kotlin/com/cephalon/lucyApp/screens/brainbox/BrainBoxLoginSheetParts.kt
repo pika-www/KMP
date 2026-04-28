@@ -271,14 +271,6 @@ internal fun BrainBoxScanStep(
                 onStartScan = onRequestPermission,
             )
 
-            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-            Text(
-                text = "发现附近的脑花设备，确保蓝牙已开启且设备通电",
-                fontSize = ds.sp(14f),
-                fontWeight = FontWeight.Normal,
-                color = Color.Black.copy(alpha = 0.60f),
-            )
-
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
             // discovered devices

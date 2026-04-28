@@ -65,11 +65,11 @@ private const val DISCOVER_RETRY_DELAY_MS = 500L
 // 单次读 / 写 / 描述符写超时。
 private const val READ_WRITE_TIMEOUT_MS = 10_000L
 
-// 协商后的 ATT MTU 上限。选 185：ATT header 3B + 应用层 payload 182B，足够单包发完
-// wifi_config / lucy_pairing_request / wifi_scan / 完整 pairing_info 读回等所有已知 JSON，
-// 避免依赖 Prepare/Execute Write 在部分 OEM 栈上的实现 bug。设备可能协商出更小值，调用
-// requestMtu 仅为"尽力拉高"。默认 23 下 BLE 栈仍会自动做 long-write，功能不受影响。
-private const val DESIRED_ATT_MTU = 185
+// 协商后的 ATT MTU 上限。选 512（BLE 4.2+ 标准最大值）：
+// lucy_pairing_info 含 OTP 时 JSON 约 195 字节，超过旧值 185 的有效载荷（182B），
+// 导致 read / notify 返回截断 JSON 而解析失败。512 可覆盖所有已知 payload。
+// 设备可能协商出更小值，requestMtu 仅为"尽力拉高"。
+private const val DESIRED_ATT_MTU = 512
 
 /**
  * Android `BluetoothGattCallback` 的 status 只是一个 int，默认打出来就是个数字，
