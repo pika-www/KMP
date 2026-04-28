@@ -119,7 +119,7 @@ suspend actual fun platformReadTextDocument(
         path = filePath,
         encoding = NSUTF8StringEncoding,
         error = null
-    ) as? String ?: error("读取文档内容失败")
+    ) ?: error("读取文档内容失败")
 }
 
 @Composable

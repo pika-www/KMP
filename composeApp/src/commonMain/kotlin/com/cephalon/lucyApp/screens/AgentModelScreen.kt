@@ -580,7 +580,7 @@ fun AgentModelScreen(
             val msgs = conversation.messages.toMutableList()
             val idx = msgs.indexOfLast {
                 it is ChatItem.Assistant &&
-                    (it as ChatItem.Assistant).text.isBlank() &&
+                    it.text.isBlank() &&
                     (messageId == null || it.messageId == messageId || it.messageId == null)
             }
             if (idx >= 0) msgs.removeAt(idx)
@@ -860,7 +860,7 @@ fun AgentModelScreen(
         return NasAudioItem(
             id = id,
             name = name,
-            type = inferContentType(name) ?: "audio/*",
+            type = inferContentType(name),
             format = format,
             sizeKB = 0,
             path = resolvedBlobRef,
@@ -1524,7 +1524,7 @@ fun AgentModelScreen(
                     mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
-                            it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                            it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                         }
                         if (idx >= 0) msgs.removeAt(idx)
                         conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1568,7 +1568,7 @@ fun AgentModelScreen(
                     mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
-                            it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                            it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                         }
                         if (idx >= 0) msgs.removeAt(idx)
                         conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1609,7 +1609,7 @@ fun AgentModelScreen(
                             mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                                 val msgs = conv.messages.toMutableList()
                                 val idx = msgs.indexOfLast {
-                                    it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                                    it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                                 }
                                 if (idx >= 0) msgs.removeAt(idx)
                                 conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1622,13 +1622,14 @@ fun AgentModelScreen(
                             return@launch
                         }
                         val nasResponse = getResult.getOrThrow()
-                        val blobRef = nasResponse.item?.blobRef
+                        val item = nasResponse.item
+                        val blobRef = item?.blobRef
                         if (blobRef.isNullOrBlank()) {
                             println("[Chat] NAS 文件缺少 blobRef fileId=$nasFileId")
                             mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                                 val msgs = conv.messages.toMutableList()
                                 val idx = msgs.indexOfLast {
-                                    it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                                    it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                                 }
                                 if (idx >= 0) msgs.removeAt(idx)
                                 conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1642,7 +1643,7 @@ fun AgentModelScreen(
                         }
                         val fileName = att.displayName ?: "file"
                         val contentType = inferContentType(fileName)
-                        val size = (nasResponse.item?.size ?: 0L)
+                        val size = item.size ?: 0L
                         mediaItems.add(SdkSessionManager.MediaItem(
                             blobRef = blobRef,
                             contentType = contentType,
@@ -1666,12 +1667,8 @@ fun AgentModelScreen(
 
                     // 关键：把 messageId → sendingCdi 登记下来，后续流式回复/错误会用这个映射
                     // 把更新路由到原设备的存档里，即使此刻用户已经切换到其它设备。
-                    if (sendingCdi != null) {
-                        messageIdToCdi[messageId] = sendingCdi
-                    }
-                    if (targetConversationId != null) {
-                        messageIdToConversationId[messageId] = targetConversationId
-                    }
+                    messageIdToCdi[messageId] = sendingCdi
+                    messageIdToConversationId[messageId] = targetConversationId
 
                     // 回填用户消息 + Assistant 占位符的 messageId；同样按 sendingCdi 路由：
                     // 当前设备还是它就走内存，不是就直接落到它的磁盘存档。
@@ -1712,7 +1709,7 @@ fun AgentModelScreen(
                         val assistantIdx = msgs.indexOfLast {
                             it is ChatItem.Assistant &&
                                     it.messageId == null &&
-                                    (it as ChatItem.Assistant).text.isBlank()
+                                    it.text.isBlank()
                         }
                         println("[Chat] 回填 messageId: userIdx=$userIdx, assistantIdx=$assistantIdx, totalMsgs=${msgs.size}")
                         if (assistantIdx >= 0) {
@@ -1722,10 +1719,8 @@ fun AgentModelScreen(
                         conv.copy(messages = msgs)
                     }
 
-                    if (targetConversationId != null) {
-                        activeStreamingRequests[messageId] = targetConversationId
-                        println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, cdi=$sendingCdi, size=${activeStreamingRequests.size}")
-                    }
+                    activeStreamingRequests[messageId] = targetConversationId
+                    println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, cdi=$sendingCdi, size=${activeStreamingRequests.size}")
                 }
 
                 sendResult.onFailure { error ->
@@ -1734,7 +1729,7 @@ fun AgentModelScreen(
                     mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
-                            it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                            it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                         }
                         if (idx >= 0) msgs.removeAt(idx)
                         conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())

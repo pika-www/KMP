@@ -354,7 +354,7 @@ class AuthRepository(
             )
             println("[BrainBox] bindDeviceWithOtp: code=${resp.code}, msg=${resp.msg}, cdi=${resp.data?.cdi}, status=${resp.data?.status}")
             if (resp.code == 200 && resp.data != null) {
-                resp.data.serverMsg = resp.msg ?: "绑定成功"
+                resp.data.serverMsg = resp.msg
                 Result.success(resp.data)
             } else {
                 Result.failure(Exception(resp.msg))

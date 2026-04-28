@@ -27,8 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.withLink
 
 val TitleColor = Color(0xFF1F2535)
 val DisabledBtnColor = Color(0xFF717580)
@@ -307,19 +308,23 @@ fun LoginSheetContent(
             withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
                 append("登录即表示同意我们的 ")
             }
-            pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/service.html")
-            withStyle(SpanStyle(color = LinkColor)) {
-                append("《服务条款》")
+            withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                uriHandler.openUri("https://app.lucy.run/service.html")
+            }) {
+                withStyle(SpanStyle(color = LinkColor)) {
+                    append("《服务条款》")
+                }
             }
-            pop()
             withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
                 append(" 和 ")
             }
-            pushStringAnnotation(tag = "URL", annotation = "https://app.lucy.run/privacy.html")
-            withStyle(SpanStyle(color = LinkColor)) {
-                append("《隐私政策》")
+            withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                uriHandler.openUri("https://app.lucy.run/privacy.html")
+            }) {
+                withStyle(SpanStyle(color = LinkColor)) {
+                    append("《隐私政策》")
+                }
             }
-            pop()
         }
 
         Column(
@@ -358,7 +363,7 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-            ClickableText(
+            Text(
                 text = termsText,
                 style = androidx.compose.ui.text.TextStyle(
                     fontSize = ds.sp(10f),
@@ -366,10 +371,6 @@ fun LoginSheetContent(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 ),
                 modifier = Modifier.fillMaxWidth(),
-                onClick = { offset ->
-                    termsText.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                        .firstOrNull()?.let { uriHandler.openUri(it.item) }
-                },
             )
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))

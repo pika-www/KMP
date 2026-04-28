@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -40,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cephalon.lucyApp.clipboard.platformCopyToClipboard
 import com.cephalon.lucyApp.components.LocalDesignScale
 
 // ─── 颜色 ───
@@ -64,7 +64,6 @@ fun LucyGuideScreen(
 ) {
     val ds = LocalDesignScale.current
     val scrollState = rememberScrollState()
-    val clipboardManager = LocalClipboardManager.current
 
     Column(
         modifier = Modifier
@@ -164,7 +163,7 @@ fun LucyGuideScreen(
                 |openclaw lucy auth-qrcode
             """.trimMargin()
             CodeBlock(code = quickStartCode, onCopy = {
-                clipboardManager.setText(AnnotatedString(quickStartCode))
+                platformCopyToClipboard(quickStartCode)
             })
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -193,7 +192,7 @@ fun LucyGuideScreen(
                 |openclaw lucy reset-state
             """.trimMargin()
             CodeBlock(code = verifyCode, onCopy = {
-                clipboardManager.setText(AnnotatedString(verifyCode))
+                platformCopyToClipboard(verifyCode)
             })
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -222,7 +221,7 @@ fun LucyGuideScreen(
                 |}
             """.trimMargin()
             CodeBlock(code = minConfig, language = "json", onCopy = {
-                clipboardManager.setText(AnnotatedString(minConfig))
+                platformCopyToClipboard(minConfig)
             })
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -250,7 +249,7 @@ fun LucyGuideScreen(
                 |}
             """.trimMargin()
             CodeBlock(code = usbConfig, language = "json", onCopy = {
-                clipboardManager.setText(AnnotatedString(usbConfig))
+                platformCopyToClipboard(usbConfig)
             })
 
             Spacer(modifier = Modifier.height(48.dp))

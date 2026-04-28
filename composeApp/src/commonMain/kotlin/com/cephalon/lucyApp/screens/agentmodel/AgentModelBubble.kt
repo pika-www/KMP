@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -132,7 +131,6 @@ private fun MarkdownBubbleText(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))) {
         blocks.forEachIndexed { index, block ->
             if (index % 2 == 1) {
-                val clipboardManager = LocalClipboardManager.current
                 val codeContent = block.lines().let { lines ->
                     if (lines.isNotEmpty() && lines.first().isNotBlank() && !lines.first().trimStart().contains(' '))
                         lines.drop(1).joinToString("\n").trim()
@@ -155,9 +153,6 @@ private fun MarkdownBubbleText(
                         )
                         IconButton(
                             onClick = {
-                                // 双写：先写 Compose 剪贴板（自动跨平台），再走一层平台原生 API，
-                                // 保证 iOS 侧在 BasicTextField 长按菜单"粘贴"时一定能取到这段文本。
-                                clipboardManager.setText(AnnotatedString(codeContent))
                                 platformCopyToClipboard(codeContent)
                                 onCopySuccess?.invoke()
                             },
