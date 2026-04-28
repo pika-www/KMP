@@ -198,6 +198,8 @@ class SdkSessionManager(
             LucyImAppConfig(
                 lucyServerBaseUrl = "${AppConfig.baseDomain}/aiden/lucy-server",
                 dispatcher = sdkDispatcher,
+                jetStreamVerboseLoggingProvider = { AppConfig.lucyImJetStreamVerboseLogging },
+                jetStreamPayloadPreviewMaxChars = AppConfig.lucyImJetStreamPayloadPreviewMaxChars,
             ),
         )
 
@@ -704,7 +706,7 @@ class SdkSessionManager(
                     _latestRequestId = _activeRequestIds.value.lastOrNull()
                 }
             }
-            appLogD(TAG, "发送失败 cdi=$cdi error=${error.message ?: "unknown"}")
+            appLogD(TAG, "发送失败 cdi=$cdi error=${error.message ?: "unknown"} rootCause=${error.cause?.message ?: "-"}")
         }
     }
 
