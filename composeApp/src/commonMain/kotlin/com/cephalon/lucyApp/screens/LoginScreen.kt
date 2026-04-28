@@ -316,7 +316,9 @@ fun LoginScreen(
                 Image(
                     painter = painterResource(Res.drawable.logo_img),
                     contentDescription = null,
-                    modifier = Modifier.size(ds.sm(64.dp))
+                    modifier = Modifier
+                        .size(ds.sm(64.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp)))
                 )
 
                 Spacer(modifier = Modifier.height(ds.sh(32.dp)))
@@ -613,7 +615,9 @@ fun LoginScreen(
                         Image(
                             painter = painterResource(Res.drawable.logo_img),
                             contentDescription = null,
-                            modifier = Modifier.size(ds.sm(64.dp)),
+                            modifier = Modifier
+                                .size(ds.sm(64.dp))
+                                .clip(RoundedCornerShape(ds.sm(12.dp))),
                         )
 
                         // 标题 距 logo 24px
@@ -935,7 +939,9 @@ private fun PasswordLoginPage(
                 Image(
                     painter = painterResource(Res.drawable.logo_img),
                     contentDescription = null,
-                    modifier = Modifier.size(ds.sm(64.dp)),
+                    modifier = Modifier
+                        .size(ds.sm(64.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp))),
                 )
                 Spacer(modifier = Modifier.height(ds.sh(24.dp)))
                 Text(
@@ -1240,7 +1246,9 @@ private fun RegisterPage(
                 Image(
                     painter = painterResource(Res.drawable.logo_img),
                     contentDescription = null,
-                    modifier = Modifier.size(ds.sm(64.dp)),
+                    modifier = Modifier
+                        .size(ds.sm(64.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp))),
                 )
                 Spacer(modifier = Modifier.height(ds.sh(24.dp)))
                 Text(
