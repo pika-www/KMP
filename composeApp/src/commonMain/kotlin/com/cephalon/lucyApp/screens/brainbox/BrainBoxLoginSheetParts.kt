@@ -158,20 +158,14 @@ internal fun BluetoothStatusBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(pillShape)
-            .border(
-                width = 1.dp,
-                color = Color.White,
+            .shadow(
+                elevation = 15.dp,
                 shape = pillShape,
+                ambientColor = Color.Black.copy(alpha = 0.025f),
+                spotColor = Color.Black.copy(alpha = 0.025f),
             )
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.15f),
-                        Color.White.copy(alpha = 0.10f),
-                    )
-                )
-            ),
+            .clip(pillShape)
+            .background(Color.White),
     ) {
         Row(
             modifier = Modifier
@@ -277,7 +271,15 @@ internal fun BrainBoxScanStep(
                 onStartScan = onRequestPermission,
             )
 
-            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+            Text(
+                text = "发现附近的脑花设备，确保蓝牙已开启且设备通电",
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.60f),
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
             // discovered devices
             Text(
@@ -288,33 +290,41 @@ internal fun BrainBoxScanStep(
             )
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
+            val cardShape = RoundedCornerShape(ds.sm(16.dp))
             if (devices.isEmpty()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(ds.sm(16.dp)),
-                    color = Color.White.copy(alpha = 0.3f),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = ds.sh(40.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = if (isBleScanning) "正在搜索附近设备…" else "暂未发现设备",
-                            fontSize = ds.sp(14f),
-                            color = TextLinkGrey,
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(
+                            elevation = 15.dp,
+                            shape = cardShape,
+                            ambientColor = Color.Black.copy(alpha = 0.025f),
+                            spotColor = Color.Black.copy(alpha = 0.025f),
                         )
-                    }
+                        .clip(cardShape)
+                        .background(Color.White)
+                        .padding(vertical = ds.sh(40.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (isBleScanning) "正在搜索附近设备…" else "暂未发现设备",
+                        fontSize = ds.sp(14f),
+                        color = TextLinkGrey,
+                    )
                 }
             } else {
-                // glassmorphism device list card
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(ds.sm(16.dp)),
-                    color = Color.White.copy(alpha = 0.15f),
-                    shadowElevation = 0.dp,
-                    tonalElevation = 0.dp,
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .shadow(
+                            elevation = 15.dp,
+                            shape = cardShape,
+                            ambientColor = Color.Black.copy(alpha = 0.025f),
+                            spotColor = Color.Black.copy(alpha = 0.025f),
+                        )
+                        .clip(cardShape)
+                        .background(Color.White),
                 ) {
                     LazyColumn(
                         modifier = Modifier

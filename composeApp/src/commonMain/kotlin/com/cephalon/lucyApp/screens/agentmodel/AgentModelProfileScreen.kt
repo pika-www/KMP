@@ -1284,7 +1284,7 @@ internal fun BrainPowerBalancePage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = ds.sw(20.dp)),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Bottom,
                 ) {
                     Text(
                         text = formatWithCommas(totalBalance),
@@ -1300,24 +1300,25 @@ internal fun BrainPowerBalancePage(
                     Box(
                         modifier = Modifier
                             .shadow(
-                                elevation = 30.dp,
+                                elevation = 15.dp,
                                 shape = RoundedCornerShape(ds.sm(100.dp)),
-                                ambientColor = Color.Black.copy(alpha = 0.05f),
-                                spotColor = Color.Black.copy(alpha = 0.05f),
+                                ambientColor = Color.Black.copy(alpha = 0.025f),
+                                spotColor = Color.Black.copy(alpha = 0.025f),
                             )
                             .clip(RoundedCornerShape(ds.sm(100.dp)))
                             .background(Color.Black)
+                            .height(ds.sh(20.dp))
                             .clickable(
                                 indication = null,
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                             ) { onRechargeClick() }
-                            .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(8.dp)),
+                            .padding(horizontal = ds.sw(20.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = "充值",
-                            fontSize = ds.sp(14f),
-                            fontWeight = FontWeight.Normal,
+                            fontSize = ds.sp(10f),
+                            fontWeight = FontWeight.Medium,
                             color = Color.White,
                         )
                     }
@@ -1693,6 +1694,7 @@ private fun QuickRechargeCard(
             fontSize = ds.sp(10f),
             fontWeight = FontWeight.Medium,
             color = Color.Black.copy(alpha = 0.90f),
+            lineHeight = ds.sp(10f),
         )
         // 脑力值
         Text(
@@ -1700,6 +1702,7 @@ private fun QuickRechargeCard(
             fontSize = ds.sp(10f),
             fontWeight = FontWeight.Normal,
             color = Color.Black.copy(alpha = 0.40f),
+            lineHeight = ds.sp(10f),
         )
         Spacer(modifier = Modifier.height(ds.sh(8.dp)))
         // 价格
@@ -1787,17 +1790,29 @@ private fun RechargePackageSheet(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "关闭",
-                tint = Color.Black.copy(alpha = 0.40f),
+            Box(
                 modifier = Modifier
-                    .size(ds.sm(24.dp))
+                    .size(ds.sm(32.dp))
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color.Black.copy(alpha = 0.06f),
+                        shape = CircleShape,
+                    )
                     .clickable(
                         indication = null,
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     ) { onDismiss() },
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "关闭",
+                    tint = Color.Black.copy(alpha = 0.40f),
+                    modifier = Modifier.size(ds.sm(18.dp)),
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
@@ -3721,13 +3736,13 @@ private fun LogoutConfirmDialog(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .height(ds.sh(40.dp))
                         .clip(RoundedCornerShape(ds.sm(100.dp)))
                         .background(Color.Black.copy(alpha = 0.05f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        ) { onDismiss() }
-                        .padding(vertical = ds.sh(14.dp)),
+                        ) { onDismiss() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -3741,20 +3756,26 @@ private fun LogoutConfirmDialog(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .height(ds.sh(40.dp))
+                        .shadow(
+                            elevation = 15.dp,
+                            shape = RoundedCornerShape(ds.sm(100.dp)),
+                            ambientColor = Color.Black.copy(alpha = 0.025f),
+                            spotColor = Color.Black.copy(alpha = 0.025f),
+                        )
                         .clip(RoundedCornerShape(ds.sm(100.dp)))
-                        .background(Color.Black.copy(alpha = 0.05f))
+                        .background(Color.Black.copy(alpha = 0.90f))
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        ) { onConfirm() }
-                        .padding(vertical = ds.sh(14.dp)),
+                        ) { onConfirm() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "退出",
                         fontSize = ds.sp(16f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color(0xFFE84026),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
                     )
                 }
             }

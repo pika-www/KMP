@@ -131,7 +131,7 @@ fun ScanBindChannelScreen(
                     Icon(
                         imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "Back",
-                        tint = Color.Black.copy(alpha = 0.60f),
+                        tint = Color.White,
                         modifier = Modifier.size(
                             width = ds.sw(11.dp),
                             height = ds.sh(17.dp),
