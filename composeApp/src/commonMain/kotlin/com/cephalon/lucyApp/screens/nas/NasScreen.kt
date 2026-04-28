@@ -37,8 +37,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material3.Text
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -224,6 +225,8 @@ fun NasScreen(
     val loadingMoreMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val searchErrorMap = remember { mutableStateMapOf<NasCategory, String?>() }
     val searchLoadingMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
+    val refreshIndicatorMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
+    val searchRefreshIndicatorMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val activeTasks = uploadTasks.filter {
         it.status == NasUploadTaskStatus.Uploading ||
             it.status == NasUploadTaskStatus.Downloading ||
@@ -416,7 +419,11 @@ fun NasScreen(
         searchLoadingMap.remove(category)
     }
 
-    fun requestNasList(category: NasCategory, loadMore: Boolean = false) {
+    fun requestNasList(
+        category: NasCategory,
+        loadMore: Boolean = false,
+        showRefreshIndicator: Boolean = false,
+    ) {
         if (loadingMap[category] == true || loadingMoreMap[category] == true) return
         val kind = category.toNasListKind()
         val cachedCursor = nasCacheMap[kind]?.nextCursor
@@ -427,6 +434,7 @@ fun NasScreen(
             loadingMoreMap[category] = true
         } else {
             loadingMap[category] = true
+            refreshIndicatorMap[category] = showRefreshIndicator
             errorMap.remove(category)
         }
 
@@ -460,10 +468,15 @@ fun NasScreen(
 
             loadingMap[category] = false
             loadingMoreMap[category] = false
+            refreshIndicatorMap[category] = false
         }
     }
 
-    fun requestNasSearch(category: NasCategory, keyword: String) {
+    fun requestNasSearch(
+        category: NasCategory,
+        keyword: String,
+        showRefreshIndicator: Boolean = false,
+    ) {
         val normalizedKeyword = keyword.trim()
         if (normalizedKeyword.isBlank()) {
             clearNasSearchState(category)
@@ -473,6 +486,7 @@ fun NasScreen(
 
         val kind = category.toNasListKind()
         searchLoadingMap[category] = true
+        searchRefreshIndicatorMap[category] = showRefreshIndicator
         searchErrorMap.remove(category)
 
         coroutineScope.launch {
@@ -522,8 +536,10 @@ fun NasScreen(
                 debouncedSearchQuery == normalizedKeyword
             ) {
                 searchLoadingMap[category] = false
+                searchRefreshIndicatorMap[category] = false
             } else {
                 searchLoadingMap.remove(category)
+                searchRefreshIndicatorMap.remove(category)
             }
         }
     }
@@ -996,6 +1012,11 @@ fun NasScreen(
     val currentCategoryError = if (searchActive) searchErrorMap[selectedCategory] else errorMap[selectedCategory]
     val currentCategoryLoading = if (searchActive) searchLoadingMap[selectedCategory] == true else loadingMap[selectedCategory] == true
     val currentCategoryLoadingMore = if (searchActive) false else loadingMoreMap[selectedCategory] == true
+    val currentRefreshIndicator = if (searchActive) {
+        searchRefreshIndicatorMap[selectedCategory] == true
+    } else {
+        refreshIndicatorMap[selectedCategory] == true
+    }
     val currentCategoryHasMore = if (searchActive) false else !nasCacheMap[selectedCategory.toNasListKind()]?.nextCursor.isNullOrBlank()
     val currentSearchEmptyText = when {
         currentCategoryLoading -> null
@@ -1003,6 +1024,30 @@ fun NasScreen(
         searchActive -> "暂无搜索结果"
         else -> null
     }
+
+    LaunchedEffect(
+        selectedCategory,
+        isVisible,
+        searchActive,
+        currentCategoryLoading,
+        currentCategoryLoadingMore,
+        currentCategoryHasMore,
+        activeScrollState.value,
+        activeScrollState.maxValue,
+    ) {
+        if (!isVisible || searchActive) return@LaunchedEffect
+        if (currentCategoryLoading || currentCategoryLoadingMore || !currentCategoryHasMore) return@LaunchedEffect
+
+        val remainingPx = activeScrollState.maxValue - activeScrollState.value
+        val loadMoreThresholdPx = with(density) { 180.dp.roundToPx() }
+        val shouldLoadMore =
+            activeScrollState.maxValue <= 0 ||
+                remainingPx <= loadMoreThresholdPx
+        if (shouldLoadMore) {
+            requestNasList(selectedCategory, loadMore = true)
+        }
+    }
+
     val contentBottomPadding = ds.sm(
         when {
             isSearchMode -> 120.dp
@@ -1038,15 +1083,10 @@ fun NasScreen(
                     },
                     modifier = Modifier.width(ds.sm(132.dp))
                 )
-            } else if (!currentCategoryLoading && currentCategoryHasMore) {
-                NasGlassTextButton(
-                    text = if (currentCategoryLoadingMore) "加载中..." else "加载更多",
-                    onClick = {
-                        if (!currentCategoryLoadingMore) {
-                            requestNasList(selectedCategory, loadMore = true)
-                        }
-                    },
-                    modifier = Modifier.width(ds.sm(132.dp))
+            } else if (!currentCategoryLoading && currentCategoryLoadingMore) {
+                Text(
+                    text = "加载中...",
+                    style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
                 )
             }
         }
@@ -1113,8 +1153,24 @@ fun NasScreen(
                         Spacer(modifier = Modifier.height(ds.sm(44.dp)))
                     }
 
-                    Box(
-                        modifier = Modifier.weight(1f)
+                    PullToRefreshBox(
+                        isRefreshing = currentRefreshIndicator,
+                        onRefresh = {
+                            if (searchActive) {
+                                requestNasSearch(
+                                    selectedCategory,
+                                    debouncedSearchQuery,
+                                    showRefreshIndicator = true,
+                                )
+                            } else {
+                                requestNasList(
+                                    selectedCategory,
+                                    loadMore = false,
+                                    showRefreshIndicator = true,
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
                     ) {
                         when (selectedCategory) {
                             NasCategory.Photos -> NasPhotosContent(
