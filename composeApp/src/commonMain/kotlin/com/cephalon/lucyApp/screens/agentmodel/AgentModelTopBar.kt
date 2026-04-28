@@ -82,7 +82,9 @@ internal fun AgentModelTopBar(
                 Spacer(modifier = Modifier.width(ds.sw(12.dp)))
 
                 Column(
-                    modifier = Modifier.align(Alignment.CenterVertically),
+                    modifier = Modifier
+                        .height(ds.sm(36.dp))
+                        .align(Alignment.CenterVertically),
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(
