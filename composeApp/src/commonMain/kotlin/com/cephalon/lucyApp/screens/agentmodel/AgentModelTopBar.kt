@@ -60,7 +60,7 @@ internal fun AgentModelTopBar(
         ) {
             Row(
                 modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
@@ -82,16 +82,15 @@ internal fun AgentModelTopBar(
                 Spacer(modifier = Modifier.width(ds.sw(12.dp)))
 
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.Center
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                    verticalArrangement = Arrangement.Center,
                 ) {
                     Text(
                         text = title,
                         color = Color.Black.copy(alpha = 0.9f),
                         fontSize = ds.sp(16f),
                         fontWeight = FontWeight.SemiBold,
-                        lineHeight = ds.sp(16f),
+                        lineHeight = ds.sp(20f),
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically
@@ -106,9 +105,9 @@ internal fun AgentModelTopBar(
                         Text(
                             text = statusText,
                             color = Color.Black.copy(alpha = 0.60f),
-                            fontSize = ds.sp(10f),
+                            fontSize = ds.sp(12f),
                             fontWeight = FontWeight.Medium,
-                            lineHeight = ds.sp(10f),
+                            lineHeight = ds.sp(16f),
                         )
                     }
                 }

@@ -29,6 +29,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -68,6 +69,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1841,7 +1844,15 @@ fun AgentModelScreen(
         showNasScreen = true
     }
 
+    val blackTextSelectionColors = remember {
+        TextSelectionColors(
+            handleColor = Color.Black,
+            backgroundColor = Color.Black.copy(alpha = 0.22f)
+        )
+    }
+
     DesignScaleProvider {
+    CompositionLocalProvider(LocalTextSelectionColors provides blackTextSelectionColors) {
     Box(modifier = Modifier.fillMaxSize()) {
 
     // ── 主聊天始终渲染 ──
@@ -2426,6 +2437,7 @@ fun AgentModelScreen(
         )
     }
     } // Box
+    } // CompositionLocalProvider
     } // DesignScaleProvider
 }
 
