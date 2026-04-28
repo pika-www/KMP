@@ -95,7 +95,6 @@ import com.cephalon.lucyApp.sdk.MediaAttachment
 import com.cephalon.lucyApp.screens.agentmodel.uriDisplayName
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
 import com.cephalon.lucyApp.screens.agentmodel.displayName
-import com.cephalon.lucyApp.screens.agentmodel.AgentModelAttachmentPanel
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelSearchScreen
 import androidx.compose.ui.text.input.TextFieldValue
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelComposer
@@ -135,6 +134,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.cephalon.lucyApp.screens.agentmodel.asAudioRecording
 import com.cephalon.lucyApp.screens.nas.NasAudioDetailScreen
@@ -1852,19 +1852,15 @@ fun AgentModelScreen(
                     .padding(padding)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    Surface(color = Color(0xFFF5F5F7)) {
+                    Surface(color = Color.White) {
                         AgentModelTopBar(
                             title = "脑花",
-                            subtitle = "内容由 AI 生成",
+                            subtitle = if (currentCdi != null && currentCdi in onlineDeviceCdis) "设备在线" else "设备离线",
                             onOpenProfile = {
                                 focusManager.clearFocus()
                                 attachmentsExpanded = false
                                 previewState = null
                                 showProfilePage = true
-                            },
-                            onCall = {
-                                attachmentsExpanded = false
-                                uriHandler.openUri("tel:")
                             },
                             onPillClick = {
                                 focusManager.clearFocus()
@@ -1885,25 +1881,19 @@ fun AgentModelScreen(
                                     showRechargePage = true
                                 }
                             },
-                            hasMessages = currentMessages.isNotEmpty(),
                             isDeviceOnline = currentCdi != null && currentCdi in onlineDeviceCdis
                         )
                     }
                     if (currentMessages.isEmpty() && emptyViewState != 2) {
                         val ds = LocalDesignScale.current
-                        val glassBrush = Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFFDFDFDF).copy(alpha = 0.10f),
-                                Color.White
-                            )
-                        )
-                        val cardShape = RoundedCornerShape(ds.sm(16.dp))
+                        val capabilityCardShape = RoundedCornerShape(ds.sm(200.dp))
 
                         // ── 欢迎页 ──
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
+                                .background(Color(0xFFFAFAFC))
                                 .padding(horizontal = ds.sw(20.dp)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1913,50 +1903,57 @@ fun AgentModelScreen(
                                     color = Color.Black.copy(alpha = 0.9f),
                                     fontSize = ds.sp(28f),
                                     fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Spacer(modifier = Modifier.height(ds.sh(25.dp)))
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .shadow(8.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
-                                        .clip(cardShape)
-                                        .background(glassBrush)
-                                        .border(1.dp, Color.White, cardShape)
-                                        .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp)),
+                                        .width(ds.sw(224.dp))
+                                        .height(ds.sh(40.dp))
+                                        .shadow(
+                                            elevation = 30.dp,
+                                            shape = capabilityCardShape,
+                                            ambientColor = Color.Black.copy(alpha = 0.05f),
+                                            spotColor = Color.Black.copy(alpha = 0.05f)
+                                        )
+                                        .clip(capabilityCardShape)
+                                        .background(Color.Black.copy(alpha = 0.05f))
+                                        .border(
+                                            width = 0.5.dp,
+                                            color = Color.Black.copy(alpha = 0.05f),
+                                            shape = capabilityCardShape
+                                        ),
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                appendMessageToConversation(
+                                                    selectedConversationId,
+                                                    ChatItem.SkillSuggestions
+                                                )
+                                                emptyViewState = 2
+                                            }
                                     ) {
-                                        // 文字区域可点击 → 以对话形式展示技能列表
-                                        Row(
+                                        Text(
+                                            text = "探索脑花的能力",
+                                            color = Color.Black.copy(alpha = 0.9f),
+                                            fontSize = ds.sp(16f),
+                                            fontWeight = FontWeight.Medium,
+                                            lineHeight = ds.sp(22f),
+                                            textAlign = TextAlign.Center,
                                             modifier = Modifier
-                                                .weight(1f)
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    appendMessageToConversation(
-                                                        selectedConversationId,
-                                                        ChatItem.SkillSuggestions
-                                                    )
-                                                    emptyViewState = 2
-                                                },
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "探索脑花的能力",
-                                                color = Color(0xFF1F2535),
-                                                fontSize = ds.sp(16f),
-                                                fontWeight = FontWeight.Normal
-                                            )
-                                        }
-                                        // 关闭按钮
+                                                .align(Alignment.Center)
+                                        )
                                         Box(
-                                            modifier = Modifier.size(ds.sm(22.dp)),
+                                            modifier = Modifier
+                                                .align(Alignment.CenterEnd)
+                                                .padding(end = ds.sw(16.dp))
+                                                .size(ds.sm(22.dp)),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
@@ -1965,13 +1962,6 @@ fun AgentModelScreen(
                                                 tint = Color.Unspecified,
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .clip(RoundedCornerShape(27.5.dp))
-                                                    .border(
-                                                        width = 0.5.dp,
-                                                        color = Color.Black.copy(alpha = 0.10f),
-                                                        shape = RoundedCornerShape(27.5.dp)
-                                                    )
-                                                    .padding(ds.sm(1.dp))
                                                     .clickable(
                                                         interactionSource = remember { MutableInteractionSource() },
                                                         indication = null
@@ -2103,6 +2093,15 @@ fun AgentModelScreen(
                             attachmentsExpanded = !attachmentsExpanded
                             if (attachmentsExpanded) focusManager.clearFocus()
                         },
+                        onOpenCamera = {
+                            mediaAccessController.openCamera()
+                        },
+                        onOpenGallery = {
+                            mediaAccessController.openGallery()
+                        },
+                        onOpenFilePicker = {
+                            mediaAccessController.openFilePicker()
+                        },
                         onSend = sendMessage,
                         onStop = sendStopMessage,
                         isStopMode = isStopMode,
@@ -2114,31 +2113,6 @@ fun AgentModelScreen(
                     )
 
                 
-                }
-
-                if (attachmentsExpanded) {
-                    AgentModelAttachmentPanel(
-                        recentImages = mediaAccessController.recentImages,
-                        hasMoreRecentImages = mediaAccessController.hasMoreRecentImages,
-                        onLoadMoreRecentImages = { mediaAccessController.loadMoreRecentImages() },
-                        onOpenCamera = {
-                            mediaAccessController.openCamera()
-                        },
-                        onOpenFilePicker = {
-                            mediaAccessController.openFilePicker()
-                        },
-                        onImagesSelected = { uris ->
-                            uris.forEach { uri ->
-                                if (uri.isNotBlank() && draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }) {
-                                    draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
-                                    startAttachmentUpload(uri)
-                                }
-                            }
-                            attachmentsExpanded = false
-                        },
-                        onDismiss = { attachmentsExpanded = false },
-                        modifier = Modifier.fillMaxSize()
-                    )
                 }
 
                 AgentModelProfileScreen(

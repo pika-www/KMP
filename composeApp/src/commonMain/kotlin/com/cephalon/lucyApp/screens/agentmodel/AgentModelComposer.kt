@@ -1,9 +1,11 @@
 package com.cephalon.lucyApp.screens.agentmodel
 
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_camera
 import androidios.composeapp.generated.resources.ic_composer_add
 import androidios.composeapp.generated.resources.ic_composer_mic
-import androidios.composeapp.generated.resources.ic_composer_send
+import androidios.composeapp.generated.resources.ic_img
+import androidios.composeapp.generated.resources.ic_send
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,9 +21,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -32,25 +36,28 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.ErrorOutline
 import com.cephalon.lucyApp.components.BlobImage
@@ -61,9 +68,13 @@ import com.cephalon.lucyApp.sdk.MediaAttachment
 import org.jetbrains.compose.resources.painterResource
 import androidios.composeapp.generated.resources.ic_audio
 import androidios.composeapp.generated.resources.ic_doc
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import kotlin.math.roundToInt
 
 @Composable
 internal fun AgentModelComposer(
@@ -82,6 +93,9 @@ internal fun AgentModelComposer(
     onVoiceStart: () -> Unit,
     attachmentsExpanded: Boolean,
     onToggleAttachments: () -> Unit,
+    onOpenCamera: () -> Unit,
+    onOpenGallery: () -> Unit,
+    onOpenFilePicker: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
     isStopMode: Boolean = false,
@@ -92,38 +106,24 @@ internal fun AgentModelComposer(
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
-    val boxShape = RoundedCornerShape(ds.sm(16.dp))
-    val inputLineHeight = ds.sp(22f)
+    val inputShape = RoundedCornerShape(ds.sm(100.dp))
+    val circleShape = RoundedCornerShape(ds.sm(99.dp))
+    val inputLineHeight = ds.sp(16f)
     val inputScrollState = rememberScrollState()
-    val glassBrush = Brush.radialGradient(
-        colors = listOf(
-            Color(0xFFDFDFDF).copy(alpha = 0.10f),
-            Color.White
-        )
-    )
-    val actionBtnShape = RoundedCornerShape(ds.sm(30.dp))
+    val density = LocalDensity.current
+    val popupLeftPx = with(density) { ds.sw(20.dp).roundToPx() }
+    var bottomBarTopPx by remember { mutableStateOf(0) }
+    var quickMenuSize by remember { mutableStateOf(IntSize.Zero) }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xFFF5F5F7))
+            .background(Color.White)
             .imePadding()
-            .padding(start = ds.sw(12.dp), end = ds.sw(12.dp), top = ds.sh(8.dp), bottom = ds.sh(24.dp))
+            .padding(start = ds.sw(20.dp), end = ds.sw(20.dp), top = ds.sh(8.dp), bottom = ds.sh(24.dp))
     ) {
-        // ── 外部毛玻璃盒子 ──
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 4.dp,
-                    shape = boxShape,
-                    ambientColor = Color.Black.copy(alpha = 0.03f),
-                    spotColor = Color.Black.copy(alpha = 0.05f)
-                )
-                .clip(boxShape)
-                .background(glassBrush)
-                .border(1.dp, Color.White, boxShape)
-                .padding(ds.sm(12.dp))
+            modifier = Modifier.fillMaxWidth()
         ) {
             if (draftAttachments.isNotEmpty()) {
                 DraftAttachmentPreviewRow(
@@ -138,90 +138,100 @@ internal fun AgentModelComposer(
                     uploadStates = uploadStates,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
             }
 
-            // ── 输入框（无边框）──
-            BasicTextField(
-                value = inputText,
-                onValueChange = onInputTextChange,
-                textStyle = TextStyle(
-                    color = Color(0xFF1F2535),
-                    fontSize = ds.sp(15f),
-                    fontWeight = FontWeight.Medium,
-                    lineHeight = inputLineHeight
-                ),
-                maxLines = Int.MAX_VALUE,
-                cursorBrush = SolidColor(Color(0xFF1F2535)),
-                enabled = !isRecording,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = inputLineHeight.value.dp * 6)
-                    .verticalScroll(inputScrollState)
-                    .onFocusChanged { onInputFocusChanged(it.isFocused) }
-                    .padding(vertical = ds.sm(3.dp)),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (inputText.text.isEmpty()) {
-                            Text(
-                                text = when {
-                                    isRecording -> "录音中..."
-                                    isVoiceBusy -> "正在转写语音..."
-                                    else -> "请输入你想问的问题"
-                                },
-                                color = Color(0xFF717580),
-                                fontSize = ds.sp(14f),
-                                fontWeight = FontWeight.Normal,
-                                lineHeight = TextUnit.Unspecified,
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
-            // ── 底部操作栏 ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+                    .height(ds.sh(74.dp))
+                    .onGloballyPositioned { coordinates ->
+                        val position = coordinates.boundsInRoot().topLeft
+                        bottomBarTopPx = position.y.roundToInt()
+                    },
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
             ) {
-                // 左侧：+ 和 麦克风
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(ds.sm(36.dp))
+                        .clip(circleShape)
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .border(0.5.dp, Color.Black.copy(alpha = 0.05f), circleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onToggleAttachments() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    // + 号按钮
-                    Box(
-                        modifier = Modifier
-                            .border(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f), actionBtnShape)
-                            .clip(actionBtnShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { onToggleAttachments() }
-                            .padding(ds.sm(7.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_composer_add),
-                            contentDescription = "More",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(ds.sm(16.dp))
+                    Icon(
+                        painter = painterResource(Res.drawable.ic_composer_add),
+                        contentDescription = "More",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(ds.sm(16.dp))
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(ds.sh(40.dp))
+                        .shadow(
+                            elevation = 30.dp,
+                            shape = inputShape,
+                            ambientColor = Color.Black.copy(alpha = 0.05f),
+                            spotColor = Color.Black.copy(alpha = 0.05f)
                         )
-                    }
-                    // 麦克风按钮
+                        .clip(inputShape)
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .border(0.5.dp, Color.Black.copy(alpha = 0.05f), inputShape)
+                        .padding(start = ds.sw(16.dp), end = ds.sw(12.dp)),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BasicTextField(
+                        value = inputText,
+                        onValueChange = onInputTextChange,
+                        textStyle = TextStyle(
+                            color = Color.Black.copy(alpha = 0.9f),
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Normal,
+                            lineHeight = inputLineHeight
+                        ),
+                        maxLines = Int.MAX_VALUE,
+                        cursorBrush = SolidColor(Color.Black.copy(alpha = 0.9f)),
+                        enabled = !isRecording,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(max = inputLineHeight.value.dp * 4)
+                            .verticalScroll(inputScrollState)
+                            .onFocusChanged { onInputFocusChanged(it.isFocused) },
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (inputText.text.isEmpty()) {
+                                    Text(
+                                        text = when {
+                                            isRecording -> "录音中..."
+                                            isVoiceBusy -> "正在转写语音..."
+                                            else -> "询问脑花"
+                                        },
+                                        color = Color.Black.copy(alpha = 0.40f),
+                                        fontSize = ds.sp(12f),
+                                        fontWeight = FontWeight.Normal,
+                                        lineHeight = ds.sp(16f),
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
                     Box(
                         modifier = Modifier
-                            .border(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f), actionBtnShape)
-                            .clip(actionBtnShape)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) { if (!isVoiceBusy) onVoiceStart() }
-                            .padding(ds.sm(7.dp)),
+                            .padding(vertical = ds.sh(4.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -233,22 +243,18 @@ internal fun AgentModelComposer(
                     }
                 }
 
-                // 右侧：发送按钮
-                val sendBtnColor = if (isSendDisabled) Color(0xFF1F2535).copy(alpha = 0.35f) else Color(0xFF1F2535)
                 Box(
                     modifier = Modifier
-                        .size(ds.sm(30.dp))
-                        .border(0.5.dp, sendBtnColor, actionBtnShape)
-                        .clip(actionBtnShape)
-                        .background(sendBtnColor)
+                        .size(ds.sm(36.dp))
+                        .clip(circleShape)
+                        .background(if (isSendDisabled) Color.Black.copy(alpha = 0.35f) else Color.Black)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             enabled = !isSendDisabled,
                         ) {
                             if (isStopMode) onStop() else onSend()
-                        }
-                        .padding(start = ds.sw(6.dp), end = ds.sw(6.dp), top = ds.sh(7.dp), bottom = ds.sh(5.dp)),
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (isStopMode) {
@@ -261,7 +267,7 @@ internal fun AgentModelComposer(
                         )
                     } else {
                         Icon(
-                            painter = painterResource(Res.drawable.ic_composer_send),
+                            painter = painterResource(Res.drawable.ic_send),
                             contentDescription = "Send",
                             tint = Color.Unspecified,
                             modifier = Modifier.size(ds.sm(18.dp))
@@ -270,6 +276,124 @@ internal fun AgentModelComposer(
                 }
             }
         }
+        if (attachmentsExpanded) {
+            val popupOffset = IntOffset(
+                x = popupLeftPx,
+                y = bottomBarTopPx - quickMenuSize.height - with(density) { ds.sh(74.dp).roundToPx() }
+            )
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = popupOffset,
+                properties = PopupProperties(
+                    focusable = true,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true,
+                ),
+                onDismissRequest = { onToggleAttachments() }
+            ) {
+                AttachmentQuickMenu(
+                    onOpenCamera = {
+                        onOpenCamera()
+                        onToggleAttachments()
+                    },
+                    onOpenGallery = {
+                        onOpenGallery()
+                        onToggleAttachments()
+                    },
+                    onOpenFilePicker = {
+                        onOpenFilePicker()
+                        onToggleAttachments()
+                    },
+                    onMeasured = { quickMenuSize = it }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentQuickMenu(
+    onOpenCamera: () -> Unit,
+    onOpenGallery: () -> Unit,
+    onOpenFilePicker: () -> Unit,
+    onMeasured: (IntSize) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDesignScale.current
+    val menuShape = RoundedCornerShape(ds.sm(28.dp))
+    Column(
+        modifier = modifier
+            .wrapContentWidth()
+            .onGloballyPositioned { onMeasured(it.size) }
+            .shadow(
+                elevation = 30.dp,
+                shape = menuShape,
+                ambientColor = Color.Black.copy(alpha = 0.08f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
+            )
+            .clip(menuShape)
+            .background(Color.White)
+            .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(16.dp)),
+        verticalArrangement = Arrangement.spacedBy(ds.sh(12.dp))
+    ) {
+        AttachmentQuickMenuItem(
+            iconRes = Res.drawable.ic_camera,
+            label = "摄像头",
+            onClick = onOpenCamera,
+        )
+        AttachmentQuickMenuItem(
+            iconRes = Res.drawable.ic_img,
+            label = "相册",
+            onClick = onOpenGallery,
+        )
+        AttachmentQuickMenuItem(
+            iconRes = Res.drawable.ic_doc,
+            label = "文档",
+            onClick = onOpenFilePicker,
+        )
+    }
+}
+
+@Composable
+private fun AttachmentQuickMenuItem(
+    iconRes: org.jetbrains.compose.resources.DrawableResource,
+    label: String,
+    onClick: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val iconCircle = RoundedCornerShape(ds.sm(99.dp))
+    Row(
+        modifier = Modifier
+            .wrapContentWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(ds.sm(24.dp))
+                .clip(iconCircle)
+                .background(Color(0xFFF7F7F7)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.size(ds.sm(12.dp))
+            )
+        }
+        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        Text(
+            text = label,
+            color = Color.Black.copy(alpha = 0.9f),
+            fontSize = ds.sp(12f),
+            fontWeight = FontWeight.Normal,
+            lineHeight = ds.sp(16f),
+        )
     }
 }
 

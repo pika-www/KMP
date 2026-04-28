@@ -55,11 +55,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import org.jetbrains.compose.resources.painterResource
 import androidios.composeapp.generated.resources.Res
-import androidios.composeapp.generated.resources.ic_skill_image
-import androidios.composeapp.generated.resources.ic_skill_voice
-import androidios.composeapp.generated.resources.ic_skill_document
-import androidios.composeapp.generated.resources.ic_skill_chat
-import androidios.composeapp.generated.resources.ic_skill_knowledge
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_doc
 import androidios.composeapp.generated.resources.ic_audio
@@ -431,93 +426,54 @@ private fun SkillSuggestionsBubble(
 ) {
     val ds = LocalDesignScale.current
     val skillItems = listOf(
-        Res.drawable.ic_skill_image to "脑花找图片 模糊的信息也能找",
-        Res.drawable.ic_skill_voice to "脑花翻录音 记得一句就能翻出来",
-        Res.drawable.ic_skill_document to "脑花调文档 文件名忘了也能调",
-        Res.drawable.ic_skill_chat to "脑花搞内容 从想法到发出不断更",
-        Res.drawable.ic_skill_knowledge to "脑花控手机 插上硬件听你使唤",
+        "📷️  脑花找图片 模糊的信息也能找",
+        "🎙️  脑花翻录音 记得一句就能翻出来",
+        "📄  脑花调文档  文件名忘了也能调",
+        "📝  脑花搞内容 从想法到发出不断更",
+        "📱  脑花搞内容 从想法到发出不断更",
     )
 
-    val containerCorner = ds.sm(16.dp)
-    val containerShape = RoundedCornerShape(containerCorner)
-
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = ds.sh(20.dp),
-                shape = containerShape,
-                clip = false,
-                ambientColor = Color.Black.copy(alpha = 0.18f),
-                spotColor = Color.Black.copy(alpha = 0.30f)
-            )
-            .clip(containerShape)
-            .background(
-                color = Color(0xFFFDFDFD),
-                shape = containerShape
-            )
-            .border(
-                width = 0.5.dp,
-                color = Color.White,
-                shape = containerShape
-            )
+            .padding(horizontal = ds.sw(4.dp), vertical = ds.sh(8.dp)),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(all = ds.sm(24.dp)),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
             Text(
                 text = "Hi，我是脑花",
-                fontSize = ds.sp(18f),
+                fontSize = ds.sp(16f),
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF12192B)
+                lineHeight = ds.sp(24f),
+                color = Color.Black.copy(alpha = 0.9f)
             )
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "试试输入以下 Skill 来帮助完成工作细节",
-                fontSize = ds.sp(12f),
-                color = Color(0xFF595E6B)
+                text = "试试点击以下 Skill 来帮助完成工作细节",
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = ds.sp(24f),
+                color = Color.Black.copy(alpha = 0.9f)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            skillItems.forEach { (iconRes, text) ->
-                Card(
-                    shape = RoundedCornerShape(ds.sm(99.dp)),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.10f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSkillClick(text) }
-                ) {
+            Column(verticalArrangement = Arrangement.spacedBy(ds.sh(12.dp))) {
+                skillItems.forEach { text ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(ds.sh(44.dp))
-                            .padding(horizontal = ds.sw(16.dp)),
+                            .clickable { onSkillClick(text) }
+                            .padding(vertical = ds.sh(2.dp)),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
                     ) {
-                        Icon(
-                            painter = painterResource(iconRes),
-                            contentDescription = null,
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(ds.sm(20.dp))
-                        )
                         Text(
                             text = text,
-                            color = Color(0xFF12192B),
+                            color = Color.Black.copy(alpha = 0.9f),
                             fontSize = ds.sp(14f),
                             fontWeight = FontWeight.Normal
                         )
                     }
                 }
             }
-            }
-        }
     }
 }
 
