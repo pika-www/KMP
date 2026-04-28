@@ -1,10 +1,9 @@
 package com.cephalon.lucyApp.screens.nas
 
 import androidios.composeapp.generated.resources.Res
-import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_download
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -14,27 +13,29 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import org.koin.compose.koinInject
@@ -46,7 +47,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.components.BlobImage
@@ -76,8 +76,9 @@ internal fun NasImageDetailScreen(
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val fullImageBlobRefs = remember { mutableStateMapOf<Long, String?>() }
     val fullImageLoading = remember { mutableStateMapOf<Long, Boolean>() }
-    val backgroundColor = if (isChatMode) Color.White else Color.Black
-    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
+    var showMenu by remember { mutableStateOf(false) }
+    val backgroundColor = Color(0xFFFAFAFC)
+    val foregroundColor = Color(0xFF111111)
 
     val initialPage = images.indexOfFirst { it.id == initialImageId }.takeIf { it >= 0 } ?: 0
     val pagerState = rememberPagerState(initialPage = initialPage) { images.size }
@@ -143,26 +144,45 @@ internal fun NasImageDetailScreen(
 
             when {
                 displayPath != null && displayPath.isLocalAttachmentSource() -> {
-                    PlatformImageThumbnail(
-                        uri = displayPath,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PlatformImageThumbnail(
+                            uri = displayPath,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
                 displayPath != null -> {
-                    BlobImage(
-                        blobRef = displayPath,
-                        contentDescription = pageImage.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                        errorContent = {
-                            Box(
-                                modifier = Modifier.fillMaxSize().background(if (isChatMode) Color(0xFFF2F2F2) else Color(0xFF1A1A1A))
-                            )
-                        }
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        BlobImage(
+                            blobRef = displayPath,
+                            contentDescription = pageImage.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit,
+                            errorContent = {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(Color(0xFFFAFAFC))
+                                )
+                            }
+                        )
+                    }
                 }
                 fullImageLoading[fid] == true -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                        contentAlignment = Alignment.Center
+                    ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(32.dp),
                             color = foregroundColor.copy(alpha = 0.7f),
@@ -172,13 +192,15 @@ internal fun NasImageDetailScreen(
                 }
                 else -> {
                     Box(
-                        modifier = Modifier.fillMaxSize().background(if (isChatMode) Color(0xFFF2F2F2) else Color(0xFF1A1A1A))
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC))
                     )
                 }
             }
         }
 
-        // 顶部浮层：返回 | 时间地点 | 删除
+        // 顶部浮层：返回 | 时间地点 | 更多
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -189,8 +211,7 @@ internal fun NasImageDetailScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             NasDetailGlassCircleButton(
-                size = ds.sm(36.dp),
-                isLight = isChatMode,
+                size = ds.sm(32.dp),
                 onClick = onBack
             ) {
                 Icon(
@@ -214,8 +235,7 @@ internal fun NasImageDetailScreen(
                     color = foregroundColor,
                 )
                 NasDetailGlassCircleButton(
-                    size = ds.sm(36.dp),
-                    isLight = true,
+                    size = ds.sm(32.dp),
                     onClick = { onDownload(currentImage) }
                 ) {
                     Icon(
@@ -228,8 +248,8 @@ internal fun NasImageDetailScreen(
             } else {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
-                    color = Color(0x1AFFFFFF),
-                    border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+                    color = Color.White,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE6E6E6))
                 ) {
                     Text(
                         text = buildString {
@@ -241,96 +261,78 @@ internal fun NasImageDetailScreen(
                             fontSize = ds.sp(12f),
                             fontWeight = FontWeight.SemiBold
                         ),
-                        color = Color.White
+                        color = Color(0xFF111111)
                     )
                 }
 
-                NasDetailGlassCircleButton(
-                    size = ds.sm(36.dp),
-                    onClick = { onDelete(currentImage) }
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_delete),
-                        contentDescription = "删除",
-                        tint = Color.White,
-                        modifier = Modifier.size(ds.sm(16.dp))
-                    )
-                }
-            }
-        }
-
-        // 底部浮层：发送脑花 | 下载（仅 NAS 模式）
-        if (!isChatMode) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(16.dp)),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .width(ds.sm(140.dp))
-                        .height(ds.sm(49.dp))
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable { onShare(currentImage) },
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color(0x1AFFFFFF),
-                    border = BorderStroke(1.dp, Color(0x0FFFFFFF))
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "发送脑花",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = ds.sp(18f),
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = Color.White
+                Box {
+                    NasDetailGlassCircleButton(
+                        size = ds.sm(32.dp),
+                        onClick = { showMenu = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "更多",
+                            tint = Color.Black.copy(alpha = 0.40f),
+                            modifier = Modifier.size(ds.sm(18.dp))
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        containerColor = Color.White,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("发送脑花", color = Color(0xFF111111)) },
+                            onClick = {
+                                showMenu = false
+                                onShare(currentImage)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("下载", color = Color(0xFF111111)) },
+                            onClick = {
+                                showMenu = false
+                                onDownload(currentImage)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("删除", color = Color(0xFFFF3B30)) },
+                            onClick = {
+                                showMenu = false
+                                onDelete(currentImage)
+                            }
                         )
                     }
                 }
-
-                NasDetailGlassCircleButton(
-                    size = ds.sm(48.dp),
-                    onClick = { onDownload(currentImage) }
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_download),
-                        contentDescription = "下载",
-                        tint = Color.White,
-                        modifier = Modifier.size(ds.sm(20.dp))
-                    )
-                }
             }
         }
+
     }
 }
 
 @Composable
 private fun NasDetailGlassCircleButton(
-    size: Dp,
-    isLight: Boolean = false,
+    size: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier.size(size),
-        shape = CircleShape,
-        color = if (isLight) Color.White else Color(0x1AFFFFFF),
-        border = BorderStroke(1.dp, if (isLight) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.05f))
+            .border(
+                width = 0.5.dp,
+                color = Color.Black.copy(alpha = 0.06f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
+        content()
     }
 }
 

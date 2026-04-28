@@ -7,12 +7,13 @@ import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -221,7 +222,7 @@ internal fun NasAudioDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onBack) {
+                AudioDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onBack) {
                     Icon(
                         imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "返回",
@@ -272,7 +273,7 @@ internal fun NasAudioDetailScreen(
 
                 // 更多按钮 + 下拉菜单
                 if (isChatMode) {
-                    AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onDownload) {
+                    AudioDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onDownload) {
                         Icon(
                             painter = painterResource(Res.drawable.ic_download),
                             contentDescription = "下载",
@@ -282,54 +283,30 @@ internal fun NasAudioDetailScreen(
                     }
                 } else {
                     Box {
-                        AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = { showMenu = true }) {
+                        AudioDetailGlassCircleButton(size = ds.sm(32.dp), onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "更多",
-                                tint = foregroundColor,
-                                modifier = Modifier.size(ds.sm(16.dp))
+                                tint = Color.Black.copy(alpha = 0.40f),
+                                modifier = Modifier.size(ds.sm(18.dp))
                             )
                         }
                         DropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false },
-                            containerColor = Color(0xFF1C1C1E),
-                            shape = RoundedCornerShape(ds.sm(12.dp))
+                            containerColor = Color.White,
+                            shape = RoundedCornerShape(16.dp)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("发送脑花", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_share),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
+                                text = { Text("发送脑花", color = Color(0xFF111111)) },
                                 onClick = { showMenu = false; onShare() }
                             )
                             DropdownMenuItem(
-                                text = { Text("下载", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_download),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
+                                text = { Text("下载", color = Color(0xFF111111)) },
                                 onClick = { showMenu = false; onDownload() }
                             )
                             DropdownMenuItem(
                                 text = { Text("删除", color = Color(0xFFFF3B30)) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_delete),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF3B30),
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
                                 onClick = { showMenu = false; onDelete() }
                             )
                         }
@@ -944,26 +921,24 @@ private fun markdownTranscriptInlineAnnotatedString(text: String, textColor: Col
 @Composable
 private fun AudioDetailGlassCircleButton(
     size: Dp,
-    isLight: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier.size(size),
-        shape = CircleShape,
-        color = if (isLight) Color.White else Color(0x1AFFFFFF),
-        border = BorderStroke(1.dp, if (isLight) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.05f))
+            .border(
+                width = 0.5.dp,
+                color = Color.Black.copy(alpha = 0.06f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
+        content()
     }
 }
 

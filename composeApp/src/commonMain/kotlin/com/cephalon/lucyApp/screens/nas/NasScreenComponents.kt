@@ -806,35 +806,31 @@ internal fun NasImageActionPopup(
                 )
             }
 
-            // 操作按钮盒子: 240×89, border-radius 16, 半透明玻璃背景
+            // 操作按钮盒子改为截图同款的竖排白底菜单
             Surface(
-                modifier = Modifier.size(width = 240.dp, height = 89.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0x1A000000),
-                border = BorderStroke(1.dp, Color(0x0FFFFFFF))
+                modifier = Modifier.widthIn(min = 132.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White,
+                shadowElevation = 18.dp
             ) {
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 41.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 26.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    horizontalAlignment = Alignment.Start
                 ) {
                     NasPopupActionButton(
                         text = "发送脑花",
-                        onClick = onShare,
-                        modifier = Modifier.weight(1f)
+                        onClick = onShare
                     )
                     NasPopupActionButton(
                         text = "下载",
-                        onClick = onDownload,
-                        modifier = Modifier.weight(1f)
+                        onClick = onDownload
                     )
                     NasPopupActionButton(
                         text = "删除",
                         onClick = onDelete,
-                        textColor = Color(0xFFFF3B30),
-                        modifier = Modifier.weight(1f)
+                        textColor = Color(0xFFFF3B30)
                     )
                 }
             }
@@ -847,20 +843,20 @@ private fun NasPopupActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    textColor: Color = Color.White
+    textColor: Color = Color(0xFF111111)
 ) {
-    Column(
+    Box(
         modifier = modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        contentAlignment = Alignment.CenterStart
     ) {
-        // icon 先不写
-        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontWeight = FontWeight.Medium,
+                fontSize = 18.sp
+            ),
             color = textColor,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Start
         )
     }
 }
