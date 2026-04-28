@@ -7,6 +7,33 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// ── 返回 (左箭头 11×17) ──
+internal val BackIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Back", defaultWidth = 11.dp, defaultHeight = 17.dp,
+        viewportWidth = 11f, viewportHeight = 17f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black),
+            pathFillType = PathFillType.NonZero
+        ) {
+            // 左指 chevron：与 ChevronRightIcon 水平镜像，缩放至 11×17 视口
+            moveTo(8.5f, 1.0f)
+            curveTo(8.8f, 1.3f, 8.8f, 1.77f, 8.5f, 2.06f)
+            lineTo(3.06f, 7.5f)
+            curveTo(2.77f, 7.79f, 2.77f, 8.21f, 3.06f, 8.5f)
+            lineTo(8.5f, 14.94f)
+            curveTo(8.79f, 15.23f, 8.79f, 15.7f, 8.5f, 16.0f)
+            curveTo(8.21f, 16.29f, 7.73f, 16.29f, 7.44f, 16.0f)
+            lineTo(2.0f, 9.56f)
+            curveTo(1.02f, 8.59f, 1.02f, 7.41f, 2.0f, 6.44f)
+            lineTo(7.44f, 1.0f)
+            curveTo(7.73f, 0.71f, 8.21f, 0.71f, 8.5f, 1.0f)
+            close()
+        }
+    }.build()
+}
+
 // ── 账号 (人形) ──
 internal val AccountIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -440,6 +467,63 @@ internal val ChevronRightIcon: ImageVector by lazy {
             curveTo(3.6187f, 5.6714f, 3.8022f, 5.5983f, 3.9873f, 5.5933f)
             lineTo(4.0335f, 5.5934f)
             curveTo(4.2031f, 5.5992f, 4.3711f, 5.6622f, 4.5061f, 5.7824f)
+            close()
+        }
+    }.build()
+}
+
+// ── 设备盒子 icon (19×15) ──
+internal val MyDeviceBoxIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "MyDeviceBox", defaultWidth = 19.dp, defaultHeight = 15.dp,
+        viewportWidth = 19f, viewportHeight = 15f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black),
+            pathFillType = PathFillType.NonZero
+        ) {
+            moveTo(18.4116f, 11.1369f)
+            lineTo(16.1658f, 1.4532f)
+            curveTo(16.1036f, 1.058f, 15.9062f, 0.6965f, 15.6073f, 0.4305f)
+            curveTo(15.3088f, 0.1652f, 14.9281f, 0.0133f, 14.5302f, 0f)
+            lineTo(4.0101f, 0f)
+            curveTo(3.1757f, 0.0325f, 2.5018f, 0.6779f, 2.3738f, 1.4857f)
+            lineTo(0.1287f, 11.1362f)
+            curveTo(0.0325f, 11.3949f, 0f, 11.6861f, 0f, 11.9441f)
+            curveTo(0f, 13.3973f, 1.1872f, 14.5918f, 2.663f, 14.5918f)
+            lineTo(15.9091f, 14.5918f)
+            curveTo(17.3855f, 14.5918f, 18.5714f, 13.3973f, 18.5714f, 11.9447f)
+            curveTo(18.5714f, 11.6861f, 18.5078f, 11.3956f, 18.4116f, 11.1369f)
+            close()
+            moveTo(15.9091f, 13.3005f)
+            lineTo(2.663f, 13.3005f)
+            curveTo(2.4894f, 13.3025f, 2.3171f, 13.2697f, 2.1565f, 13.2038f)
+            curveTo(1.9958f, 13.1379f, 1.85f, 13.0404f, 1.7278f, 12.9171f)
+            curveTo(1.605f, 12.7936f, 1.5081f, 12.6469f, 1.4428f, 12.4855f)
+            curveTo(1.3774f, 12.3241f, 1.3449f, 12.1513f, 1.3471f, 11.9772f)
+            curveTo(1.3471f, 11.2344f, 1.9573f, 10.6527f, 2.663f, 10.6527f)
+            lineTo(15.9091f, 10.6527f)
+            curveTo(16.6473f, 10.6527f, 17.2243f, 11.2344f, 17.2243f, 11.9772f)
+            curveTo(17.2568f, 12.6869f, 16.6473f, 13.3005f, 15.9091f, 13.3005f)
+            close()
+            moveTo(15.2359f, 11.5567f)
+            curveTo(15.1266f, 11.5554f, 15.0205f, 11.5942f, 14.9378f, 11.6657f)
+            curveTo(14.8551f, 11.7371f, 14.8014f, 11.8364f, 14.7868f, 11.9447f)
+            curveTo(14.7857f, 12.0537f, 14.824f, 12.1594f, 14.8947f, 12.2423f)
+            curveTo(14.9654f, 12.3252f, 15.0637f, 12.3797f, 15.1715f, 12.3958f)
+            lineTo(15.2359f, 12.3958f)
+            curveTo(15.346f, 12.3935f, 15.4511f, 12.3487f, 15.5289f, 12.2707f)
+            curveTo(15.6067f, 12.1926f, 15.6512f, 12.0874f, 15.6531f, 11.9772f)
+            curveTo(15.6531f, 11.7186f, 15.4926f, 11.5567f, 15.2359f, 11.5567f)
+            close()
+            moveTo(14.3696f, 11.9772f)
+            curveTo(14.3696f, 11.4931f, 14.7543f, 11.1057f, 15.2359f, 11.1057f)
+            curveTo(15.7167f, 11.1057f, 16.1021f, 11.4931f, 16.1021f, 11.9772f)
+            curveTo(16.1021f, 12.4614f, 15.7174f, 12.8488f, 15.2359f, 12.8488f)
+            curveTo(15.1216f, 12.849f, 15.0085f, 12.8265f, 14.9029f, 12.7827f)
+            curveTo(14.7974f, 12.7389f, 14.7016f, 12.6746f, 14.6211f, 12.5936f)
+            curveTo(14.5405f, 12.5125f, 14.4768f, 12.4164f, 14.4337f, 12.3106f)
+            curveTo(14.3905f, 12.2048f, 14.3688f, 12.0915f, 14.3696f, 11.9772f)
             close()
         }
     }.build()

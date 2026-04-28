@@ -36,8 +36,8 @@ data class DesignScale(
     /** 等比缩放 min(scaleW, scaleH)，用于图标、圆角等 */
     fun sm(value: Dp): Dp = value * scaleMin
 
-    /** 文字等比缩放 */
-    fun sp(value: Float): TextUnit = (value * scaleMin).sp
+    /** 文字缩放（基于宽度比例，避免被高度比例拉小） */
+    fun sp(value: Float): TextUnit = (value * scaleW).sp
 
     companion object {
         const val DESIGN_WIDTH = 375f

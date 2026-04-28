@@ -137,10 +137,13 @@ internal fun NasDocumentDetailScreen(
             ) {
                 DocDetailGlassCircleButton(size = ds.sm(36.dp), isLight = isChatMode, onClick = onBack) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "返回",
-                        tint = foregroundColor,
-                        modifier = Modifier.size(ds.sm(16.dp))
+                        tint = Color.Black.copy(alpha = 0.60f),
+                        modifier = Modifier.size(
+                            width = ds.sw(11.dp),
+                            height = ds.sh(17.dp),
+                        ),
                     )
                 }
 

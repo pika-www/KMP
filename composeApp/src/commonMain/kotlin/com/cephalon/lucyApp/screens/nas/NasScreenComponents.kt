@@ -343,10 +343,13 @@ internal fun NasUploadProgressDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                                 contentDescription = "关闭上传进度",
-                                tint = Color(0xFF717580),
-                                modifier = Modifier.size(ds.sm(16.dp))
+                                tint = Color.Black.copy(alpha = 0.60f),
+                                modifier = Modifier.size(
+                                    width = ds.sw(11.dp),
+                                    height = ds.sh(17.dp),
+                                ),
                             )
                         }
                     }
@@ -1090,7 +1093,7 @@ internal fun NasTopBackButton(
     modifier: Modifier = Modifier
 ) {
     NasGlassCircleButton(
-        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+        imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
         contentDescription = "返回",
         onClick = onClick,
         modifier = modifier

@@ -20,7 +20,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidios.composeapp.generated.resources.ic_lock
 import androidios.composeapp.generated.resources.ic_shield_check
 import androidx.compose.material3.*
@@ -28,17 +31,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.ui.platform.LocalUriHandler
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LoginRequest
 import com.cephalon.lucyApp.components.*
@@ -74,6 +84,7 @@ fun LoginScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     var loginSheetVisible by remember { mutableStateOf(false) }
+    var showCodeLoginPage by remember { mutableStateOf(false) }
     var preferEmailLogin by remember { mutableStateOf(false) }
     var sheetPage by remember { mutableStateOf(SheetPage.Login) }
     var needsRegister by remember { mutableStateOf(false) }
@@ -241,8 +252,9 @@ fun LoginScreen(
         }
     }
 
-    LaunchedEffect(username, sheetPage, loginSheetVisible) {
-        if (!loginSheetVisible || sheetPage == SheetPage.Forgot) return@LaunchedEffect
+    LaunchedEffect(username, sheetPage, loginSheetVisible, showCodeLoginPage) {
+        if (!loginSheetVisible && !showCodeLoginPage) return@LaunchedEffect
+        if (sheetPage == SheetPage.Forgot) return@LaunchedEffect
         val phone = normalizeCurrentAccount() ?: return@LaunchedEffect
         delay(500)
         val response = authRepository.isPhoneExist(phone)
@@ -296,7 +308,7 @@ fun LoginScreen(
                     .padding(horizontal = ds.sw(26.dp)),
                 horizontalAlignment = Alignment.Start
             ) {
-                Spacer(modifier = Modifier.height(ds.sh(88.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(133.dp)))
 
                 // Logo — 无背景无边框, 64px
                 Image(
@@ -305,13 +317,13 @@ fun LoginScreen(
                     modifier = Modifier.size(ds.sm(64.dp))
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
                 // 标题
                 Text(
                     text = "欢迎使用脑花",
                     color = Color.Black.copy(alpha = 0.90f),
-                    fontSize = ds.sp(28f),
+                    fontSize = ds.sp(24f),
                     fontWeight = FontWeight.Medium,
                 )
 
@@ -337,7 +349,7 @@ fun LoginScreen(
                         resetSheetState()
                         preferEmailLogin = false
                         sheetPage = SheetPage.Login
-                        loginSheetVisible = true
+                        showCodeLoginPage = true
                     }
                 )
 
@@ -357,7 +369,7 @@ fun LoginScreen(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
                 // 底部注册提示
                 Text(
@@ -388,7 +400,7 @@ fun LoginScreen(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(40.dp)))
             }
         }
 
@@ -624,6 +636,260 @@ fun LoginScreen(
             }
         }
 
+        // ── 验证码登录全页面 ──
+        AnimatedVisibility(
+            visible = showCodeLoginPage,
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(160)),
+        ) {
+            val ds = LocalDesignScale.current
+            val uriHandler = LocalUriHandler.current
+
+            val canSendCode = Regex("^1\\d{10}$").matches(username.trim()) && accountCheckPassed
+            val isSettingPassword = needsRegister
+            val passwordRuleOk = !isSettingPassword ||
+                (validatePasswordRule(password) == null && password.isNotEmpty() && password == confirmPassword)
+            val canSubmit = username.isNotBlank() && verifyCode.isNotBlank() && !isLoading &&
+                (!needsRegister || (password.isNotBlank() && confirmPassword.isNotBlank())) &&
+                passwordRuleOk
+            val passwordErr = if (isSettingPassword) validatePasswordRule(password) else null
+            val confirmPwdErr = if (isSettingPassword && confirmPassword.isNotEmpty() && password != confirmPassword) "两次输入的密码不一致" else null
+
+            var hadFocus by remember { mutableStateOf(false) }
+
+            val codeInputShape = RoundedCornerShape(80.dp)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFAFAFC))
+                    .statusBarsPadding()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { focusManager.clearFocus() }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = ds.sw(20.dp)),
+                ) {
+                    Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                    // ── 返回按钮 ──
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(32.dp))
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.05f))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() },
+                            ) {
+                                showCodeLoginPage = false
+                                resetSheetState()
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                            contentDescription = "Back",
+                            tint = Color.Black.copy(alpha = 0.60f),
+                            modifier = Modifier.size(
+                                width = ds.sw(11.dp),
+                                height = ds.sh(17.dp),
+                            ),
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        // Logo 距返回 icon 44px
+                        Spacer(modifier = Modifier.height(ds.sh(44.dp)))
+                        Image(
+                            painter = painterResource(Res.drawable.logo_img),
+                            contentDescription = null,
+                            modifier = Modifier.size(ds.sm(64.dp)),
+                        )
+
+                        // 标题 距 logo 24px
+                        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                        Text(
+                            text = "欢迎使用脑花",
+                            color = Color.Black.copy(alpha = 0.90f),
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                        )
+
+                        // 副标题 距标题 8px
+                        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                        Text(
+                            text = "AI 驱动的个人数据操作系统",
+                            color = Color.Black.copy(alpha = 0.60f),
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Normal,
+                        )
+
+                        // 输入框距副标题 24px
+                        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                        // 手机号输入
+                        PhoneOnlyInput(
+                            value = username,
+                            onValueChange = { if (it != username) { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } } },
+                            label = "请输入您手机号",
+                            enabled = !isLoading,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                            modifier = Modifier.onFocusChanged { focusState ->
+                                if (hadFocus && !focusState.isFocused) validateAccount()
+                                hadFocus = focusState.isFocused
+                            },
+                        )
+
+                        // 输入框间隔 16px
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                        // 验证码输入
+                        CodeInput(
+                            value = verifyCode,
+                            onValueChange = { verifyCode = it },
+                            enabled = !isLoading,
+                            canSend = canSendCode,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                            onSendCode = { startTimer ->
+                                val phone = normalizeCurrentAccount()
+                                if (phone == null) {
+                                    toastState.show("请先输入正确的11位手机号")
+                                    return@CodeInput
+                                }
+                                val actionType = if (needsRegister) "register" else "login"
+                                scope.launch {
+                                    isLoading = true
+                                    val response = authRepository.getCode(phone = phone, actionType = actionType, appType = "lucy")
+                                    isLoading = false
+                                    if (response.code == 20000) startTimer() else toastState.show(response.msg)
+                                }
+                            },
+                        )
+
+                        // 未注册时弹出密码设置
+                        AnimatedVisibility(
+                            visible = needsRegister,
+                            enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                            exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                PasswordInput(
+                                    value = password,
+                                    onValueChange = { password = it },
+                                    enabled = !isLoading,
+                                    label = "设置密码",
+                                    errorText = passwordErr,
+                                )
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                PasswordInput(
+                                    value = confirmPassword,
+                                    onValueChange = { confirmPassword = it },
+                                    enabled = !isLoading,
+                                    label = "再次输入密码",
+                                    errorText = confirmPwdErr,
+                                )
+                            }
+                        }
+
+                        // 按钮距输入框 32px
+                        Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+
+                        // 登录按钮
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(ds.sh(40.dp))
+                                .clip(RoundedCornerShape(80.dp))
+                                .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    enabled = canSubmit,
+                                ) { performLogin() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(ds.sm(24.dp)),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = if (needsRegister) "立即注册" else "登录",
+                                    color = Color.White,
+                                    fontSize = ds.sp(16f),
+                                    fontWeight = FontWeight.Normal,
+                                )
+                            }
+                        }
+                    }
+
+                    // ── 底部协议文本 距底部安全距离 10px ──
+                    val termsText = buildAnnotatedString {
+                        withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                            append("登录即表示同意我们的")
+                        }
+                        withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                            uriHandler.openUri("https://app.lucy.run/service.html")
+                        }) {
+                            withStyle(SpanStyle(
+                                color = Color.Black,
+                                textDecoration = TextDecoration.Underline,
+                            )) {
+                                append("《服务条款》")
+                            }
+                        }
+                        withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                            append("和")
+                        }
+                        withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                            uriHandler.openUri("https://app.lucy.run/privacy.html")
+                        }) {
+                            withStyle(SpanStyle(
+                                color = Color.Black,
+                                textDecoration = TextDecoration.Underline,
+                            )) {
+                                append("《隐私政策》")
+                            }
+                        }
+                    }
+                    Text(
+                        text = termsText,
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontSize = ds.sp(10f),
+                            fontWeight = FontWeight.Normal,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(bottom = ds.sh(10.dp)),
+                    )
+                }
+            }
+        }
+
         ToastHost(state = toastState)
     }
 }
@@ -642,7 +908,7 @@ private fun LoginGlassButton(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(ds.sh(48.dp))
+            .height(ds.sh(40.dp))
             .clip(shape)
             .background(backgroundColor, shape)
             .clickable(

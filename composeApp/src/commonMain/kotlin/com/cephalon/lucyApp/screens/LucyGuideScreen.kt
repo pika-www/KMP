@@ -87,10 +87,13 @@ fun LucyGuideScreen(
                     .background(Color(0xFFF0F0F2)),
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                     contentDescription = "Back",
-                    tint = TitleColor,
-                    modifier = Modifier.size(20.dp),
+                    tint = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.size(
+                        width = ds.sw(11.dp),
+                        height = ds.sh(17.dp),
+                    ),
                 )
             }
         }

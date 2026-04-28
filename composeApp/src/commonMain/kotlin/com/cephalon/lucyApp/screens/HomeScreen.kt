@@ -411,9 +411,13 @@ fun HomeScreen(
                     .align(Alignment.TopStart)
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                     contentDescription = "返回",
-                    tint = Color(0xFF1F2535)
+                    tint = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.size(
+                        width = ds.sw(11.dp),
+                        height = ds.sh(17.dp),
+                    ),
                 )
             }
         } else {

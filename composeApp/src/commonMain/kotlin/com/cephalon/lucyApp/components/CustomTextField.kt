@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -55,6 +56,10 @@ fun CustomTextField(
     singleLine: Boolean = true,
     containerColor: Color = Color.White,
     containerShadowElevation: androidx.compose.ui.unit.Dp = 10.dp,
+    containerShape: Shape = InputShape,
+    placeholderFontSize: Float = 14f,
+    placeholderColor: Color = PlaceholderColor,
+    inputFontSize: Float = 14f,
 ) {
     val ds = LocalDesignScale.current
     var timeLeft by remember { mutableIntStateOf(0) }
@@ -70,7 +75,7 @@ fun CustomTextField(
 
     val textStyle = TextStyle(
         color = InputTextColor,
-        fontSize = ds.sp(14f),
+        fontSize = ds.sp(inputFontSize),
         fontWeight = FontWeight.Normal,
     )
 
@@ -79,14 +84,14 @@ fun CustomTextField(
         onValueChange = onValueChange,
         modifier = modifier
             .fillMaxWidth()
-            .height(ds.sh(52.dp))
+            .height(ds.sh(40.dp))
             .shadow(
                 elevation = containerShadowElevation,
-                shape = InputShape,
+                shape = containerShape,
                 ambientColor = Color.Black.copy(alpha = 0.02f),
                 spotColor = Color.Black.copy(alpha = 0.02f)
             )
-            .background(containerColor, InputShape)
+            .background(containerColor, containerShape)
             .padding(horizontal = ds.sw(16.dp)),
         textStyle = textStyle,
         cursorBrush = SolidColor(InputTextColor),
@@ -104,8 +109,8 @@ fun CustomTextField(
                     if (value.isEmpty()) {
                         Text(
                             text = label,
-                            color = PlaceholderColor,
-                            fontSize = ds.sp(14f),
+                            color = placeholderColor,
+                            fontSize = ds.sp(placeholderFontSize),
                             fontWeight = FontWeight.Normal,
                         )
                     }
@@ -264,6 +269,10 @@ fun CodeInput(
     canSend: Boolean = true,
     containerColor: Color = Color.White,
     containerShadowElevation: androidx.compose.ui.unit.Dp = 10.dp,
+    containerShape: Shape = InputShape,
+    placeholderFontSize: Float = 14f,
+    placeholderColor: Color = PlaceholderColor,
+    inputFontSize: Float = 14f,
 ) {
     CustomTextField(
         value = value,
@@ -281,6 +290,10 @@ fun CodeInput(
         ),
         containerColor = containerColor,
         containerShadowElevation = containerShadowElevation,
+        containerShape = containerShape,
+        placeholderFontSize = placeholderFontSize,
+        placeholderColor = placeholderColor,
+        inputFontSize = inputFontSize,
     )
 }
 
@@ -369,6 +382,11 @@ fun PhoneOnlyInput(
     enabled: Boolean = true,
     label: String = "请输入手机号",
     imeAction: ImeAction = ImeAction.Next,
+    containerShape: Shape = InputShape,
+    containerShadowElevation: androidx.compose.ui.unit.Dp = 10.dp,
+    placeholderFontSize: Float = 14f,
+    placeholderColor: Color = PlaceholderColor,
+    inputFontSize: Float = 14f,
 ) {
     CustomTextField(
         value = value,
@@ -383,6 +401,11 @@ fun PhoneOnlyInput(
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Phone,
             imeAction = imeAction
-        )
+        ),
+        containerShape = containerShape,
+        containerShadowElevation = containerShadowElevation,
+        placeholderFontSize = placeholderFontSize,
+        placeholderColor = placeholderColor,
+        inputFontSize = inputFontSize,
     )
 }

@@ -133,7 +133,6 @@ internal enum class ProfilePage {
     Recharge,
     RechargePackage,
     MyDevices,
-    SwitchDevice,
     WifiConfig,
 }
 
@@ -160,8 +159,6 @@ internal fun AgentModelProfileScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var wifiConfigDevice by remember { mutableStateOf<com.cephalon.lucyApp.api.LucyDevice?>(null) }
-    var switchDeviceList by remember { mutableStateOf<List<com.cephalon.lucyApp.api.LucyDevice>>(emptyList()) }
-    var switchDeviceCurrentCdi by remember { mutableStateOf("") }
     var showFeedbackSuccessDialog by remember { mutableStateOf(false) }
     var cacheSizeBytes by remember { mutableStateOf(getAppCacheSize()) }
     var currentDeviceType by remember { mutableStateOf("") }
@@ -537,10 +534,13 @@ internal fun AgentModelProfileScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        imageVector = BackIcon,
                                         contentDescription = "Back",
-                                        tint = Color.Black.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(ds.sm(16.dp)),
+                                        tint = Color.Black.copy(alpha = 0.60f),
+                                        modifier = Modifier.size(
+                                            width = ds.sw(11.dp),
+                                            height = ds.sh(17.dp),
+                                        ),
                                     )
                                 }
                             }
@@ -580,9 +580,10 @@ internal fun AgentModelProfileScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFFFAFAFC)),
+                            .background(Color(0xFFFAFAFC))
+                            .padding(vertical = ds.sh(22.dp)),
                     ) {
-                        Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+                        // ── 返回按钮（水平 20dp）──
                         ProfileTopBar(
                             title = null,
                             showBack = true,
@@ -590,21 +591,22 @@ internal fun AgentModelProfileScreen(
                             onClose = onDismiss,
                             showClose = false,
                         )
-                        Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
-                        // "当前设备" 标题
+                        // 返回 icon 距离标题 30px
+                        Spacer(modifier = Modifier.height(ds.sh(30.dp)))
+
+                        // ── 主标题「我的设备」 ──
                         Text(
-                            text = "当前设备",
-                            fontSize = ds.sp(24f),
+                            text = "我的设备",
+                            fontSize = ds.sp(20f),
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF12192B),
+                            color = Color.Black.copy(alpha = 0.90f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = ds.sw(20.dp)),
                         )
-                        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
                         Column(
                             modifier = Modifier
@@ -618,11 +620,6 @@ internal fun AgentModelProfileScreen(
                                 onConfigureWifi = { device ->
                                     wifiConfigDevice = device
                                     currentPage = ProfilePage.WifiConfig
-                                },
-                                onSwitchDevice = { devices, currentCdi ->
-                                    switchDeviceList = devices
-                                    switchDeviceCurrentCdi = currentCdi
-                                    currentPage = ProfilePage.SwitchDevice
                                 },
                             )
 
@@ -654,115 +651,6 @@ internal fun AgentModelProfileScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = ds.sh(20.dp)),
-                            )
-                        }
-                    }
-                }
-
-                ProfilePage.SwitchDevice -> {
-                    val ds = LocalDesignScale.current
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFFAFAFC)),
-                    ) {
-                        val sdkSessionManager = koinInject<SdkSessionManager>()
-                        var pendingCdi by remember(switchDeviceCurrentCdi) {
-                            mutableStateOf(switchDeviceCurrentCdi)
-                        }
-
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = ds.sw(12.dp)),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(
-                                onClick = { currentPage = ProfilePage.MyDevices },
-                                modifier = Modifier.size(ds.sm(40.dp)),
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(ds.sm(32.dp))
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.05f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = Color.Black.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(ds.sm(16.dp)),
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(ds.sh(32.dp)))
-                        Text(
-                            text = "选择要使用的设备",
-                            fontSize = ds.sp(24f),
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black.copy(alpha = 0.90f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = ds.sw(18.dp)),
-                        )
-
-                        Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .padding(horizontal = ds.sw(16.dp))
-                                .verticalScroll(rememberScrollState()),
-                        ) {
-                            SwitchDeviceContent(
-                                devices = switchDeviceList,
-                                pendingCdi = pendingCdi,
-                                currentCdi = switchDeviceCurrentCdi,
-                                onDeviceClicked = { selectedDevice ->
-                                    pendingCdi = selectedDevice.channelDeviceId
-                                },
-                            )
-                        }
-
-                        // ── 底部确认切换按钮 ──
-                        val confirmEnabled = pendingCdi.isNotEmpty() &&
-                            switchDeviceList.any { it.channelDeviceId == pendingCdi }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = ds.sw(18.dp), vertical = ds.sh(16.dp))
-                                .height(ds.sh(48.dp))
-                                .clip(RoundedCornerShape(ds.sm(100.dp)))
-                                .background(
-                                    if (confirmEnabled) Color(0xFF1F2535)
-                                    else Color(0xFF1F2535).copy(alpha = 0.5f)
-                                )
-                                .clickable(enabled = confirmEnabled) {
-                                    val selected = switchDeviceList.firstOrNull {
-                                        it.channelDeviceId == pendingCdi
-                                    }
-                                    if (selected != null) {
-                                        sdkSessionManager.selectDevice(pendingCdi)
-                                        switchDeviceCurrentCdi = pendingCdi
-                                        currentPage = ProfilePage.MyDevices
-                                        println("[MyDevices] 确认切换设备: ${selected.name} cdi=$pendingCdi")
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "确认切换",
-                                color = Color.White,
-                                fontSize = ds.sp(16f),
-                                fontWeight = FontWeight.Normal,
-                                textAlign = TextAlign.Center,
                             )
                         }
                     }
@@ -1048,10 +936,13 @@ private fun ProfileTopBar(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.ChevronLeft,
+                    imageVector = BackIcon,
                     contentDescription = "Back",
-                    tint = Color.Black.copy(alpha = 0.4f),
-                    modifier = Modifier.size(ds.sm(20.dp))
+                    tint = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.size(
+                        width = ds.sw(11.dp),
+                        height = ds.sh(17.dp),
+                    ),
                 )
             }
         } else {
@@ -1343,113 +1234,100 @@ internal fun BrainPowerBalancePage(
     var showRulesDialog by remember { mutableStateOf(false) }
 
     Box(
-        modifier = modifier.background(Color.Black),
+        modifier = modifier.background(Color(0xFFFAFAFC)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .then(if (showRulesDialog) Modifier.blur(ds.sm(2.dp)) else Modifier)
                 .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = ds.sw(18.dp)),
+                .navigationBarsPadding(),
         ) {
-            Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-            // ── 返回按钮：32dp 圆（10% 白填充 + 0.5dp 6% 白描边） ──
-            Box(
+            // ── 顶部栏：返回 + 充值帐户 ──
+            ProfileTopBar(
+                title = "充值帐户",
+                showBack = true,
+                onBack = onBack,
+                onClose = onBack,
+                showClose = false,
+            )
+
+            Column(
                 modifier = Modifier
-                    .size(ds.sm(32.dp))
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.10f))
-                    .border(
-                        width = 0.5.dp,
-                        color = Color.White.copy(alpha = 0.06f),
-                        shape = CircleShape,
-                    )
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                    ) { onBack() },
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = ds.sw(20.dp)),
             ) {
-                Icon(
-                    imageVector = Icons.Default.ChevronLeft,
-                    contentDescription = "Back",
-                    tint = Color.White,
-                    modifier = Modifier.size(ds.sm(20.dp)),
-                )
-            }
+                Spacer(modifier = Modifier.height(ds.sh(28.dp)))
 
-            Spacer(modifier = Modifier.height(ds.sh(23.dp)))
-
-            // ── 标题"脑力值"：32sp / 600 / letterSpacing 2sp ──
-            Text(
-                text = "脑力值",
-                fontSize = ds.sp(32f),
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = ds.sp(2f),
-                color = Color.White,
-            )
-
-            Spacer(modifier = Modifier.height(ds.sh(27.dp)))
-
-            // ── 余额大卡片 ──
-            BrainPowerBalanceCard(
-                totalBalance = totalBalance,
-                paidBalance = paidBalance,
-                freeBalance = freeBalance,
-                onRechargeClick = {
-                    if (isIos) {
-                        onNavigateToPackage()
-                    } else {
-                        uriHandler.openUri("https://cephalon.cloud")
-                    }
-                },
-            )
-
-            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
-
-            // ── "用量详情" 小标题 + ⓘ（点击打开脑力值扣费规则弹窗） ──
-            Row(verticalAlignment = Alignment.CenterVertically) {
+                // ── 「脑力值」section label ──
                 Text(
-                    text = "用量详情",
-                    fontSize = ds.sp(16f),
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = "脑力值",
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Black.copy(alpha = 0.60f),
                 )
-                Spacer(modifier = Modifier.width(ds.sw(8.dp)))
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = "脑力值扣费规则",
-                    tint = Color.White.copy(alpha = 0.60f),
-                    modifier = Modifier
-                        .size(ds.sm(20.dp))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        ) { showRulesDialog = true },
+
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                // ── 余额大卡片 ──
+                BrainPowerBalanceCard(
+                    totalBalance = totalBalance,
+                    paidBalance = paidBalance,
+                    freeBalance = freeBalance,
+                    onRechargeClick = {
+                        if (isIos) {
+                            onNavigateToPackage()
+                        } else {
+                            uriHandler.openUri("https://cephalon.cloud")
+                        }
+                    },
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                // ── "用量详情" 小标题 + ⓘ ──
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "用量详情",
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Black.copy(alpha = 0.60f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = "脑力值扣费规则",
+                        tint = Color.Black.copy(alpha = 0.40f),
+                        modifier = Modifier
+                            .size(ds.sm(20.dp))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            ) { showRulesDialog = true },
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                // ── 用量列表卡片 ──
+                UsageRecordsCard(
+                    modifier = Modifier.weight(1f),
+                    scrollState = scrollState,
+                    records = records,
+                    isLoading = isLoading,
+                    loadError = loadError,
+                    hasMore = hasMore,
+                    onRetry = { loadMore() },
                 )
             }
-
-            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-
-            // ── 用量列表卡片（records 全部内嵌；卡片内部滚动） ──
-            UsageRecordsCard(
-                modifier = Modifier.weight(1f),
-                scrollState = scrollState,
-                records = records,
-                isLoading = isLoading,
-                loadError = loadError,
-                hasMore = hasMore,
-                onRetry = { loadMore() },
-            )
         }
 
-        // 脑力值扣费规则弹窗：覆盖整屏（含状态栏），60% 黑色背板 + 点击背板关闭。
-        // matchParentSize() 让 overlay Box 与外层 Box 等尺寸，因此状态栏也会被遮罩覆盖，
-        // 视觉上与设计稿保持一致。
+        // 脑力值扣费规则弹窗
         if (showRulesDialog) {
             Box(
                 modifier = Modifier
@@ -1467,17 +1345,8 @@ internal fun BrainPowerBalancePage(
     }
 }
 
-/* ───────── Brain-power balance card (dark) ───────── */
+/* ───────── Brain-power balance card (light) ───────── */
 
-/**
- * 余额卡：padding 20dp、16dp 圆角、0.5dp #FF5800 描边、白色 1%→10% 纵向渐变。
- * 结构：
- *  - 上排：左侧「账户余额/脑力值」(10sp 60% 白) + 8dp 间隔 + 大数（32sp 白 600）；
- *    右侧「充值」按钮（100dp 圆角、1dp 6% 白描边、10% 白填充、16sp 白文字）。
- *  - 20dp 间隔 → 0.5dp 10% 白细分割线 → 16dp 间隔。
- *  - 下排：左「充值脑力值余额」(10sp 60% 白) + 4dp + 值（12sp 白）；
- *    右「免费脑力值余额」(10sp 60% 白) + 4dp + 值（12sp 白）。
- */
 @Composable
 private fun BrainPowerBalanceCard(
     totalBalance: Long,
@@ -1490,20 +1359,17 @@ private fun BrainPowerBalanceCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(cardShape)
-            .border(
-                width = 0.5.dp,
-                color = Color.White.copy(alpha = 0.06f), // ⭐ 透明度
-                shape = cardShape
+            .shadow(
+                elevation = 30.dp,
+                shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.05f),
+                spotColor = Color.Black.copy(alpha = 0.05f),
             )
+            .clip(cardShape)
+            .background(Color.White)
+            .padding(ds.sm(20.dp)),
     ) {
-        Image(
-            painter = painterResource(Res.drawable.cep_bg),
-            contentDescription = null,
-            modifier = Modifier.matchParentSize(),
-            contentScale = ContentScale.Crop,
-        )
-        Column(modifier = Modifier.fillMaxWidth().padding(ds.sm(20.dp))) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             // ── 顶部行：余额 + 充值按钮 ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1514,14 +1380,14 @@ private fun BrainPowerBalanceCard(
                         text = "账户余额/脑力值",
                         fontSize = ds.sp(10f),
                         fontWeight = FontWeight.Normal,
-                        color = Color.White.copy(alpha = 0.60f),
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(8.dp)))
                     Text(
                         text = totalBalance.toString(),
                         fontSize = ds.sp(32f),
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
+                        color = Color.Black,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1529,11 +1395,19 @@ private fun BrainPowerBalanceCard(
 
                 Spacer(modifier = Modifier.width(ds.sw(12.dp)))
 
+                // ── 充值按钮：96x40, black bg, 100dp radius ──
                 Box(
                     modifier = Modifier
                         .width(ds.sw(96.dp))
-                        .height(ds.sh(32.dp))
-                        .glassButton(cornerRadius = ds.sm(100.dp))
+                        .height(ds.sh(40.dp))
+                        .shadow(
+                            elevation = 30.dp,
+                            shape = RoundedCornerShape(ds.sm(100.dp)),
+                            ambientColor = Color.Black.copy(alpha = 0.05f),
+                            spotColor = Color.Black.copy(alpha = 0.05f),
+                        )
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black)
                         .clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -1551,12 +1425,12 @@ private fun BrainPowerBalanceCard(
 
             Spacer(modifier = Modifier.height(ds.sh(20.dp)))
 
-            // ── 0.5dp / 10% 白细分割线 ──
+            // ── 0.5dp 分割线 ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(0.5.dp)
-                    .background(Color.White.copy(alpha = 0.10f)),
+                    .background(Color.Black.copy(alpha = 0.10f)),
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -1568,14 +1442,14 @@ private fun BrainPowerBalanceCard(
                         text = "充值脑力值余额",
                         fontSize = ds.sp(10f),
                         fontWeight = FontWeight.Normal,
-                        color = Color.White.copy(alpha = 0.60f),
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(4.dp)))
                     Text(
                         text = paidBalance.toString(),
                         fontSize = ds.sp(12f),
                         fontWeight = FontWeight.Normal,
-                        color = Color.White,
+                        color = Color.Black,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1586,14 +1460,14 @@ private fun BrainPowerBalanceCard(
                         text = "免费脑力值余额",
                         fontSize = ds.sp(10f),
                         fontWeight = FontWeight.Normal,
-                        color = Color.White.copy(alpha = 0.60f),
+                        color = Color.Black.copy(alpha = 0.60f),
                     )
                     Spacer(modifier = Modifier.height(ds.sh(4.dp)))
                     Text(
                         text = freeBalance.toString(),
                         fontSize = ds.sp(12f),
                         fontWeight = FontWeight.Normal,
-                        color = Color.White,
+                        color = Color.Black,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1603,13 +1477,8 @@ private fun BrainPowerBalanceCard(
     }
 }
 
-/* ───────── Usage records card (dark) ───────── */
+/* ───────── Usage records card (light) ───────── */
 
-/**
- * 用量卡：padding 20dp、16dp 圆角、1dp 6% 白描边、10% 白填充。records 整串放在一个
- * Column 里，相邻两行之间用 0.5dp 10% 白分割线隔开。尾部 footer 互斥渲染
- * loading / error / empty / end 之一。
- */
 @Composable
 private fun UsageRecordsCard(
     modifier: Modifier = Modifier,
@@ -1625,14 +1494,15 @@ private fun UsageRecordsCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(cardShape)
-            .background(Color.White.copy(alpha = 0.10f))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.06f),
+            .shadow(
+                elevation = 30.dp,
                 shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.05f),
+                spotColor = Color.Black.copy(alpha = 0.05f),
             )
-            .padding(ds.sm(20.dp)),
+            .clip(cardShape)
+            .background(Color.White)
+            .padding(horizontal = ds.sw(20.dp)),
     ) {
         Column(
             modifier = Modifier
@@ -1645,10 +1515,10 @@ private fun UsageRecordsCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(0.5.dp)
-                            .background(Color.White.copy(alpha = 0.10f)),
+                            .background(Color.Black.copy(alpha = 0.10f)),
                     )
                 }
-                DarkUsageRecordRow(
+                UsageRecordRow(
                     time = formatRecordTime(record.createdAt),
                     modelName = record.edges?.model?.name.orEmpty(),
                     amount = "-${record.inputCepCost + record.outputCepCost}",
@@ -1666,7 +1536,7 @@ private fun UsageRecordsCard(
                         CircularProgressIndicator(
                             modifier = Modifier.size(ds.sm(20.dp)),
                             strokeWidth = 2.dp,
-                            color = Color.White.copy(alpha = 0.60f),
+                            color = Color.Black.copy(alpha = 0.40f),
                         )
                     }
                 }
@@ -1680,10 +1550,10 @@ private fun UsageRecordsCard(
                         Text(
                             text = loadError,
                             fontSize = ds.sp(12f),
-                            color = Color.White.copy(alpha = 0.60f),
+                            color = Color.Black.copy(alpha = 0.60f),
                         )
                         TextButton(onClick = onRetry) {
-                            Text(text = "点击重试", color = Color.White)
+                            Text(text = "点击重试", color = Color.Black)
                         }
                     }
                 }
@@ -1697,7 +1567,7 @@ private fun UsageRecordsCard(
                         Text(
                             text = "暂无用量记录",
                             fontSize = ds.sp(12f),
-                            color = Color.White.copy(alpha = 0.60f),
+                            color = Color.Black.copy(alpha = 0.60f),
                         )
                     }
                 }
@@ -1711,7 +1581,7 @@ private fun UsageRecordsCard(
                         Text(
                             text = "已加载全部",
                             fontSize = ds.sp(12f),
-                            color = Color.White.copy(alpha = 0.40f),
+                            color = Color.Black.copy(alpha = 0.40f),
                         )
                     }
                 }
@@ -1720,14 +1590,10 @@ private fun UsageRecordsCard(
     }
 }
 
-/* ───────── Usage record row (dark) ───────── */
+/* ───────── Usage record row (light) ───────── */
 
-/**
- * 单行用量记录：左侧模型名（14sp / 500 / 白）+ 2dp + 时间（12sp 60% 白）；
- * 右侧扣除额度（12sp 60% 白 右对齐）。
- */
 @Composable
-private fun DarkUsageRecordRow(
+private fun UsageRecordRow(
     time: String,
     modelName: String,
     amount: String,
@@ -1745,7 +1611,7 @@ private fun DarkUsageRecordRow(
                     text = modelName,
                     fontSize = ds.sp(14f),
                     fontWeight = FontWeight.Medium,
-                    color = Color.White,
+                    color = Color.Black.copy(alpha = 0.90f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1756,7 +1622,7 @@ private fun DarkUsageRecordRow(
                     text = time,
                     fontSize = ds.sp(12f),
                     fontWeight = FontWeight.Normal,
-                    color = Color.White.copy(alpha = 0.60f),
+                    color = Color.Black.copy(alpha = 0.60f),
                 )
             }
         }
@@ -1765,7 +1631,7 @@ private fun DarkUsageRecordRow(
             text = amount,
             fontSize = ds.sp(12f),
             fontWeight = FontWeight.Normal,
-            color = Color.White.copy(alpha = 0.60f),
+            color = Color.Black.copy(alpha = 0.60f),
             textAlign = TextAlign.End,
         )
     }
@@ -2180,10 +2046,13 @@ internal fun RechargePackagePage(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = Icons.Default.ChevronLeft,
+                    imageVector = BackIcon,
                     contentDescription = "Back",
-                    tint = Color.White,
-                    modifier = Modifier.size(ds.sm(20.dp)),
+                    tint = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.size(
+                        width = ds.sw(11.dp),
+                        height = ds.sh(17.dp),
+                    ),
                 )
             }
 
@@ -3291,7 +3160,6 @@ private fun LogoutConfirmDialog(
 private fun MyDevicesContent(
     onAddNewDevice: () -> Unit = {},
     onConfigureWifi: (com.cephalon.lucyApp.api.LucyDevice) -> Unit = {},
-    onSwitchDevice: (devices: List<com.cephalon.lucyApp.api.LucyDevice>, currentCdi: String) -> Unit = { _, _ -> },
 ) {
     val ds = LocalDesignScale.current
     val sdkSessionManager = koinInject<SdkSessionManager>()
@@ -3336,22 +3204,160 @@ private fun MyDevicesContent(
         ?: backendDevices.first()
     val currentCdi = currentDevice.channelDeviceId
     val currentIsOnline = currentCdi.isNotEmpty() && currentCdi in onlineCdis
+    val otherDevices = backendDevices.filter { it.channelDeviceId != currentCdi }
 
-    DeviceCard(
+    // ── 「当前设备」section ──
+    Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+    Text(
+        text = "当前设备",
+        fontSize = ds.sp(12f),
+        fontWeight = FontWeight.Normal,
+        color = Color.Black.copy(alpha = 0.60f),
+        lineHeight = ds.sp(16f),
+    )
+    Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+    MyDeviceRow(
         device = currentDevice,
         isOnline = currentIsOnline,
         isCheckingOnline = !observerHasEmitted,
-        onSwitchDevice = {
-            coroutineScope.launch {
-                backendDevices = authRepository.getDevices()
-                onSwitchDevice(backendDevices, currentCdi)
-            }
-        },
-        onAddNewDevice = onAddNewDevice,
-        onConfigureWifi = { onConfigureWifi(currentDevice) },
+        actionText = if (currentIsOnline) "已连接" else null,
+        actionColor = Color(0xFF007AFF),
+        onClick = {},
     )
 
+    // ── 「其他设备」section ──
+    if (otherDevices.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "其他设备",
+                fontSize = ds.sp(12f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.60f),
+                lineHeight = ds.sp(16f),
+            )
+            Text(
+                text = "${otherDevices.size} 台",
+                fontSize = ds.sp(12f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.60f),
+                lineHeight = ds.sp(16f),
+            )
+        }
+        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+        otherDevices.forEachIndexed { idx, device ->
+            val devCdi = device.channelDeviceId
+            val devOnline = devCdi.isNotEmpty() && devCdi in onlineCdis
+            MyDeviceRow(
+                device = device,
+                isOnline = devOnline,
+                isCheckingOnline = !observerHasEmitted,
+                actionText = "切换",
+                actionColor = Color.Black.copy(alpha = 0.90f),
+                onClick = {
+                    sdkSessionManager.selectDevice(devCdi)
+                    println("[MyDevices] 直接切换设备: cdi=$devCdi")
+                },
+            )
+            if (idx < otherDevices.lastIndex) {
+                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+            }
+        }
+    }
+
     Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+}
+
+@Composable
+private fun MyDeviceRow(
+    device: com.cephalon.lucyApp.api.LucyDevice,
+    isOnline: Boolean,
+    isCheckingOnline: Boolean,
+    actionText: String?,
+    actionColor: Color,
+    onClick: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val deviceIdDisplay = device.channelDeviceId.ifBlank {
+        device.serialNumber.ifBlank { device.id }
+    }
+    val typeLabel = deviceTypeDisplayName(device.deviceType)
+    val statusText = when {
+        isCheckingOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 检测中…" else "检测中…"
+        isOnline -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备在线" else "设备在线"
+        else -> if (typeLabel.isNotEmpty()) "$typeLabel · 设备离线" else "设备离线"
+    }
+    val cardShape = RoundedCornerShape(ds.sm(16.dp))
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 30.dp,
+                shape = cardShape,
+                ambientColor = Color.Black.copy(alpha = 0.05f),
+                spotColor = Color.Black.copy(alpha = 0.05f),
+            )
+            .clip(cardShape)
+            .background(Color.White)
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            ) { onClick() }
+            .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(12.dp)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 40x40 圆形图标容器
+        Box(
+            modifier = Modifier
+                .size(ds.sm(40.dp))
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.05f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MyDeviceBoxIcon,
+                contentDescription = null,
+                tint = Color.Black,
+                modifier = Modifier.size(width = ds.sw(19.dp), height = ds.sh(15.dp)),
+            )
+        }
+
+        Spacer(modifier = Modifier.width(ds.sw(12.dp)))
+
+        // 设备 ID + 在线状态
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = deviceIdDisplay,
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Medium,
+                color = Color.Black.copy(alpha = 0.90f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(ds.sh(2.dp)))
+            Text(
+                text = statusText,
+                fontSize = ds.sp(12f),
+                fontWeight = FontWeight.Normal,
+                color = Color.Black.copy(alpha = 0.60f),
+            )
+        }
+
+        // 右侧操作文字
+        if (actionText != null) {
+            Text(
+                text = actionText,
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = actionColor,
+            )
+        }
+    }
 }
 
 private fun deviceTypeDisplayName(deviceType: String): String = when (deviceType) {
