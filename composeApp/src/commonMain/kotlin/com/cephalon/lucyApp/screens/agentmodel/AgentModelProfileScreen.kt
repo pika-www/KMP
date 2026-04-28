@@ -173,218 +173,306 @@ internal fun AgentModelProfileScreen(
         }
     }
 
+    LaunchedEffect(isVisible) {
+        if (!isVisible) {
+            currentPage = ProfilePage.Settings
+        }
+    }
+
     val ds = LocalDesignScale.current
     Box(modifier = modifier) {
-        HalfModalBottomSheet(
-            isVisible = isVisible,
-            onDismissRequest = onDismiss,
-            onDismissed = { currentPage = ProfilePage.Settings },
-            showBackButton = false,
-            showCloseButton = false,
-            showTopBar = false,
-            topPadding = 32.dp,
-            containerShape = RoundedCornerShape(0.dp),
-            containerColor = Color.Transparent,
-            contentPadding = PaddingValues(0.dp)
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 220)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 160)),
         ) {
-            AnimatedContent(
-            targetState = currentPage,
-            transitionSpec = {
-                val goingForward = targetState.ordinal > initialState.ordinal
-                val slideSpec = tween<IntOffset>(durationMillis = 320, easing = FastOutSlowInEasing)
-                if (goingForward) {
-                    ContentTransform(
-                        targetContentEnter = slideInHorizontally(
-                            animationSpec = slideSpec,
-                            initialOffsetX = { it }
-                        ),
-                        initialContentExit = slideOutHorizontally(
-                            animationSpec = slideSpec,
-                            targetOffsetX = { -it }
-                        ),
-                        targetContentZIndex = 1f,
-                        sizeTransform = SizeTransform(clip = true)
-                    )
-                } else {
-                    ContentTransform(
-                        targetContentEnter = slideInHorizontally(
-                            animationSpec = slideSpec,
-                            initialOffsetX = { -it }
-                        ),
-                        initialContentExit = slideOutHorizontally(
-                            animationSpec = slideSpec,
-                            targetOffsetX = { it }
-                        ),
-                        targetContentZIndex = 1f,
-                        sizeTransform = SizeTransform(clip = true)
-                    )
-                }
-            },
-            label = "ProfileSheetPage"
-        ) { page ->
-            when (page) {
-                ProfilePage.Settings -> {
-                    val userInfo by authRepository.userInfo.collectAsState()
-                    val displayName = userInfo?.nickname
-                        ?: userPhone.ifEmpty { userEmail.substringBefore('@').ifEmpty { "用户" } }
-                    val displayAccount = userEmail.ifEmpty { userPhone }
-                    val avatarInitials = displayName.take(2).uppercase()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFFAFAFC))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                ) { /* 消费点击，防止穿透 */ }
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
                     val ds = LocalDesignScale.current
+                    val coroutineScope = rememberCoroutineScope()
+                    val displayAccount = userPhone.ifEmpty { userEmail }
 
-                    ProfilePageContainer {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                    ) {
+                        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                        // ── 顶部栏：返回 + 个人中心 ──
+                        ProfileTopBar(
+                            title = "个人中心",
+                            showBack = true,
+                            onBack = { onDismiss() },
+                            onClose = onDismiss,
+                            showClose = false,
+                        )
+
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .verticalScroll(rememberScrollState()),
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = ds.sw(20.dp)),
                         ) {
-                            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-                            ProfileTopBar(
-                                title = "个人中心",
-                                showBack = false,
-                                onBack = null,
-                                onClose = onDismiss
+                            Spacer(modifier = Modifier.height(ds.sh(28.dp)))
+
+                            // ── 「个人」 section ──
+                            Text(
+                                text = "个人",
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black.copy(alpha = 0.60f),
                             )
+                            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-                            Spacer(modifier = Modifier.height(ds.sh(46.dp)))
-
-                            // ── 头像 ──
                             Box(
                                 modifier = Modifier
-                                    .size(ds.sm(80.dp))
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.20f)),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .shadow(
+                                        elevation = 15.dp,
+                                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                                        ambientColor = Color.Black.copy(alpha = 0.05f),
+                                        spotColor = Color.Black.copy(alpha = 0.05f),
+                                    )
+                                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                                    .background(Color.White)
+                                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(4.dp)),
                             ) {
-                                Text(
-                                    text = avatarInitials,
-                                    fontSize = ds.sp(28f),
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
-                                )
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    ProfileMenuItemNew(
+                                        icon = AccountIcon,
+                                        title = "账号",
+                                        showArrow = false,
+                                        trailingText = displayAccount,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = ds.sw(32.dp))
+                                            .height(0.5.dp)
+                                            .background(Color.Black.copy(alpha = 0.10f)),
+                                    )
+                                    ProfileMenuItemNew(
+                                        icon = WalletIcon,
+                                        title = "充值帐户",
+                                        onClick = { currentPage = ProfilePage.Recharge }
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
-                            // ── 名称 ──
+                            // ── 「设备」 section ──
                             Text(
-                                text = displayName,
-                                fontSize = ds.sp(20f),
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF12192B),
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
+                                text = "设备",
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black.copy(alpha = 0.60f),
                             )
+                            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-//                            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-
-                            // ── 账号 ──
-//                            if (displayAccount.isNotEmpty()) {
-//                                Text(
-//                                    text = displayAccount,
-//                                    fontSize = ds.sp(14f),
-//                                    fontWeight = FontWeight.Normal,
-//                                    color = Color(0xFF595E6B),
-//                                    textAlign = TextAlign.Center,
-//                                    maxLines = 1,
-//                                    overflow = TextOverflow.Ellipsis,
-//                                    modifier = Modifier.padding(horizontal = ds.sw(20.dp)),
-//                                )
-//                            }
-
-                            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
-
-                            // ── 操作卡片 ──
-                            Surface(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = ds.sw(20.dp)),
-                                shape = RoundedCornerShape(ds.sm(16.dp)),
-                                color = Color.White,
-                                shadowElevation = 0.dp,
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(8.dp)),
-                                ) {
-                                    ProfileMenuItemNew(
-                                        icon = WalletIcon,
-                                        title = "充值账户",
-                                        onClick = { currentPage = ProfilePage.Recharge }
+                                    .shadow(
+                                        elevation = 15.dp,
+                                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                                        ambientColor = Color.Black.copy(alpha = 0.05f),
+                                        spotColor = Color.Black.copy(alpha = 0.05f),
                                     )
-                                    if (currentDeviceType == "ai_npc") {
-                                        HorizontalDivider(color = Color(0xFFF5F5F5))
-                                        ProfileMenuItemNew(
-                                            icon = NasIcon,
-                                            title = "我的 NAS",
-                                            onClick = { onNavigateToNas() }
-                                        )
-                                    }
-                                    HorizontalDivider(color = Color(0xFFF5F5F5))
+                                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                                    .background(Color.White)
+                                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(4.dp)),
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
                                     ProfileMenuItemNew(
                                         icon = DevicesIcon,
                                         title = "我的设备",
                                         onClick = { currentPage = ProfilePage.MyDevices }
                                     )
-                                    HorizontalDivider(color = Color(0xFFF5F5F5))
-                                    ProfileMenuItemNew(
-                                        icon = FeedbackIcon,
-                                        title = "意见反馈",
-                                        onClick = { currentPage = ProfilePage.Feedback }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = ds.sw(32.dp))
+                                            .height(0.5.dp)
+                                            .background(Color.Black.copy(alpha = 0.10f)),
                                     )
-                                    HorizontalDivider(color = Color(0xFFF5F5F5))
                                     ProfileMenuItemNew(
-                                        icon = ClearCacheIcon,
-                                        title = "清除缓存",
-                                        showArrow = false,
-                                        onClick = { showClearCacheDialog = true }
+                                        icon = AddDeviceIcon,
+                                        title = "添加新设备",
+                                        onClick = { onNavigateToHome() }
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = ds.sw(32.dp))
+                                            .height(0.5.dp)
+                                            .background(Color.Black.copy(alpha = 0.10f)),
+                                    )
+                                    ProfileMenuItemNew(
+                                        icon = WifiConfigIcon,
+                                        title = "配置当前设备 WIFI",
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val cdi = selectedCdi ?: return@launch
+                                                val device = authRepository.findDeviceByChannelDeviceId(cdi)
+                                                if (device != null) {
+                                                    wifiConfigDevice = device
+                                                    currentPage = ProfilePage.WifiConfig
+                                                }
+                                            }
+                                        }
                                     )
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
 
-                            // ── 退出登录 ──
-                            Surface(
+                            // ── 「其他」 section ──
+                            Text(
+                                text = "其他",
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black.copy(alpha = 0.60f),
+                            )
+                            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = ds.sw(20.dp))
-                                    .clickable(
-                                        indication = null,
-                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                    ) { showLogoutDialog = true },
-                                shape = RoundedCornerShape(ds.sm(99.dp)),
-                                color = Color.White,
-                                shadowElevation = 0.dp,
+                                    .shadow(
+                                        elevation = 15.dp,
+                                        shape = RoundedCornerShape(ds.sm(16.dp)),
+                                        ambientColor = Color.Black.copy(alpha = 0.05f),
+                                        spotColor = Color.Black.copy(alpha = 0.05f),
+                                    )
+                                    .clip(RoundedCornerShape(ds.sm(16.dp)))
+                                    .background(Color.White)
+                                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(4.dp)),
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = ds.sh(14.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "退出登录",
-                                        fontSize = ds.sp(16f),
-                                        fontWeight = FontWeight.Normal,
-                                        color = Color(0xFF1F2535),
-                                        textAlign = TextAlign.Center,
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    ProfileMenuItemNew(
+                                        icon = FeedbackIcon,
+                                        title = "意见反馈",
+                                        onClick = { currentPage = ProfilePage.Feedback }
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = ds.sw(32.dp))
+                                            .height(0.5.dp)
+                                            .background(Color.Black.copy(alpha = 0.10f)),
+                                    )
+                                    ProfileMenuItemNew(
+                                        icon = ClearCacheIcon,
+                                        title = "清除缓存",
+                                        onClick = { showClearCacheDialog = true }
                                     )
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+
+                            // ── 退出登录 ──
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(ds.sh(40.dp))
+                                    .shadow(
+                                        elevation = 30.dp,
+                                        shape = RoundedCornerShape(ds.sm(99.dp)),
+                                        ambientColor = Color.Black.copy(alpha = 0.05f),
+                                        spotColor = Color.Black.copy(alpha = 0.05f),
+                                    )
+                                    .clip(RoundedCornerShape(ds.sm(99.dp)))
+                                    .background(Color.Black.copy(alpha = 0.05f))
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                    ) { showLogoutDialog = true },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "退出登录",
+                                    fontSize = ds.sp(16f),
+                                    fontWeight = FontWeight.Normal,
+                                    color = Color(0xFFE84026),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
                         }
                     }
-                }
+        } // end full-screen Box
+        } // end AnimatedVisibility
+
+        // ── 子页面模态框 ──
+        val showSubPageSheet = currentPage != ProfilePage.Settings
+            && currentPage != ProfilePage.Recharge
+            && currentPage != ProfilePage.RechargePackage
+        HalfModalBottomSheet(
+            onDismissRequest = { currentPage = ProfilePage.Settings },
+            onDismissed = { currentPage = ProfilePage.Settings },
+            isVisible = isVisible && showSubPageSheet,
+            showTopBar = false,
+            contentPadding = PaddingValues(0.dp),
+            containerColor = Color(0xFFFAFAFC),
+        ) {
+            AnimatedContent(
+                targetState = currentPage,
+                transitionSpec = {
+                    val goingForward = targetState.ordinal > initialState.ordinal
+                    val slideSpec = tween<IntOffset>(durationMillis = 320, easing = FastOutSlowInEasing)
+                    if (goingForward) {
+                        ContentTransform(
+                            targetContentEnter = slideInHorizontally(
+                                animationSpec = slideSpec,
+                                initialOffsetX = { it }
+                            ),
+                            initialContentExit = slideOutHorizontally(
+                                animationSpec = slideSpec,
+                                targetOffsetX = { -it }
+                            ),
+                            targetContentZIndex = 1f,
+                            sizeTransform = SizeTransform(clip = true)
+                        )
+                    } else {
+                        ContentTransform(
+                            targetContentEnter = slideInHorizontally(
+                                animationSpec = slideSpec,
+                                initialOffsetX = { -it }
+                            ),
+                            initialContentExit = slideOutHorizontally(
+                                animationSpec = slideSpec,
+                                targetOffsetX = { it }
+                            ),
+                            targetContentZIndex = 1f,
+                            sizeTransform = SizeTransform(clip = true)
+                        )
+                    }
+                },
+                label = "ProfileSubPage"
+            ) { page ->
+                when (page) {
 
                 ProfilePage.Account -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                    ) {
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                         ProfileTopBar(
                             title = "账号",
@@ -425,7 +513,11 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.Feedback -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                    ) {
                         Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                         Row(
                             modifier = Modifier
@@ -441,14 +533,13 @@ internal fun AgentModelProfileScreen(
                                     modifier = Modifier
                                         .size(ds.sm(32.dp))
                                         .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.10f))
-                                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                        .background(Color.Black.copy(alpha = 0.05f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Back",
-                                        tint = Color(0xFF717580),
+                                        tint = Color.Black.copy(alpha = 0.4f),
                                         modifier = Modifier.size(ds.sm(16.dp)),
                                     )
                                 }
@@ -460,7 +551,7 @@ internal fun AgentModelProfileScreen(
                             text = "意见反馈",
                             fontSize = ds.sp(24f),
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF12192B),
+                            color = Color.Black.copy(alpha = 0.90f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
@@ -486,7 +577,11 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.MyDevices -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                    ) {
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                         ProfileTopBar(
                             title = null,
@@ -566,7 +661,11 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.SwitchDevice -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                    ) {
                         val sdkSessionManager = koinInject<SdkSessionManager>()
                         var pendingCdi by remember(switchDeviceCurrentCdi) {
                             mutableStateOf(switchDeviceCurrentCdi)
@@ -587,14 +686,13 @@ internal fun AgentModelProfileScreen(
                                     modifier = Modifier
                                         .size(ds.sm(32.dp))
                                         .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.10f))
-                                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                        .background(Color.Black.copy(alpha = 0.05f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Back",
-                                        tint = Color(0xFF717580),
+                                        tint = Color.Black.copy(alpha = 0.4f),
                                         modifier = Modifier.size(ds.sm(16.dp)),
                                     )
                                 }
@@ -606,7 +704,7 @@ internal fun AgentModelProfileScreen(
                             text = "选择要使用的设备",
                             fontSize = ds.sp(24f),
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF12192B),
+                            color = Color.Black.copy(alpha = 0.90f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
@@ -672,12 +770,16 @@ internal fun AgentModelProfileScreen(
 
                 ProfilePage.WifiConfig -> {
                     val ds = LocalDesignScale.current
-                    ProfilePageContainer(showBackground = false, backgroundColor = Color(0xFFF3F3F3)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFFFAFAFC)),
+                    ) {
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
                         ProfileTopBar(
                             title = "配置WI-FI",
                             showBack = true,
-                            onBack = { currentPage = ProfilePage.MyDevices },
+                            onBack = { currentPage = ProfilePage.Settings },
                             onClose = onDismiss
                         )
                         Spacer(modifier = Modifier.height(ds.sh(20.dp)))
@@ -691,15 +793,16 @@ internal fun AgentModelProfileScreen(
                         ) {
                             WifiConfigContent(
                                 device = wifiConfigDevice,
-                                onDismiss = { currentPage = ProfilePage.MyDevices }
+                                onDismiss = { currentPage = ProfilePage.Settings }
                             )
                         }
                     }
                 }
 
+                    else -> Box(modifier = Modifier.fillMaxWidth().height(200.dp))
+                }
             }
-        } // end AnimatedContent
-        } // end HalfModalBottomSheet
+        }
 
         // 脑力值 / 充值页：全屏黑色页面。层叠在 HalfModalBottomSheet 之上，覆盖 sheet 的
         // 40% 黑色背板和 72dp 顶部留白，给用户一个从上到下真正 "满屏" 的视觉（符合设计稿）。
@@ -928,36 +1031,39 @@ private fun ProfileTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showBack) {
-            IconButton(
-                onClick = { onBack?.invoke() },
-                modifier = Modifier.size(ds.sm(40.dp))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(ds.sm(32.dp))
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.10f))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color(0xFF717580),
-                        modifier = Modifier.size(ds.sm(16.dp))
+            Box(
+                modifier = Modifier
+                    .size(ds.sm(32.dp))
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color.Black.copy(alpha = 0.06f),
+                        shape = CircleShape,
                     )
-                }
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    ) { onBack?.invoke() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ChevronLeft,
+                    contentDescription = "Back",
+                    tint = Color.Black.copy(alpha = 0.4f),
+                    modifier = Modifier.size(ds.sm(20.dp))
+                )
             }
         } else {
-            Spacer(modifier = Modifier.size(ds.sm(40.dp)))
+            Spacer(modifier = Modifier.size(ds.sm(32.dp)))
         }
 
         if (title != null) {
             Text(
                 text = title,
-                fontSize = ds.sp(18f),
+                fontSize = ds.sp(20f),
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF12192B),
+                color = Color.Black.copy(alpha = 0.90f),
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -968,28 +1074,31 @@ private fun ProfileTopBar(
         }
 
         if (showClose) {
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(ds.sm(40.dp))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(ds.sm(32.dp))
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.10f))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Close",
-                        tint = Color(0xFF717580),
-                        modifier = Modifier.size(ds.sm(18.dp))
+            Box(
+                modifier = Modifier
+                    .size(ds.sm(32.dp))
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .border(
+                        width = 0.5.dp,
+                        color = Color.Black.copy(alpha = 0.06f),
+                        shape = CircleShape,
                     )
-                }
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    ) { onClose() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close",
+                    tint = Color.Black.copy(alpha = 0.4f),
+                    modifier = Modifier.size(ds.sm(18.dp))
+                )
             }
         } else {
-            Spacer(modifier = Modifier.size(ds.sm(40.dp)))
+            Spacer(modifier = Modifier.size(ds.sm(32.dp)))
         }
     }
 }
@@ -1001,6 +1110,7 @@ private fun ProfileMenuItemNew(
     icon: ImageVector,
     title: String,
     showArrow: Boolean = true,
+    trailingText: String? = null,
     onClick: () -> Unit = {},
 ) {
     val ds = LocalDesignScale.current
@@ -1028,8 +1138,20 @@ private fun ProfileMenuItemNew(
             fontSize = ds.sp(14f),
             fontWeight = FontWeight.Normal,
             color = Color(0xFF12192B),
+            lineHeight = ds.sp(20f),
             modifier = Modifier.weight(1f),
         )
+
+        if (trailingText != null) {
+            Text(
+                text = trailingText,
+                fontSize = ds.sp(14f),
+                fontWeight = FontWeight.Normal,
+                color = Color(0xFF12192B),
+                lineHeight = ds.sp(20f),
+                textAlign = TextAlign.End,
+            )
+        }
 
         if (showArrow) {
             Icon(

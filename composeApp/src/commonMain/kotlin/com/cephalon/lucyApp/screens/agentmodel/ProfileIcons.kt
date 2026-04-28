@@ -1,164 +1,259 @@
 package com.cephalon.lucyApp.screens.agentmodel
 
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// ── 账号 (人形) ──
+internal val AccountIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Account", defaultWidth = 15.dp, defaultHeight = 16.dp,
+        viewportWidth = 15f, viewportHeight = 16f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
+            pathFillType = PathFillType.NonZero
+        ) {
+            moveTo(4.6354f, 4.1451f)
+            curveTo(4.636f, 3.4044f, 4.9305f, 2.6942f, 5.4541f, 2.1704f)
+            curveTo(5.9778f, 1.6465f, 6.6879f, 1.3518f, 7.4286f, 1.3509f)
+            curveTo(8.1693f, 1.3518f, 8.8794f, 1.6465f, 9.403f, 2.1704f)
+            curveTo(9.9267f, 2.6942f, 10.2211f, 3.4044f, 10.2217f, 4.1451f)
+            curveTo(10.2205f, 4.8855f, 9.9258f, 5.5951f, 9.4022f, 6.1185f)
+            curveTo(8.8786f, 6.6418f, 8.1689f, 6.9362f, 7.4286f, 6.9371f)
+            curveTo(6.6881f, 6.9362f, 5.9781f, 6.6417f, 5.4545f, 6.1181f)
+            curveTo(4.9309f, 5.5944f, 4.6363f, 4.8845f, 4.6354f, 4.144f)
+            moveTo(9.984f, 7.4f)
+            curveTo(10.4787f, 7.0133f, 10.8789f, 6.5191f, 11.1541f, 5.9547f)
+            curveTo(11.4294f, 5.3904f, 11.5725f, 4.7708f, 11.5726f, 4.1429f)
+            curveTo(11.5737f, 1.8606f, 9.7143f, 0f, 7.4286f, 0f)
+            curveTo(5.1429f, 0f, 3.2834f, 1.8594f, 3.2834f, 4.1451f)
+            curveTo(3.2834f, 5.4663f, 3.9074f, 6.6411f, 4.872f, 7.4011f)
+            curveTo(2.0343f, 8.4457f, 0f, 11.1703f, 0f, 14.3657f)
+            curveTo(0f, 14.5448f, 0.0712f, 14.7166f, 0.1979f, 14.8432f)
+            curveTo(0.3245f, 14.9699f, 0.4963f, 15.041f, 0.6754f, 15.041f)
+            curveTo(0.8545f, 15.041f, 1.0263f, 14.9699f, 1.153f, 14.8432f)
+            curveTo(1.2797f, 14.7166f, 1.3508f, 14.5448f, 1.3509f, 14.3657f)
+            curveTo(1.353f, 12.7546f, 1.994f, 11.21f, 3.1334f, 10.0709f)
+            curveTo(4.2728f, 8.9317f, 5.8174f, 8.291f, 7.4286f, 8.2891f)
+            curveTo(9.0399f, 8.291f, 10.5848f, 8.9319f, 11.7242f, 10.0713f)
+            curveTo(12.8636f, 11.2107f, 13.5045f, 12.7555f, 13.5063f, 14.3669f)
+            curveTo(13.5063f, 14.4556f, 13.5237f, 14.5434f, 13.5577f, 14.6254f)
+            curveTo(13.5916f, 14.7073f, 13.6414f, 14.7818f, 13.7041f, 14.8445f)
+            curveTo(13.7668f, 14.9073f, 13.8413f, 14.957f, 13.9232f, 14.991f)
+            curveTo(14.0052f, 15.0249f, 14.093f, 15.0424f, 14.1817f, 15.0424f)
+            curveTo(14.2704f, 15.0424f, 14.3583f, 15.0249f, 14.4402f, 14.991f)
+            curveTo(14.5222f, 14.957f, 14.5966f, 14.9073f, 14.6594f, 14.8445f)
+            curveTo(14.7221f, 14.7818f, 14.7718f, 14.7073f, 14.8058f, 14.6254f)
+            curveTo(14.8397f, 14.5434f, 14.8572f, 14.4556f, 14.8571f, 14.3669f)
+            curveTo(14.8571f, 11.1703f, 12.8229f, 8.4469f, 9.984f, 7.4011f)
+        }
+    }.build()
+}
+
 // ── 充值账户 (钱包) ──
 internal val WalletIcon: ImageVector by lazy {
     ImageVector.Builder(
-        name = "Wallet", defaultWidth = 20.dp, defaultHeight = 20.dp,
-        viewportWidth = 20f, viewportHeight = 20f
+        name = "Wallet", defaultWidth = 16.dp, defaultHeight = 16.dp,
+        viewportWidth = 16f, viewportHeight = 16f
     ).apply {
         path(
             fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
             pathFillType = PathFillType.NonZero
         ) {
-            moveTo(16.1582f, 2.6963f)
-            curveTo(17.5375f, 2.6965f, 18.6609f, 3.8484f, 18.6621f, 5.2617f)
-            verticalLineTo(14.5537f)
-            curveTo(18.6609f, 15.9672f, 17.5375f, 17.1173f, 16.1582f, 17.1191f)
-            horizontalLineTo(3.8242f)
-            curveTo(2.4446f, 17.119f, 1.3214f, 15.9671f, 1.3203f, 14.5537f)
-            verticalLineTo(5.2617f)
-            curveTo(1.3206f, 3.8482f, 2.4449f, 2.6976f, 3.8242f, 2.6963f)
-            horizontalLineTo(16.1582f)
+            moveTo(13.536f, 1.3359f)
+            horizontalLineTo(2.464f)
+            curveTo(1.4f, 1.3359f, 0.536f, 2.1999f, 0.536f, 3.2639f)
+            verticalLineTo(12.7679f)
+            curveTo(0.536f, 13.8319f, 1.4f, 14.6959f, 2.464f, 14.6959f)
+            horizontalLineTo(13.536f)
+            curveTo(14.6f, 14.6959f, 15.464f, 13.8319f, 15.464f, 12.7679f)
+            verticalLineTo(3.2639f)
+            curveTo(15.464f, 2.1999f, 14.6f, 1.3359f, 13.536f, 1.3359f)
             close()
-            moveTo(3.8242f, 4.4482f)
-            curveTo(3.393f, 4.4484f, 3.0406f, 4.8143f, 3.04f, 5.2617f)
-            verticalLineTo(14.5527f)
-            curveTo(3.0402f, 14.9997f, 3.3933f, 15.3644f, 3.8252f, 15.3652f)
-            horizontalLineTo(16.1572f)
-            curveTo(16.5887f, 15.3652f, 16.9416f, 14.9995f, 16.9424f, 14.5518f)
-            verticalLineTo(12.8955f)
-            horizontalLineTo(12.6631f)
-            curveTo(11.0568f, 12.8955f, 9.75f, 11.5544f, 9.75f, 9.9082f)
-            curveTo(9.7502f, 8.2621f, 11.0571f, 6.9205f, 12.6631f, 6.9199f)
-            horizontalLineTo(16.9434f)
-            verticalLineTo(5.2617f)
-            curveTo(16.9434f, 4.8147f, 16.5901f, 4.4502f, 16.1582f, 4.4492f)
-            lineTo(3.8242f, 4.4482f)
+            moveTo(14.4f, 9.5759f)
+            horizontalLineTo(10.096f)
+            curveTo(9.232f, 9.5759f, 8.528f, 8.8719f, 8.528f, 8.0079f)
+            curveTo(8.528f, 7.1439f, 9.232f, 6.4399f, 10.096f, 6.4399f)
+            horizontalLineTo(14.4f)
+            verticalLineTo(9.5759f)
             close()
-            moveTo(12.6631f, 8.4287f)
-            curveTo(12.0034f, 8.4287f, 11.4668f, 9.0848f, 11.4668f, 9.8906f)
-            curveTo(11.4669f, 10.6964f, 12.0035f, 11.3525f, 12.6631f, 11.3525f)
-            horizontalLineTo(16.9434f)
-            verticalLineTo(8.4287f)
-            horizontalLineTo(12.6631f)
+            moveTo(14.4f, 12.7679f)
+            curveTo(14.4f, 13.2399f, 14.016f, 13.6319f, 13.536f, 13.6319f)
+            horizontalLineTo(2.464f)
+            curveTo(1.992f, 13.6319f, 1.6f, 13.2479f, 1.6f, 12.7679f)
+            verticalLineTo(3.2639f)
+            curveTo(1.6f, 2.7839f, 1.984f, 2.3999f, 2.464f, 2.3999f)
+            horizontalLineTo(13.536f)
+            curveTo(14.008f, 2.3999f, 14.4f, 2.7839f, 14.4f, 3.2639f)
+            verticalLineTo(5.3839f)
+            horizontalLineTo(10.096f)
+            curveTo(8.648f, 5.3839f, 7.464f, 6.5679f, 7.464f, 8.0159f)
+            curveTo(7.464f, 9.4639f, 8.648f, 10.6479f, 10.096f, 10.6479f)
+            horizontalLineTo(14.4f)
+            verticalLineTo(12.7679f)
             close()
-            moveTo(13.4521f, 8.8193f)
-            curveTo(14.0395f, 8.8193f, 14.5176f, 9.3074f, 14.5176f, 9.9072f)
-            curveTo(14.5175f, 10.507f, 14.0384f, 10.9951f, 13.4521f, 10.9951f)
-            curveTo(12.865f, 10.9949f, 12.3877f, 10.5068f, 12.3877f, 9.9072f)
-            curveTo(12.3877f, 9.3076f, 12.8649f, 8.8196f, 13.4521f, 8.8193f)
-            close()
-        }
-    }.build()
-}
-
-// ── 我的 NAS ──
-internal val NasIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "Nas", defaultWidth = 20.dp, defaultHeight = 20.dp,
-        viewportWidth = 20f, viewportHeight = 20f
-    ).apply {
-        path(
-            fill = null,
-            stroke = SolidColor(Color.Black.copy(alpha = 0.4f)),
-            strokeLineWidth = 1.66667f,
-            pathFillType = PathFillType.NonZero
-        ) {
-            moveTo(14.499f, 2.9468f)
-            curveTo(15.0326f, 2.9646f, 15.5427f, 3.1688f, 15.9424f, 3.5239f)
-            horizontalLineTo(15.9434f)
-            curveTo(16.3273f, 3.8657f, 16.5839f, 4.3262f, 16.6768f, 4.8306f)
-            lineTo(18.583f, 13.0513f)
-            curveTo(18.6781f, 13.3253f, 18.75f, 13.6456f, 18.75f, 13.9634f)
-            curveTo(18.75f, 15.6634f, 17.3641f, 17.0532f, 15.6465f, 17.0532f)
-            horizontalLineTo(4.3535f)
-            curveTo(2.6367f, 17.0532f, 1.25f, 15.6632f, 1.25f, 13.9624f)
-            curveTo(1.25f, 13.7003f, 1.2801f, 13.3716f, 1.3897f, 13.0474f)
-            lineTo(3.2949f, 4.8579f)
-            curveTo(3.4848f, 3.8298f, 4.3553f, 2.9902f, 5.4697f, 2.9468f)
-            horizontalLineTo(14.499f)
-            close()
-            moveTo(4.3535f, 13.6948f)
-            curveTo(4.204f, 13.6948f, 4.0647f, 13.826f, 4.0645f, 13.9907f)
-            verticalLineTo(14.0015f)
-            curveTo(4.064f, 14.0391f, 4.0708f, 14.0769f, 4.085f, 14.1118f)
-            curveTo(4.092f, 14.1293f, 4.101f, 14.146f, 4.1113f, 14.1616f)
-            lineTo(4.1475f, 14.2046f)
-            lineTo(4.1484f, 14.2056f)
-            curveTo(4.1739f, 14.2313f, 4.2038f, 14.2524f, 4.2373f, 14.2661f)
-            curveTo(4.2709f, 14.2799f, 4.3075f, 14.2861f, 4.3438f, 14.2856f)
-            horizontalLineTo(13.5283f)
-            curveTo(13.5098f, 14.1867f, 13.5002f, 14.086f, 13.501f, 13.9849f)
-            curveTo(13.5014f, 13.8857f, 13.5115f, 13.7889f, 13.5293f, 13.6948f)
-            horizontalLineTo(4.3535f)
+            moveTo(10.472f, 8.0159f)
+            curveTo(10.472f, 7.6319f, 10.784f, 7.3199f, 11.168f, 7.3199f)
+            curveTo(11.552f, 7.3199f, 11.864f, 7.6319f, 11.864f, 8.0159f)
+            curveTo(11.864f, 8.3999f, 11.552f, 8.7119f, 11.168f, 8.7119f)
+            curveTo(10.784f, 8.7039f, 10.472f, 8.3999f, 10.472f, 8.0159f)
             close()
         }
     }.build()
 }
 
-// ── 我的设备 ──
+// ── 我的设备 (服务器) ──
 internal val DevicesIcon: ImageVector by lazy {
     ImageVector.Builder(
-        name = "Devices", defaultWidth = 20.dp, defaultHeight = 20.dp,
-        viewportWidth = 20f, viewportHeight = 20f
+        name = "Devices", defaultWidth = 16.dp, defaultHeight = 16.dp,
+        viewportWidth = 16f, viewportHeight = 16f
     ).apply {
         path(
             fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
             pathFillType = PathFillType.NonZero
         ) {
-            moveTo(14.9004f, 10.8613f)
-            curveTo(17.2564f, 10.8615f, 19.1737f, 12.7209f, 19.1738f, 15.0068f)
-            curveTo(19.1738f, 17.2913f, 17.2565f, 19.1502f, 14.9004f, 19.1504f)
-            horizontalLineTo(5.1133f)
-            curveTo(2.757f, 19.1503f, 0.8398f, 17.2922f, 0.8398f, 15.0068f)
-            curveTo(0.84f, 12.7216f, 2.7571f, 10.8614f, 5.1133f, 10.8613f)
-            horizontalLineTo(14.9004f)
+            moveTo(11.9199f, 8.6892f)
+            curveTo(13.8049f, 8.6893f, 15.3389f, 10.1767f, 15.3389f, 12.0056f)
+            curveTo(15.3388f, 13.8332f, 13.8049f, 15.32f, 11.9199f, 15.3201f)
+            horizontalLineTo(4.0908f)
+            curveTo(2.2059f, 15.3201f, 0.672f, 13.8338f, 0.6719f, 12.0056f)
+            curveTo(0.6719f, 10.1773f, 2.2058f, 8.6892f, 4.0908f, 8.6892f)
+            horizontalLineTo(11.9199f)
             close()
-            moveTo(5.1133f, 12.3877f)
-            curveTo(3.5966f, 12.3877f, 2.3633f, 13.5628f, 2.3633f, 15.0078f)
-            curveTo(2.3633f, 16.4513f, 3.5966f, 17.6259f, 5.1133f, 17.626f)
-            horizontalLineTo(14.9004f)
-            curveTo(16.4162f, 17.6258f, 17.6504f, 16.451f, 17.6504f, 15.0068f)
-            curveTo(17.6503f, 13.562f, 16.4161f, 12.3869f, 14.9004f, 12.3867f)
-            lineTo(5.1133f, 12.3877f)
+            moveTo(4.0908f, 9.9099f)
+            curveTo(2.8776f, 9.9099f, 1.8899f, 10.8498f, 1.8897f, 12.0056f)
+            curveTo(1.8897f, 13.1604f, 2.8774f, 14.1003f, 4.0908f, 14.1003f)
+            horizontalLineTo(11.9199f)
+            curveTo(13.1326f, 14.1003f, 14.12f, 13.1609f, 14.1201f, 12.0056f)
+            curveTo(14.1201f, 10.8496f, 13.1327f, 9.909f, 11.9199f, 9.9089f)
+            lineTo(4.0908f, 9.9099f)
             close()
-            moveTo(5.8018f, 13.8164f)
-            curveTo(6.4339f, 13.8166f, 6.9463f, 14.3297f, 6.9463f, 14.9619f)
-            curveTo(6.9461f, 15.594f, 6.4338f, 16.1063f, 5.8018f, 16.1064f)
-            curveTo(5.1695f, 16.1064f, 4.6564f, 15.5941f, 4.6563f, 14.9619f)
-            curveTo(4.6563f, 14.3296f, 5.1694f, 13.8164f, 5.8018f, 13.8164f)
+            moveTo(4.6416f, 11.0535f)
+            curveTo(5.1473f, 11.0537f, 5.5576f, 11.4637f, 5.5576f, 11.9695f)
+            curveTo(5.5574f, 12.475f, 5.1472f, 12.8853f, 4.6416f, 12.8855f)
+            curveTo(4.1359f, 12.8855f, 3.7258f, 12.4752f, 3.7256f, 11.9695f)
+            curveTo(3.7256f, 11.4636f, 4.1357f, 11.0535f, 4.6416f, 11.0535f)
             close()
-            moveTo(14.8994f, 0.8496f)
-            curveTo(17.2556f, 0.8497f, 19.1728f, 2.7088f, 19.1729f, 4.9941f)
-            curveTo(19.1729f, 7.2794f, 17.2557f, 9.1375f, 14.9004f, 9.1377f)
-            horizontalLineTo(5.1123f)
-            curveTo(2.7569f, 9.1375f, 0.8398f, 7.2787f, 0.8398f, 4.9941f)
-            curveTo(0.8399f, 2.7096f, 2.7569f, 0.8498f, 5.1123f, 0.8496f)
-            horizontalLineTo(14.8994f)
+            moveTo(11.9189f, 0.6794f)
+            curveTo(13.8039f, 0.6794f, 15.3378f, 2.1666f, 15.3379f, 3.9949f)
+            curveTo(15.3379f, 5.8232f, 13.8043f, 7.3103f, 11.9199f, 7.3103f)
+            horizontalLineTo(4.0898f)
+            curveTo(2.2055f, 7.3103f, 0.6719f, 5.8225f, 0.6719f, 3.9949f)
+            curveTo(0.672f, 2.1673f, 2.2055f, 0.6795f, 4.0898f, 0.6794f)
+            horizontalLineTo(11.9189f)
             close()
-            moveTo(5.1123f, 2.375f)
-            curveTo(3.5957f, 2.3752f, 2.3623f, 3.55f, 2.3623f, 4.9941f)
-            curveTo(2.3623f, 6.4383f, 3.5957f, 7.6131f, 5.1123f, 7.6133f)
-            horizontalLineTo(14.8994f)
-            curveTo(16.4153f, 7.6132f, 17.6494f, 6.4384f, 17.6494f, 4.9941f)
-            curveTo(17.6494f, 3.55f, 16.4162f, 2.3752f, 14.9004f, 2.375f)
-            horizontalLineTo(5.1123f)
+            moveTo(4.0898f, 1.8992f)
+            curveTo(2.8766f, 1.8992f, 1.8897f, 2.8396f, 1.8897f, 3.9949f)
+            curveTo(1.8897f, 5.1503f, 2.8765f, 6.0905f, 4.0898f, 6.0906f)
+            horizontalLineTo(11.9189f)
+            curveTo(13.1317f, 6.0906f, 14.1191f, 5.1503f, 14.1191f, 3.9949f)
+            curveTo(14.1191f, 2.8395f, 13.1326f, 1.8992f, 11.9199f, 1.8992f)
+            horizontalLineTo(4.0898f)
             close()
-            moveTo(14.1982f, 3.8936f)
-            curveTo(14.8304f, 3.8938f, 15.3428f, 4.4069f, 15.3428f, 5.0391f)
-            curveTo(15.3426f, 5.6711f, 14.8303f, 6.1834f, 14.1982f, 6.1836f)
-            curveTo(13.566f, 6.1836f, 13.0529f, 5.6712f, 13.0527f, 5.0391f)
-            curveTo(13.0527f, 4.4067f, 13.5659f, 3.8936f, 14.1982f, 3.8936f)
+            moveTo(11.3584f, 3.115f)
+            curveTo(11.8642f, 3.115f, 12.2744f, 3.5252f, 12.2744f, 4.031f)
+            curveTo(12.2743f, 4.5368f, 11.8642f, 4.947f, 11.3584f, 4.947f)
+            curveTo(10.8526f, 4.947f, 10.4425f, 4.5368f, 10.4424f, 4.031f)
+            curveTo(10.4424f, 3.5251f, 10.8525f, 3.115f, 11.3584f, 3.115f)
+            close()
+        }
+    }.build()
+}
+
+// ── 添加新设备 (加号圆圈) ──
+internal val AddDeviceIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "AddDevice", defaultWidth = 16.dp, defaultHeight = 16.dp,
+        viewportWidth = 16f, viewportHeight = 16f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
+            pathFillType = PathFillType.NonZero
+        ) {
+            moveTo(8.0004f, 0.3333f)
+            curveTo(12.2716f, 0.3334f, 15.6664f, 3.7289f, 15.6664f, 8.0002f)
+            curveTo(15.6662f, 12.2714f, 12.2715f, 15.6661f, 8.0004f, 15.6663f)
+            curveTo(3.7291f, 15.6663f, 0.3335f, 12.2715f, 0.3334f, 8.0002f)
+            curveTo(0.3334f, 3.7288f, 3.7289f, 0.3333f, 8.0004f, 0.3333f)
+            close()
+            moveTo(8.0004f, 1.429f)
+            curveTo(4.3861f, 1.429f, 1.4291f, 4.386f, 1.4291f, 8.0002f)
+            curveTo(1.4293f, 11.6144f, 4.3862f, 14.5715f, 8.0004f, 14.5715f)
+            curveTo(11.6144f, 14.5714f, 14.5715f, 11.6143f, 14.5717f, 8.0002f)
+            curveTo(14.5717f, 4.3861f, 11.6145f, 1.4291f, 8.0004f, 1.429f)
+            close()
+            moveTo(8.0004f, 3.6194f)
+            curveTo(8.3287f, 3.6195f, 8.5471f, 3.838f, 8.5472f, 4.1663f)
+            verticalLineTo(7.4524f)
+            horizontalLineTo(11.8334f)
+            curveTo(12.1619f, 7.4524f, 12.3812f, 7.6717f, 12.3812f, 8.0002f)
+            curveTo(12.3811f, 8.3286f, 12.1618f, 8.5471f, 11.8334f, 8.5471f)
+            horizontalLineTo(8.5472f)
+            verticalLineTo(11.8333f)
+            curveTo(8.5472f, 12.1617f, 8.3288f, 12.381f, 8.0004f, 12.3811f)
+            curveTo(7.6718f, 12.3811f, 7.4525f, 12.1618f, 7.4525f, 11.8333f)
+            verticalLineTo(8.5471f)
+            horizontalLineTo(4.1664f)
+            curveTo(3.8381f, 8.547f, 3.6197f, 8.3285f, 3.6195f, 8.0002f)
+            curveTo(3.6195f, 7.6718f, 3.838f, 7.4526f, 4.1664f, 7.4524f)
+            horizontalLineTo(7.4525f)
+            verticalLineTo(4.1663f)
+            curveTo(7.4527f, 3.8379f, 7.6719f, 3.6194f, 8.0004f, 3.6194f)
+            close()
+        }
+    }.build()
+}
+
+// ── 配置 WIFI ──
+internal val WifiConfigIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "WifiConfig", defaultWidth = 16.dp, defaultHeight = 16.dp,
+        viewportWidth = 16f, viewportHeight = 16f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
+            pathFillType = PathFillType.EvenOdd
+        ) {
+            moveTo(7.9996f, 11.682f)
+            curveTo(8.4885f, 11.6821f, 8.9165f, 12.1102f, 8.9166f, 12.599f)
+            curveTo(8.9166f, 13.0879f, 8.4885f, 13.516f, 7.9996f, 13.516f)
+            curveTo(7.5109f, 13.5158f, 7.0836f, 13.0878f, 7.0836f, 12.599f)
+            curveTo(7.0837f, 12.1103f, 7.5109f, 11.6823f, 7.9996f, 11.682f)
+            close()
+            moveTo(4.8834f, 9.9106f)
+            curveTo(6.5945f, 8.1995f, 9.4057f, 8.1994f, 11.1168f, 9.9106f)
+            curveTo(11.361f, 10.155f, 11.3612f, 10.5216f, 11.1168f, 10.766f)
+            curveTo(10.9946f, 10.8882f, 10.8723f, 10.9496f, 10.6891f, 10.9496f)
+            curveTo(10.5058f, 10.9496f, 10.3835f, 10.8881f, 10.2613f, 10.766f)
+            curveTo(9.0391f, 9.5438f, 7.0222f, 9.5438f, 5.7389f, 10.766f)
+            curveTo(5.4945f, 11.0103f, 5.1278f, 11.0103f, 4.8834f, 10.766f)
+            curveTo(4.639f, 10.5216f, 4.6391f, 10.155f, 4.8834f, 9.9106f)
+            close()
+            moveTo(7.9996f, 5.5717f)
+            curveTo(9.9552f, 5.5717f, 11.789f, 6.3048f, 13.1334f, 7.7104f)
+            curveTo(13.3778f, 7.9548f, 13.3778f, 8.3214f, 13.1334f, 8.5658f)
+            curveTo(13.0112f, 8.688f, 12.889f, 8.7494f, 12.7057f, 8.7494f)
+            curveTo(12.5223f, 8.7494f, 12.4002f, 8.688f, 12.2779f, 8.5658f)
+            curveTo(11.1168f, 7.4047f, 9.5885f, 6.7934f, 7.9996f, 6.7934f)
+            curveTo(6.4109f, 6.7935f, 4.8833f, 7.4049f, 3.7223f, 8.5658f)
+            curveTo(3.4779f, 8.8103f, 3.1113f, 8.8102f, 2.8668f, 8.5658f)
+            curveTo(2.6224f, 8.3214f, 2.6224f, 7.9548f, 2.8668f, 7.7104f)
+            curveTo(4.2112f, 6.305f, 6.0442f, 5.5718f, 7.9996f, 5.5717f)
+            close()
+            moveTo(1.5221f, 4.7768f)
+            curveTo(5.5554f, 1.5379f, 11.4222f, 1.7823f, 15.15f, 5.3266f)
+            curveTo(15.3944f, 5.571f, 15.3943f, 5.9376f, 15.15f, 6.182f)
+            curveTo(15.0278f, 6.3654f, 14.9056f, 6.4271f, 14.7223f, 6.4272f)
+            curveTo(14.6001f, 6.4271f, 14.4168f, 6.3658f, 14.2945f, 6.2436f)
+            curveTo(10.9946f, 3.1269f, 5.8f, 2.8822f, 2.2555f, 5.7543f)
+            curveTo(2.0722f, 5.8765f, 1.889f, 6.0603f, 1.7057f, 6.2436f)
+            curveTo(1.4613f, 6.488f, 1.0947f, 6.4878f, 0.8502f, 6.2436f)
+            curveTo(0.6058f, 5.9991f, 0.6058f, 5.6325f, 0.8502f, 5.3881f)
+            curveTo(1.0946f, 5.1437f, 1.2777f, 4.9601f, 1.5221f, 4.7768f)
             close()
         }
     }.build()
@@ -167,62 +262,72 @@ internal val DevicesIcon: ImageVector by lazy {
 // ── 意见反馈 ──
 internal val FeedbackIcon: ImageVector by lazy {
     ImageVector.Builder(
-        name = "Feedback", defaultWidth = 20.dp, defaultHeight = 20.dp,
-        viewportWidth = 20f, viewportHeight = 20f
+        name = "Feedback", defaultWidth = 16.dp, defaultHeight = 16.dp,
+        viewportWidth = 16f, viewportHeight = 16f
     ).apply {
         path(
             fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
             pathFillType = PathFillType.NonZero
         ) {
-            moveTo(13.3096f, 1.2407f)
-            curveTo(13.8306f, 1.241f, 14.2451f, 1.6551f, 14.2451f, 2.1763f)
-            curveTo(14.2451f, 2.6974f, 13.8306f, 3.1116f, 13.3096f, 3.1118f)
-            horizontalLineTo(3.9395f)
-            curveTo(3.7256f, 3.1118f, 3.5381f, 3.2993f, 3.5381f, 3.5132f)
-            verticalLineTo(16.8931f)
-            curveTo(3.5382f, 17.1201f, 3.7123f, 17.2935f, 3.9395f, 17.2935f)
-            horizontalLineTo(15.9824f)
-            curveTo(16.2095f, 17.2935f, 16.3836f, 17.1201f, 16.3838f, 16.8931f)
-            verticalLineTo(6.186f)
-            curveTo(16.3838f, 5.667f, 16.7943f, 5.254f, 17.3125f, 5.2505f)
-            curveTo(17.8306f, 5.2541f, 18.2412f, 5.6671f, 18.2412f, 6.186f)
-            verticalLineTo(16.8931f)
-            curveTo(18.2545f, 17.4945f, 18.0136f, 18.0689f, 17.5859f, 18.4966f)
-            curveTo(17.1582f, 18.9242f, 16.5972f, 19.1655f, 15.9824f, 19.1655f)
-            horizontalLineTo(3.9395f)
-            curveTo(2.6831f, 19.1655f, 1.6672f, 18.1494f, 1.667f, 16.8931f)
-            verticalLineTo(3.5132f)
-            curveTo(1.667f, 2.2567f, 2.683f, 1.2407f, 3.9395f, 1.2407f)
-            horizontalLineTo(13.3096f)
+            moveTo(11.9908f, 14.9955f)
+            horizontalLineTo(2.9763f)
+            curveTo(2.1473f, 14.9955f, 1.4744f, 14.3225f, 1.4744f, 13.4935f)
+            verticalLineTo(3.4804f)
+            curveTo(1.4744f, 2.6514f, 2.1473f, 1.9785f, 2.9763f, 1.9785f)
+            horizontalLineTo(9.9854f)
+            curveTo(10.2627f, 1.9785f, 10.4861f, 2.2019f, 10.4861f, 2.4791f)
+            curveTo(10.4861f, 2.7564f, 10.2627f, 2.9798f, 9.9854f, 2.9798f)
+            horizontalLineTo(2.9763f)
+            curveTo(2.7018f, 2.9798f, 2.4756f, 3.2059f, 2.4756f, 3.4804f)
+            verticalLineTo(13.4935f)
+            curveTo(2.4756f, 13.7708f, 2.7018f, 13.9942f, 2.9763f, 13.9942f)
+            horizontalLineTo(11.988f)
+            curveTo(12.2653f, 13.9942f, 12.4887f, 13.7707f, 12.4887f, 13.4935f)
+            verticalLineTo(5.4804f)
+            curveTo(12.4887f, 5.2032f, 12.7121f, 4.9797f, 12.9893f, 4.9797f)
+            curveTo(13.2666f, 4.9797f, 13.49f, 5.2032f, 13.49f, 5.4804f)
+            verticalLineTo(13.4908f)
+            curveTo(13.4927f, 14.3199f, 12.8171f, 14.9955f, 11.9908f, 14.9955f)
             close()
-            moveTo(13.3096f, 11.4302f)
-            curveTo(13.8306f, 11.4304f, 14.2451f, 11.8456f, 14.2451f, 12.3667f)
-            curveTo(14.245f, 12.6071f, 14.1644f, 12.834f, 13.9775f, 13.021f)
-            curveTo(13.7905f, 13.208f, 13.5633f, 13.3021f, 13.3096f, 13.3022f)
-            horizontalLineTo(5.2754f)
-            curveTo(4.7544f, 13.302f, 4.3401f, 12.8876f, 4.3398f, 12.3667f)
-            curveTo(4.3398f, 11.8455f, 4.7543f, 11.4304f, 5.2754f, 11.4302f)
-            horizontalLineTo(13.3096f)
+        }
+        path(
+            fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
+            pathFillType = PathFillType.NonZero
+        ) {
+            moveTo(9.0488f, 6.9822f)
+            curveTo(8.9196f, 6.9822f, 8.7931f, 6.9338f, 8.6935f, 6.8341f)
+            curveTo(8.497f, 6.6376f, 8.497f, 6.3228f, 8.6935f, 6.1262f)
+            lineTo(13.6704f, 1.152f)
+            curveTo(13.8669f, 0.9555f, 14.1819f, 0.9555f, 14.3783f, 1.152f)
+            curveTo(14.5748f, 1.3485f, 14.5748f, 1.6634f, 14.3783f, 1.8599f)
+            lineTo(9.4014f, 6.8368f)
+            curveTo(9.3045f, 6.9338f, 9.1753f, 6.9822f, 9.0488f, 6.9822f)
             close()
-            moveTo(9.2861f, 6.5874f)
-            curveTo(9.8073f, 6.5876f, 10.2217f, 7.0018f, 10.2217f, 7.523f)
-            curveTo(10.2217f, 8.0441f, 9.8073f, 8.4583f, 9.2861f, 8.4585f)
-            horizontalLineTo(5.2754f)
-            curveTo(4.7543f, 8.4583f, 4.3399f, 8.0441f, 4.3398f, 7.523f)
-            curveTo(4.3398f, 7.0018f, 4.7543f, 6.5876f, 5.2754f, 6.5874f)
-            horizontalLineTo(9.2861f)
+        }
+        path(
+            fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
+            pathFillType = PathFillType.NonZero
+        ) {
+            moveTo(6.9815f, 6.9823f)
+            horizontalLineTo(3.9776f)
+            curveTo(3.7004f, 6.9823f, 3.4769f, 6.7589f, 3.4769f, 6.4816f)
+            curveTo(3.4769f, 6.2044f, 3.7004f, 5.981f, 3.9776f, 5.981f)
+            horizontalLineTo(6.9815f)
+            curveTo(7.2588f, 5.981f, 7.4822f, 6.2044f, 7.4822f, 6.4816f)
+            curveTo(7.4821f, 6.7589f, 7.2588f, 6.9823f, 6.9815f, 6.9823f)
             close()
-            moveTo(17.8115f, 0.8315f)
-            curveTo(18.059f, 0.8316f, 18.2962f, 0.9295f, 18.4727f, 1.103f)
-            curveTo(18.8335f, 1.4639f, 18.8335f, 2.0654f, 18.4727f, 2.4263f)
-            lineTo(12.708f, 8.1909f)
-            curveTo(12.5343f, 8.3647f, 12.3067f, 8.4585f, 12.0527f, 8.4585f)
-            curveTo(11.8674f, 8.4574f, 11.6861f, 8.4016f, 11.5322f, 8.2983f)
-            curveTo(11.3785f, 8.1951f, 11.2587f, 8.0484f, 11.1875f, 7.8774f)
-            curveTo(11.1163f, 7.7065f, 11.0968f, 7.5183f, 11.1318f, 7.3364f)
-            curveTo(11.1669f, 7.1545f, 11.2551f, 6.9873f, 11.3848f, 6.855f)
-            lineTo(17.1494f, 1.103f)
-            curveTo(17.3259f, 0.9295f, 17.564f, 0.8315f, 17.8115f, 0.8315f)
+        }
+        path(
+            fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
+            pathFillType = PathFillType.NonZero
+        ) {
+            moveTo(9.9881f, 9.9862f)
+            horizontalLineTo(3.9776f)
+            curveTo(3.7004f, 9.9862f, 3.4769f, 9.7628f, 3.4769f, 9.4855f)
+            curveTo(3.4769f, 9.2083f, 3.7004f, 8.9849f, 3.9776f, 8.9849f)
+            horizontalLineTo(9.9854f)
+            curveTo(10.2627f, 8.9849f, 10.4861f, 9.2083f, 10.4861f, 9.4855f)
+            curveTo(10.4861f, 9.7628f, 10.2627f, 9.9862f, 9.9881f, 9.9862f)
             close()
         }
     }.build()
@@ -231,74 +336,75 @@ internal val FeedbackIcon: ImageVector by lazy {
 // ── 清除缓存 ──
 internal val ClearCacheIcon: ImageVector by lazy {
     ImageVector.Builder(
-        name = "ClearCache", defaultWidth = 20.dp, defaultHeight = 20.dp,
-        viewportWidth = 20f, viewportHeight = 20f
+        name = "ClearCache", defaultWidth = 16.dp, defaultHeight = 16.dp,
+        viewportWidth = 16f, viewportHeight = 16f
     ).apply {
         path(
             fill = SolidColor(Color.Black.copy(alpha = 0.4f)),
             pathFillType = PathFillType.NonZero
         ) {
-            moveTo(12.6669f, 3.2844f)
-            curveTo(12.3114f, 2.9291f, 11.8294f, 2.7295f, 11.3268f, 2.7295f)
-            curveTo(10.8242f, 2.7295f, 10.3422f, 2.9291f, 9.9867f, 3.2844f)
-            lineTo(8.8551f, 4.4141f)
-            curveTo(8.6775f, 4.5919f, 8.5777f, 4.8329f, 8.5777f, 5.0842f)
-            curveTo(8.5777f, 5.3355f, 8.6775f, 5.5765f, 8.8551f, 5.7542f)
-            lineTo(14.8864f, 11.7855f)
-            lineTo(16.6871f, 9.9848f)
-            curveTo(17.0424f, 9.6294f, 17.2421f, 9.1474f, 17.2421f, 8.6448f)
-            curveTo(17.2421f, 8.1422f, 17.0424f, 7.6601f, 16.6871f, 7.3047f)
-            lineTo(12.6659f, 3.2844f)
-            horizontalLineTo(12.6669f)
+            moveTo(8f, 0.5452f)
+            curveTo(9.1202f, 0.5452f, 10.0303f, 1.4452f, 10.0484f, 2.5623f)
+            lineTo(10.0487f, 2.5962f)
+            verticalLineTo(5.1861f)
+            horizontalLineTo(13.5556f)
+            curveTo(14.1631f, 5.1861f, 14.6567f, 5.6742f, 14.6666f, 6.2801f)
+            lineTo(14.6667f, 6.2985f)
+            verticalLineTo(7.55f)
+            curveTo(14.6667f, 8.1582f, 14.1791f, 8.6524f, 13.574f, 8.6622f)
+            lineTo(13.5556f, 8.6624f)
+            horizontalLineTo(13.1975f)
+            lineTo(14.0375f, 13.9812f)
+            curveTo(14.1324f, 14.582f, 13.7279f, 15.1464f, 13.1317f, 15.2507f)
+            lineTo(13.1135f, 15.2537f)
+            curveTo(13.0619f, 15.2619f, 13.0097f, 15.2664f, 12.9575f, 15.2673f)
+            lineTo(12.94f, 15.2674f)
+            horizontalLineTo(3.0601f)
+            curveTo(2.4464f, 15.2674f, 1.949f, 14.7693f, 1.949f, 14.155f)
+            curveTo(1.949f, 14.1026f, 1.9526f, 14.0503f, 1.96f, 13.9985f)
+            lineTo(1.9626f, 13.9812f)
+            lineTo(2.8025f, 8.6624f)
+            horizontalLineTo(2.4445f)
+            curveTo(1.837f, 8.6624f, 1.3433f, 8.1743f, 1.3335f, 7.5683f)
+            lineTo(1.3334f, 7.5499f)
+            verticalLineTo(6.2985f)
+            curveTo(1.3334f, 5.6903f, 1.8209f, 5.196f, 2.4261f, 5.1862f)
+            lineTo(2.4445f, 5.1861f)
+            horizontalLineTo(5.9514f)
+            verticalLineTo(2.5962f)
+            curveTo(5.9514f, 1.4748f, 6.8504f, 0.5636f, 7.9662f, 0.5454f)
+            lineTo(8f, 0.5452f)
             close()
-            moveTo(9.9867f, 16.6871f)
-            lineTo(13.5473f, 13.1256f)
-            lineTo(6.846f, 6.4252f)
-            curveTo(6.6697f, 6.2492f, 6.5299f, 6.0401f, 6.4345f, 5.81f)
-            curveTo(6.3392f, 5.5799f, 6.2901f, 5.3333f, 6.2901f, 5.0842f)
-            curveTo(6.2901f, 4.8351f, 6.3392f, 4.5884f, 6.4345f, 4.3583f)
-            curveTo(6.5299f, 4.1282f, 6.6697f, 3.9192f, 6.846f, 3.7431f)
-            lineTo(8.6466f, 1.9434f)
-            curveTo(9.3575f, 1.2327f, 10.3216f, 0.8335f, 11.3268f, 0.8335f)
-            curveTo(12.332f, 0.8335f, 13.2961f, 1.2327f, 14.0069f, 1.9434f)
-            lineTo(18.0291f, 5.9646f)
-            curveTo(18.3811f, 6.3166f, 18.6604f, 6.7345f, 18.8509f, 7.1945f)
-            curveTo(19.0414f, 7.6544f, 19.1395f, 8.1474f, 19.1395f, 8.6452f)
-            curveTo(19.1395f, 9.1431f, 19.0414f, 9.636f, 18.8509f, 10.096f)
-            curveTo(18.6604f, 10.5559f, 18.3811f, 10.9738f, 18.0291f, 11.3259f)
-            lineTo(12.084f, 17.27f)
-            horizontalLineTo(18.2186f)
-            curveTo(18.3431f, 17.27f, 18.4663f, 17.2945f, 18.5813f, 17.3421f)
-            curveTo(18.6963f, 17.3897f, 18.8008f, 17.4595f, 18.8888f, 17.5475f)
-            curveTo(18.9768f, 17.6356f, 19.0466f, 17.74f, 19.0942f, 17.855f)
-            curveTo(19.1418f, 17.97f, 19.1663f, 18.0932f, 19.1663f, 18.2177f)
-            curveTo(19.1663f, 18.3421f, 19.1418f, 18.4654f, 19.0942f, 18.5804f)
-            curveTo(19.0466f, 18.6953f, 18.9768f, 18.7998f, 18.8888f, 18.8878f)
-            curveTo(18.8008f, 18.9758f, 18.6963f, 19.0456f, 18.5813f, 19.0933f)
-            curveTo(18.4663f, 19.1409f, 18.3431f, 19.1654f, 18.2186f, 19.1654f)
-            horizontalLineTo(9.6891f)
-            curveTo(9.5545f, 19.1655f, 9.4213f, 19.1367f, 9.2987f, 19.0811f)
-            curveTo(8.6992f, 19.1865f, 8.0832f, 19.1458f, 7.5028f, 18.9625f)
-            curveTo(6.9224f, 18.7792f, 6.3948f, 18.4587f, 5.9646f, 18.0281f)
-            lineTo(1.9434f, 14.007f)
-            curveTo(1.5914f, 13.6549f, 1.3121f, 13.237f, 1.1216f, 12.7771f)
-            curveTo(0.9311f, 12.3171f, 0.833f, 11.8242f, 0.833f, 11.3263f)
-            curveTo(0.833f, 10.8285f, 0.9311f, 10.3355f, 1.1216f, 9.8756f)
-            curveTo(1.3121f, 9.4156f, 1.5914f, 8.9977f, 1.9434f, 8.6457f)
-            lineTo(4.1649f, 6.4252f)
-            curveTo(4.3427f, 6.2475f, 4.5838f, 6.1477f, 4.8352f, 6.1478f)
-            curveTo(5.0866f, 6.1479f, 5.3277f, 6.2478f, 5.5054f, 6.4257f)
-            curveTo(5.6831f, 6.6035f, 5.7829f, 6.8446f, 5.7828f, 7.096f)
-            curveTo(5.7827f, 7.3474f, 5.6828f, 7.5885f, 5.5049f, 7.7662f)
-            lineTo(3.2844f, 9.9867f)
-            curveTo(2.9291f, 10.3422f, 2.7295f, 10.8242f, 2.7295f, 11.3268f)
-            curveTo(2.7295f, 11.8294f, 2.9291f, 12.3114f, 3.2844f, 12.6669f)
-            lineTo(7.3047f, 16.6881f)
-            curveTo(7.4807f, 16.8642f, 7.6897f, 17.0038f, 7.9197f, 17.0991f)
-            curveTo(8.1497f, 17.1944f, 8.3962f, 17.2435f, 8.6452f, 17.2435f)
-            curveTo(8.8942f, 17.2435f, 9.1407f, 17.1944f, 9.3707f, 17.0991f)
-            curveTo(9.6008f, 17.0038f, 9.8098f, 16.8642f, 9.9858f, 16.6881f)
-            lineTo(9.9867f, 16.6871f)
+            moveTo(12.0726f, 8.6624f)
+            horizontalLineTo(3.9275f)
+            lineTo(3.0601f, 14.155f)
+            horizontalLineTo(5.0939f)
+            lineTo(5.5908f, 11.0141f)
+            curveTo(5.6447f, 10.6733f, 5.9647f, 10.4407f, 6.3056f, 10.4946f)
+            curveTo(6.6467f, 10.5487f, 6.8794f, 10.8689f, 6.8254f, 11.2099f)
+            lineTo(6.3595f, 14.155f)
+            horizontalLineTo(12.94f)
+            lineTo(12.0726f, 8.6624f)
+            close()
+            moveTo(5.9514f, 6.2985f)
+            horizontalLineTo(2.4445f)
+            verticalLineTo(7.55f)
+            horizontalLineTo(13.5556f)
+            verticalLineTo(6.2985f)
+            lineTo(10.0487f, 6.2985f)
+            verticalLineTo(6.3158f)
+            horizontalLineTo(5.9514f)
+            verticalLineTo(6.2985f)
+            close()
+            moveTo(8f, 1.6576f)
+            curveTo(7.4875f, 1.6576f, 7.0709f, 2.0695f, 7.0627f, 2.5807f)
+            lineTo(7.0625f, 2.5962f)
+            verticalLineTo(5.1861f)
+            horizontalLineTo(8.9375f)
+            verticalLineTo(2.5962f)
+            curveTo(8.9375f, 2.0881f, 8.5344f, 1.6744f, 8.0308f, 1.6581f)
+            lineTo(8.0155f, 1.6577f)
+            lineTo(8f, 1.6576f)
             close()
         }
     }.build()
