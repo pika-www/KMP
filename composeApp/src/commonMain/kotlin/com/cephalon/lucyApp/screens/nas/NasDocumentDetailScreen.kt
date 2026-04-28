@@ -78,9 +78,9 @@ internal fun NasDocumentDetailScreen(
     val swipeEdgeWidth = 28.dp
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
-    val backgroundColor = if (isChatMode) Color.White else Color.Black
-    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
-    val headerColor = if (isChatMode) Color.White else Color.Black
+    val backgroundColor = Color(0xFFFAFAFC)
+    val foregroundColor = Color(0xFF111111)
+    val headerColor = Color(0xFFFAFAFC)
 
     var showMenu by remember { mutableStateOf(false) }
     var localFilePath by remember(document.id) { mutableStateOf<String?>(null) }
@@ -135,7 +135,7 @@ internal fun NasDocumentDetailScreen(
                     .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(12.dp)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DocDetailGlassCircleButton(size = ds.sm(36.dp), isLight = isChatMode, onClick = onBack) {
+                DocDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onBack) {
                     Icon(
                         imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "返回",
@@ -152,8 +152,8 @@ internal fun NasDocumentDetailScreen(
                         .weight(1f)
                         .padding(horizontal = ds.sm(10.dp)),
                     shape = RoundedCornerShape(999.dp),
-                    color = if (isChatMode) Color(0xFFF5F5F7) else Color(0x1AFFFFFF),
-                    border = BorderStroke(1.dp, if (isChatMode) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE6E6E6))
                 ) {
                     Text(
                         text = buildString {
@@ -185,11 +185,11 @@ internal fun NasDocumentDetailScreen(
                     }
                 } else {
                     Box {
-                        DocDetailGlassCircleButton(size = ds.sm(36.dp), onClick = { showMenu = true }) {
+                        DocDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "更多",
-                                tint = Color.White,
+                                tint = foregroundColor,
                                 modifier = Modifier.size(ds.sm(16.dp))
                             )
                         }
@@ -328,11 +328,11 @@ internal fun NasDocumentDetailScreen(
                     .navigationBarsPadding()
                     .padding(end = ds.sm(16.dp), bottom = ds.sm(20.dp))
             ) {
-                DocDetailGlassCircleButton(size = ds.sm(44.dp), onClick = {}) {
+                DocDetailGlassCircleButton(size = ds.sm(44.dp), isLight = true, onClick = {}) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "搜索",
-                        tint = Color.White,
+                        tint = foregroundColor,
                         modifier = Modifier.size(ds.sm(20.dp))
                     )
                 }

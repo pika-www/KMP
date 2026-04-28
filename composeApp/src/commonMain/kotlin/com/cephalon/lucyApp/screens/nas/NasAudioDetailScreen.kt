@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp.screens.nas
 
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_big_audio
 import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_share
@@ -35,7 +36,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -107,8 +107,10 @@ internal fun NasAudioDetailScreen(
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
-    val backgroundColor = if (isChatMode) Color.White else Color.Black
-    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
+    val backgroundColor = Color(0xFFFAFAFC)
+    val foregroundColor = Color(0xFF111111)
+    val selectedTabColor = Color(0xFF000000)
+    val unselectedTabColor = Color(0xE6000000)
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
@@ -219,7 +221,7 @@ internal fun NasAudioDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = isChatMode, onClick = onBack) {
+                AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onBack) {
                     Icon(
                         imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "返回",
@@ -236,19 +238,21 @@ internal fun NasAudioDetailScreen(
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xFF1C1C1E))
-                            .padding(ds.sm(4.dp))
+                            .background(Color.White)
+                            .padding(ds.sm(2.dp))
                     ) {
                         listOf("音频", "文稿").forEachIndexed { index, title ->
                             Box(
                                 modifier = Modifier
+                                    .widthIn(min = ds.sm(80.dp))
+                                    .height(ds.sm(28.dp))
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(
-                                        if (selectedTab == index) Color(0xFF3A3A3C)
+                                        if (selectedTab == index) selectedTabColor
                                         else Color.Transparent
                                     )
                                     .clickable { selectedTab = index }
-                                    .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(8.dp)),
+                                    .padding(horizontal = ds.sm(20.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -257,7 +261,7 @@ internal fun NasAudioDetailScreen(
                                         fontSize = ds.sp(14f),
                                         fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
                                     ),
-                                    color = foregroundColor
+                                    color = if (selectedTab == index) Color.White else unselectedTabColor
                                 )
                             }
                         }
@@ -278,11 +282,11 @@ internal fun NasAudioDetailScreen(
                     }
                 } else {
                     Box {
-                        AudioDetailGlassCircleButton(size = ds.sm(36.dp), onClick = { showMenu = true }) {
+                        AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "更多",
-                                tint = Color.White,
+                                tint = foregroundColor,
                                 modifier = Modifier.size(ds.sm(16.dp))
                             )
                         }
@@ -399,6 +403,7 @@ internal fun NasAudioDetailScreen(
                     )
                     1 -> TranscriptContent(
                         transcript = transcriptMarkdown,
+                        textColor = foregroundColor,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -456,10 +461,10 @@ private fun AudioPlayerContent(
                 }
                 else -> {
                     Icon(
-                        imageVector = Icons.Default.Audiotrack,
+                        painter = painterResource(Res.drawable.ic_big_audio),
                         contentDescription = null,
-                        modifier = Modifier.size(ds.sm(120.dp)),
-                        tint = foregroundColor.copy(alpha = 0.15f)
+                        modifier = Modifier.size(ds.sm(190.dp)),
+                        tint = Color.Unspecified
                     )
                 }
             }
@@ -646,10 +651,10 @@ private fun AudioProgressBar(
 private fun TranscriptContent
             (
     transcript: String?,
+    textColor: Color = Color(0xFF111111),
     modifier: Modifier = Modifier
 ) {
     val ds = LocalDesignScale.current
-    val textColor = Color.White
     if (transcript.isNullOrBlank()) {
         Box(
             modifier = modifier

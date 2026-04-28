@@ -15,20 +15,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -227,17 +230,6 @@ fun NasScreen(
     val searchLoadingMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val refreshIndicatorMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
     val searchRefreshIndicatorMap = remember { mutableStateMapOf<NasCategory, Boolean>() }
-    val activeTasks = uploadTasks.filter {
-        it.status == NasUploadTaskStatus.Uploading ||
-            it.status == NasUploadTaskStatus.Downloading ||
-            it.status == NasUploadTaskStatus.Deleting ||
-            it.status == NasUploadTaskStatus.Registering ||
-            it.status == NasUploadTaskStatus.Saving ||
-            it.status == NasUploadTaskStatus.Waiting
-    }
-    val activeTaskCount = activeTasks.size
-    val activeUploadCount = activeTasks.count { it.direction == NasTaskDirection.Upload }
-    val activeDownloadCount = activeTasks.count { it.direction == NasTaskDirection.Download }
     val targetCdi = selectedDeviceCdi ?: onlineDeviceCdis.firstOrNull() ?: ""
     val mediaController = rememberPlatformMediaAccessController(
         onEvent = { message -> println("NAS Media Event: $message") }
@@ -267,13 +259,16 @@ fun NasScreen(
     var pendingImeScroll by remember { mutableStateOf(false) }
     var hasBeenVisible by remember { mutableStateOf(false) }
     var visibilityRefreshTick by remember { mutableIntStateOf(0) }
-    val selectionActionTextStyle = remember(ds) {
+    val topSelectionActionTextStyle = remember(ds) {
         TextStyle(
-            fontSize = ds.sp(18f),
+            fontSize = ds.sp(16f),
             fontStyle = FontStyle.Normal,
             fontWeight = FontWeight.W600,
             lineHeight = TextUnit(0f, TextUnitType.Unspecified)
         )
+    }
+    val topSelectionActionPadding = remember(ds) {
+        PaddingValues(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp))
     }
     val searchActive = isSearchMode && debouncedSearchQuery.isNotBlank()
     val imageItems = remember(nasCacheMap["image"], searchCacheMap["image"], searchActive) {
@@ -1056,6 +1051,7 @@ fun NasScreen(
         }
     )
     val currentCategoryFooter: @Composable (() -> Unit) = {
+        val footerTextColor = Color(0xB3000000)
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1064,13 +1060,13 @@ fun NasScreen(
             if (currentCategoryLoading) {
                 Text(
                     text = "加载中...",
-                    style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
+                    style = TextStyle(color = footerTextColor, fontSize = ds.sp(13f))
                 )
             }
             if (!currentCategoryLoading && currentCategoryError != null) {
                 Text(
                     text = currentCategoryError,
-                    style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
+                    style = TextStyle(color = footerTextColor, fontSize = ds.sp(13f))
                 )
                 NasGlassTextButton(
                     text = if (searchActive) "重新搜索" else if (nasCacheMap[selectedCategory.toNasListKind()]?.hasLoaded == true) "重新加载" else "重试",
@@ -1086,17 +1082,18 @@ fun NasScreen(
             } else if (!currentCategoryLoading && currentCategoryLoadingMore) {
                 Text(
                     text = "加载中...",
-                    style = TextStyle(color = Color.White.copy(alpha = 0.72f), fontSize = ds.sp(13f))
+                    style = TextStyle(color = footerTextColor, fontSize = ds.sp(13f))
                 )
             }
         }
     }
 
-    Scaffold(containerColor = Color.Black) { padding ->
+    Scaffold(containerColor = Color(0xFFFAFAFC)) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // .background(Color(0xFFFAFAFC))
                 .imePadding()
                 .pointerInput(::handleNasBack, swipeStartEdgePx, swipeBackThresholdPx) {
                     awaitEachGesture {
@@ -1135,7 +1132,7 @@ fun NasScreen(
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (isSearchMode) {
-                        Spacer(modifier = Modifier.height(ds.sm(if (activeTaskCount > 0) 108.dp else 72.dp)))
+                        Spacer(modifier = Modifier.height(ds.sm(72.dp)))
                         Text(
                             text = if (isSearchSelectionMode) {
                                 "最近搜索"
@@ -1143,14 +1140,12 @@ fun NasScreen(
                                 "正在寻找关于“${searchQuery.ifBlank { "" }}”的${selectedCategory.title}"
                             },
                             style = TextStyle(
-                                color = Color.White,
+                                color = Color(0xE6000000),
                                 fontSize = ds.sp(16f),
                                 fontWeight = FontWeight.SemiBold
                             )
                         )
                         Spacer(modifier = Modifier.height(ds.sm(8.dp)))
-                    } else if (activeTaskCount > 0) {
-                        Spacer(modifier = Modifier.height(ds.sm(44.dp)))
                     }
 
                     PullToRefreshBox(
@@ -1191,7 +1186,7 @@ fun NasScreen(
                                 bottomPadding = contentBottomPadding,
                                 scrollState = audioScrollState,
                                 selectionMode = isAudioSelectionMode,
-                                selectedAudioIds = selectedAudioIds,
+                                selectedAudioIds = selectedAudioIds,    
                                 onAudioClick = { audio -> selectedAudio = audio },
                                 onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) },
                                 emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无音频",
@@ -1227,46 +1222,75 @@ fun NasScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            NasGlassTextButton(
-                                text = "全选",
-                                onClick = {
-                                    when (selectedCategory) {
-                                        NasCategory.Photos -> {
-                                            if (selectedPhotoIds.size == allPhotoIds.size) {
-                                                selectedPhotoIds.clear()
-                                            } else {
-                                                selectedPhotoIds.clear()
-                                                selectedPhotoIds.addAll(allPhotoIds)
-                                            }
+                            if (selectedCategory == NasCategory.Photos) {
+                                NasLightPillButton(
+                                    text = "全选",
+                                    onClick = {
+                                        if (selectedPhotoIds.size == allPhotoIds.size) {
+                                            selectedPhotoIds.clear()
+                                        } else {
+                                            selectedPhotoIds.clear()
+                                            selectedPhotoIds.addAll(allPhotoIds)
                                         }
-                                        NasCategory.Recordings -> {
-                                            if (selectedAudioIds.size == allAudioIds.size) {
-                                                selectedAudioIds.clear()
-                                            } else {
-                                                selectedAudioIds.clear()
-                                                selectedAudioIds.addAll(allAudioIds)
+                                    },
+                                    textStyle = TextStyle(
+                                        fontSize = ds.sp(18f),
+                                        fontStyle = FontStyle.Normal,
+                                        fontWeight = FontWeight.W600,
+                                        lineHeight = TextUnit(0f, TextUnitType.Unspecified)
+                                    )
+                                )
+                                NasBottomQuickActionIconButton(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "关闭选择",
+                                    onClick = {
+                                        isSearchSelectionMode = false
+                                        exitAllSelectionModes()
+                                    },
+                                    modifier = Modifier.size(ds.sm(40.dp))
+                                )
+                            } else {
+                                NasGlassTextButton(
+                                    text = "全选",
+                                    onClick = {
+                                        when (selectedCategory) {
+                                            NasCategory.Photos -> {
+                                                if (selectedPhotoIds.size == allPhotoIds.size) {
+                                                    selectedPhotoIds.clear()
+                                                } else {
+                                                    selectedPhotoIds.clear()
+                                                    selectedPhotoIds.addAll(allPhotoIds)
+                                                }
                                             }
-                                        }
-                                        NasCategory.Documents -> {
-                                            if (selectedDocumentIds.size == allDocumentIds.size) {
-                                                selectedDocumentIds.clear()
-                                            } else {
-                                                selectedDocumentIds.clear()
-                                                selectedDocumentIds.addAll(allDocumentIds)
+                                            NasCategory.Recordings -> {
+                                                if (selectedAudioIds.size == allAudioIds.size) {
+                                                    selectedAudioIds.clear()
+                                                } else {
+                                                    selectedAudioIds.clear()
+                                                    selectedAudioIds.addAll(allAudioIds)
+                                                }
+                                            }
+                                            NasCategory.Documents -> {
+                                                if (selectedDocumentIds.size == allDocumentIds.size) {
+                                                    selectedDocumentIds.clear()
+                                                } else {
+                                                    selectedDocumentIds.clear()
+                                                    selectedDocumentIds.addAll(allDocumentIds)
+                                                }
                                             }
                                         }
                                     }
-                                }
-                            )
-                            NasGlassCircleButton(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "关闭选择",
-                                onClick = {
-                                    isSearchSelectionMode = false
-                                    exitAllSelectionModes()
-                                },
-                                modifier = Modifier.size(ds.sm(44.dp))
-                            )
+                                )
+                                NasGlassCircleButton(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "关闭选择",
+                                    onClick = {
+                                        isSearchSelectionMode = false
+                                        exitAllSelectionModes()
+                                    },
+                                    modifier = Modifier.size(ds.sm(44.dp))
+                                )
+                            }
                         }
                     } else {
                         Row(
@@ -1275,38 +1299,57 @@ fun NasScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Spacer(modifier = Modifier.width(ds.sm(44.dp)))
-                            NasGlassTextButton(
-                                text = "选择",
-                                onClick = {
-                                    isSearchSelectionMode = true
-                                    when (selectedCategory) {
-                                        NasCategory.Photos -> {
-                                            exitAllSelectionModes()
-                                            isPhotoSelectionMode = true
-                                            selectedPhotoIds.clear()
-                                        }
-                                        NasCategory.Recordings -> {
-                                            exitAllSelectionModes()
-                                            isAudioSelectionMode = true
-                                            selectedAudioIds.clear()
-                                        }
-                                        NasCategory.Documents -> {
-                                            exitAllSelectionModes()
-                                            isDocumentSelectionMode = true
-                                            selectedDocumentIds.clear()
+                            if (selectedCategory == NasCategory.Photos) {
+                                NasLightPillButton(
+                                    text = "选择",
+                                    onClick = {
+                                        isSearchSelectionMode = true
+                                        exitAllSelectionModes()
+                                        isPhotoSelectionMode = true
+                                        selectedPhotoIds.clear()
+                                    },
+                                    modifier = Modifier.width(ds.sw(140.dp)),
+                                    textStyle = TextStyle(
+                                        fontSize = ds.sp(18f),
+                                        fontStyle = FontStyle.Normal,
+                                        fontWeight = FontWeight.W600,
+                                        lineHeight = TextUnit(0f, TextUnitType.Unspecified)
+                                    )
+                                )
+                            } else {
+                                NasGlassTextButton(
+                                    text = "选择",
+                                    onClick = {
+                                        isSearchSelectionMode = true
+                                        when (selectedCategory) {
+                                            NasCategory.Photos -> {
+                                                exitAllSelectionModes()
+                                                isPhotoSelectionMode = true
+                                                selectedPhotoIds.clear()
+                                            }
+                                            NasCategory.Recordings -> {
+                                                exitAllSelectionModes()
+                                                isAudioSelectionMode = true
+                                                selectedAudioIds.clear()
+                                            }
+                                            NasCategory.Documents -> {
+                                                exitAllSelectionModes()
+                                                isDocumentSelectionMode = true
+                                                selectedDocumentIds.clear()
+                                            }
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 } else if (isCurrentSelectionMode) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        NasGlassTextButton(
+                        NasLightPillButton(
                             text = "发送脑花",
                             onClick = {
                                 val items = when (selectedCategory) {
@@ -1353,9 +1396,13 @@ fun NasScreen(
                                     onBack()
                                 }
                             },
-                            icon = Res.drawable.ic_share
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(ds.sh(40.dp)),
+                            textStyle = topSelectionActionTextStyle,
+                            contentPadding = topSelectionActionPadding
                         )
-                        NasGlassTextButton(
+                        NasLightPillButton(
                             text = "下载",
                             onClick = {
                                 val downloadItems: List<Triple<Long?, String, String>> = when (selectedCategory) {
@@ -1377,13 +1424,21 @@ fun NasScreen(
                                     exitAllSelectionModes()
                                 }
                             },
-                            icon = Res.drawable.ic_download
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(ds.sh(40.dp)),
+                            textStyle = topSelectionActionTextStyle,
+                            contentPadding = topSelectionActionPadding
                         )
-                        Box {
-                            NasGlassTextButton(
+                        Box(modifier = Modifier.weight(1f)) {
+                            NasLightPillButton(
                                 text = "删除",
                                 onClick = { showDeleteConfirm = true },
-                                icon = Res.drawable.ic_delete
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(ds.sh(40.dp)),
+                                textStyle = topSelectionActionTextStyle,
+                                contentPadding = topSelectionActionPadding
                             )
                             if (showDeleteConfirm) {
                                 val count = when (selectedCategory) {
@@ -1432,14 +1487,6 @@ fun NasScreen(
                                 if (isVisible && targetCdi.isNotBlank()) {
                                     requestNasList(it, loadMore = false)
                                 }
-                            },
-                            trailingContent = {
-                                if (taskProgressSummary != null) {
-                                    NasUploadProgressEntry(
-                                        summary = taskProgressSummary,
-                                        onClick = { NasUploadTaskStore.showDialog = true }
-                                    )
-                                }
                             }
                         )
                     }
@@ -1450,23 +1497,31 @@ fun NasScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomStart)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 16.dp)
-                    .navigationBarsPadding()
-                    .imePadding()
+                    .then(
+                        if (isSearchMode || isCurrentSelectionMode) {
+                            Modifier
+                                .padding(bottom = 16.dp)
+                                .navigationBarsPadding()
+                                .imePadding()
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 if (isSearchMode) {
                     if (isSearchSelectionMode) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            NasGlassTextButton(
-                                text = "发送脑花",
-                                onClick = {
-                                    val items = when (selectedCategory) {
-                                        NasCategory.Photos -> imageItems
+                            if (selectedCategory == NasCategory.Photos) {
+                                NasLightPillButton(
+                                    text = "发送脑花",
+                                    onClick = {
+                                        val items = imageItems
                                             .filter { it.id in selectedPhotoIds && it.fileId != null }
                                             .map {
                                                 NasSendItem(
@@ -1478,112 +1533,192 @@ fun NasScreen(
                                                     format = it.format,
                                                 )
                                             }
-                                        NasCategory.Recordings -> audioItems
-                                            .filter { it.id in selectedAudioIds && it.fileId != null }
-                                            .map {
-                                                NasSendItem(
-                                                    fileId = it.fileId!!,
-                                                    fileName = it.name,
-                                                    fileType = NasSendFileType.Audio,
-                                                    previewBlobRef = it.path,
-                                                    sizeKB = it.sizeKB,
-                                                    format = it.format,
-                                                )
-                                            }
-                                        NasCategory.Documents -> documentItems
-                                            .filter { it.id in selectedDocumentIds && it.fileId != null }
-                                            .map {
-                                                NasSendItem(
-                                                    fileId = it.fileId!!,
-                                                    fileName = it.name,
-                                                    fileType = NasSendFileType.Document,
-                                                    previewBlobRef = it.path,
-                                                    sizeKB = it.sizeKB,
-                                                    format = it.format,
-                                                )
-                                            }
-                                    }
-                                    if (items.isNotEmpty()) {
-                                        NasSendToChatStore.submit(items)
-                                        exitAllSelectionModes()
-                                        isSearchSelectionMode = false
-                                        isSearchMode = false
-                                        searchQuery = ""
-                                        debouncedSearchQuery = ""
-                                        clearNasSearchState()
-                                        onBack()
-                                    }
-                                },
-                                modifier = Modifier.width(140.dp)
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                NasGlassCircleButton(
-                                    imageVector = Icons.Outlined.FileDownload,
-                                    contentDescription = "下载",
-                                    onClick = {
-                                        val downloadItems: List<Triple<Long?, String, String>> = when (selectedCategory) {
-                                            NasCategory.Photos -> {
-                                                imageItems.filter { it.id in selectedPhotoIds }
-                                                    .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
-                                            }
-                                            NasCategory.Recordings -> {
-                                                audioItems.filter { it.id in selectedAudioIds }
-                                                    .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
-                                            }
-                                            NasCategory.Documents -> {
-                                        documentItems.filter { it.id in selectedDocumentIds }
-                                                    .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
-                                            }
-                                        }
-                                        if (downloadItems.isNotEmpty()) {
-                                            downloadNasFiles(downloadItems)
+                                        if (items.isNotEmpty()) {
+                                            NasSendToChatStore.submit(items)
                                             exitAllSelectionModes()
                                             isSearchSelectionMode = false
+                                            isSearchMode = false
+                                            searchQuery = ""
+                                            debouncedSearchQuery = ""
+                                            clearNasSearchState()
+                                            onBack()
                                         }
                                     },
-                                    modifier = Modifier.size(44.dp)
-                                )
-                                Box {
-                                    NasGlassCircleButton(
-                                        imageVector = Icons.Outlined.Delete,
-                                        contentDescription = "删除",
-                                        onClick = { showDeleteConfirm = true },
-                                        modifier = Modifier.size(44.dp)
+                                    modifier = Modifier.width(140.dp),
+                                    textStyle = TextStyle(
+                                        fontSize = ds.sp(18f),
+                                        fontStyle = FontStyle.Normal,
+                                        fontWeight = FontWeight.W600,
+                                        lineHeight = TextUnit(0f, TextUnitType.Unspecified)
                                     )
-                                    if (showDeleteConfirm) {
-                                        val count = when (selectedCategory) {
-                                            NasCategory.Photos -> selectedPhotoIds.size
-                                            NasCategory.Recordings -> selectedAudioIds.size
-                                            NasCategory.Documents -> selectedDocumentIds.size
-                                        }
-                                        val categoryName = when (selectedCategory) {
-                                            NasCategory.Photos -> "张照片"
-                                            NasCategory.Recordings -> "个音频"
-                                            NasCategory.Documents -> "个文档"
-                                        }
-                                        NasDeleteConfirmPopup(
-                                            count = count,
-                                            categoryName = categoryName,
-                                            onConfirm = {
-                                                showDeleteConfirm = false
-                                                val fileIds = when (selectedCategory) {
-                                                    NasCategory.Photos -> imageItems.filter { it.id in selectedPhotoIds }.map { it.fileId }
-                                                    NasCategory.Recordings -> audioItems.filter { it.id in selectedAudioIds }.map { it.fileId }
-                                                    NasCategory.Documents -> documentItems.filter { it.id in selectedDocumentIds }.map { it.fileId }
-                                                }
-                                                deleteNasFiles(fileIds, selectedCategory)
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    NasBottomQuickActionIconButton(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = "下载",
+                                        onClick = {
+                                            val downloadItems = imageItems
+                                                .filter { it.id in selectedPhotoIds }
+                                                .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                            if (downloadItems.isNotEmpty()) {
+                                                downloadNasFiles(downloadItems)
                                                 exitAllSelectionModes()
                                                 isSearchSelectionMode = false
-                                            },
-                                            onDismiss = { showDeleteConfirm = false }
+                                            }
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    )
+                                    Box {
+                                        NasBottomQuickActionIconButton(
+                                            imageVector = Icons.Outlined.Delete,
+                                            contentDescription = "删除",
+                                            onClick = { showDeleteConfirm = true },
+                                            modifier = Modifier.size(40.dp)
                                         )
+                                        if (showDeleteConfirm) {
+                                            val count = selectedPhotoIds.size
+                                            val categoryName = "张照片"
+                                            NasDeleteConfirmPopup(
+                                                count = count,
+                                                categoryName = categoryName,
+                                                onConfirm = {
+                                                    showDeleteConfirm = false
+                                                    val fileIds = imageItems.filter { it.id in selectedPhotoIds }.map { it.fileId }
+                                                    deleteNasFiles(fileIds, selectedCategory)
+                                                    exitAllSelectionModes()
+                                                    isSearchSelectionMode = false
+                                                },
+                                                onDismiss = { showDeleteConfirm = false }
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                NasGlassTextButton(
+                                    text = "发送脑花",
+                                    onClick = {
+                                        val items = when (selectedCategory) {
+                                            NasCategory.Photos -> imageItems
+                                                .filter { it.id in selectedPhotoIds && it.fileId != null }
+                                                .map {
+                                                    NasSendItem(
+                                                        fileId = it.fileId!!,
+                                                        fileName = it.name,
+                                                        fileType = NasSendFileType.Image,
+                                                        previewBlobRef = it.path,
+                                                        sizeKB = it.sizeKB,
+                                                        format = it.format,
+                                                    )
+                                                }
+                                            NasCategory.Recordings -> audioItems
+                                                .filter { it.id in selectedAudioIds && it.fileId != null }
+                                                .map {
+                                                    NasSendItem(
+                                                        fileId = it.fileId!!,
+                                                        fileName = it.name,
+                                                        fileType = NasSendFileType.Audio,
+                                                        previewBlobRef = it.path,
+                                                        sizeKB = it.sizeKB,
+                                                        format = it.format,
+                                                    )
+                                                }
+                                            NasCategory.Documents -> documentItems
+                                                .filter { it.id in selectedDocumentIds && it.fileId != null }
+                                                .map {
+                                                    NasSendItem(
+                                                        fileId = it.fileId!!,
+                                                        fileName = it.name,
+                                                        fileType = NasSendFileType.Document,
+                                                        previewBlobRef = it.path,
+                                                        sizeKB = it.sizeKB,
+                                                        format = it.format,
+                                                    )
+                                                }
+                                        }
+                                        if (items.isNotEmpty()) {
+                                            NasSendToChatStore.submit(items)
+                                            exitAllSelectionModes()
+                                            isSearchSelectionMode = false
+                                            isSearchMode = false
+                                            searchQuery = ""
+                                            debouncedSearchQuery = ""
+                                            clearNasSearchState()
+                                            onBack()
+                                        }
+                                    },
+                                    modifier = Modifier.width(140.dp)
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    NasGlassCircleButton(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = "下载",
+                                        onClick = {
+                                            val downloadItems: List<Triple<Long?, String, String>> = when (selectedCategory) {
+                                                NasCategory.Photos -> {
+                                                    imageItems.filter { it.id in selectedPhotoIds }
+                                                        .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                                }
+                                                NasCategory.Recordings -> {
+                                                    audioItems.filter { it.id in selectedAudioIds }
+                                                        .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                                }
+                                                NasCategory.Documents -> {
+                                            documentItems.filter { it.id in selectedDocumentIds }
+                                                        .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
+                                                }
+                                            }
+                                            if (downloadItems.isNotEmpty()) {
+                                                downloadNasFiles(downloadItems)
+                                                exitAllSelectionModes()
+                                                isSearchSelectionMode = false
+                                            }
+                                        },
+                                        modifier = Modifier.size(44.dp)
+                                    )
+                                    Box {
+                                        NasGlassCircleButton(
+                                            imageVector = Icons.Outlined.Delete,
+                                            contentDescription = "删除",
+                                            onClick = { showDeleteConfirm = true },
+                                            modifier = Modifier.size(44.dp)
+                                        )
+                                        if (showDeleteConfirm) {
+                                            val count = when (selectedCategory) {
+                                                NasCategory.Photos -> selectedPhotoIds.size
+                                                NasCategory.Recordings -> selectedAudioIds.size
+                                                NasCategory.Documents -> selectedDocumentIds.size
+                                            }
+                                            val categoryName = when (selectedCategory) {
+                                                NasCategory.Photos -> "张照片"
+                                                NasCategory.Recordings -> "个音频"
+                                                NasCategory.Documents -> "个文档"
+                                            }
+                                            NasDeleteConfirmPopup(
+                                                count = count,
+                                                categoryName = categoryName,
+                                                onConfirm = {
+                                                    showDeleteConfirm = false
+                                                    val fileIds = when (selectedCategory) {
+                                                        NasCategory.Photos -> imageItems.filter { it.id in selectedPhotoIds }.map { it.fileId }
+                                                        NasCategory.Recordings -> audioItems.filter { it.id in selectedAudioIds }.map { it.fileId }
+                                                        NasCategory.Documents -> documentItems.filter { it.id in selectedDocumentIds }.map { it.fileId }
+                                                    }
+                                                    deleteNasFiles(fileIds, selectedCategory)
+                                                    exitAllSelectionModes()
+                                                    isSearchSelectionMode = false
+                                                },
+                                                onDismiss = { showDeleteConfirm = false }
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     } else {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1641,70 +1776,111 @@ fun NasScreen(
                 } else if (isCurrentSelectionMode) {
                     // 选择模式：退出选择 + 占位符平衡布局
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        NasGlassTextButton(
-                            text = "取消选择",
-                            onClick = { exitAllSelectionModes() },
-                            selected = true,
-                            textStyle = selectionActionTextStyle,
-                            modifier = Modifier
-                                .width(ds.sw(140.dp))
-                                .height(ds.sh(48.dp))
-                        )
+                        if (selectedCategory == NasCategory.Photos) {
+                            NasBottomQuickActionTextButton(
+                                text = "取消选择",
+                                onClick = { exitAllSelectionModes() },
+                                modifier = Modifier
+                                    .width(ds.sw(140.dp))
+                                    .height(ds.sh(40.dp))
+                            )
+                        } else {
+                            NasBottomQuickActionTextButton(
+                                text = "取消选择",
+                                onClick = { exitAllSelectionModes() },
+                                modifier = Modifier
+                                    .width(ds.sw(140.dp))
+                                    .height(ds.sh(40.dp))
+                            )
+                        }
                         Spacer(modifier = Modifier.size(width = ds.sw(96.dp), height = ds.sh(44.dp)))
                     }
                 } else {
-                    NasBottomQuickActions(
-                        onSelectionClick = {
-                            when (selectedCategory) {
-                                NasCategory.Photos -> {
-                                    exitAllSelectionModes()
-                                    isPhotoSelectionMode = true
-                                    selectedPhotoIds.clear()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 44.dp)
+                    ) {
+                        NasBottomQuickActions(
+                            onSelectionClick = {
+                                when (selectedCategory) {
+                                    NasCategory.Photos -> {
+                                        exitAllSelectionModes()
+                                        isPhotoSelectionMode = true
+                                        selectedPhotoIds.clear()
+                                    }
+                                    NasCategory.Recordings -> {
+                                        exitAllSelectionModes()
+                                        isAudioSelectionMode = true
+                                        selectedAudioIds.clear()
+                                    }
+                                    NasCategory.Documents -> {
+                                        exitAllSelectionModes()
+                                        isDocumentSelectionMode = true
+                                        selectedDocumentIds.clear()
+                                    }
                                 }
-                                NasCategory.Recordings -> {
-                                    exitAllSelectionModes()
-                                    isAudioSelectionMode = true
-                                    selectedAudioIds.clear()
+                            },
+                            onAddClick = {
+                                lastPickerCategory = selectedCategory
+                                when (selectedCategory) {
+                                    NasCategory.Photos -> mediaController.openGallery()
+                                    NasCategory.Recordings -> mediaController.openAudioPicker()
+                                    NasCategory.Documents -> mediaController.openFilePicker()
                                 }
-                                NasCategory.Documents -> {
-                                    exitAllSelectionModes()
-                                    isDocumentSelectionMode = true
-                                    selectedDocumentIds.clear()
-                                }
+                            },
+                            onSearchClick = {
+                                exitAllSelectionModes()
+                                isSearchMode = true
+                                isSearchSelectionMode = false
                             }
-                        },
-                        onAddClick = {
-                            lastPickerCategory = selectedCategory
-                            when (selectedCategory) {
-                                NasCategory.Photos -> mediaController.openGallery()
-                                NasCategory.Recordings -> mediaController.openAudioPicker()
-                                NasCategory.Documents -> mediaController.openFilePicker()
-                            }
-                        },
-                        onSearchClick = {
-                            exitAllSelectionModes()
-                            isSearchMode = true
-                            isSearchSelectionMode = false
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
-    }
 
-    if (NasUploadTaskStore.showDialog) {
-        NasUploadProgressDialog(
-            tasks = uploadTasks,
-            uploadSummary = taskProgressSummary,
-            onDismiss = {
-                NasUploadTaskStore.showDialog = false
-                NasUploadTaskStore.cleanupFinishedUploadBatches()
+        if (taskProgressSummary != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+            ) {
+                if (NasUploadTaskStore.showDialog) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 116.dp, end = 20.dp)
+                            .fillMaxHeight()
+                            .offset(y = 64.dp),
+                        contentAlignment = Alignment.TopEnd
+                    ) {
+                        NasUploadProgressDialog(
+                            tasks = uploadTasks,
+                            uploadSummary = taskProgressSummary,
+                            onDismiss = {
+                                NasUploadTaskStore.showDialog = false
+                                NasUploadTaskStore.cleanupFinishedUploadBatches()
+                            }
+                        )
+                    }
+                }
+
+                NasUploadProgressEntry(
+                    summary = taskProgressSummary,
+                    onClick = { NasUploadTaskStore.showDialog = !NasUploadTaskStore.showDialog },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 116.dp, end = 20.dp)
+                )
             }
-        )
+        }
     }
 
     AnimatedVisibility(
