@@ -3,7 +3,7 @@ package com.cephalon.lucyApp.di
 import com.cephalon.lucyApp.AppEnvironment
 import com.cephalon.lucyApp.appEnvironment
 import com.cephalon.lucyApp.network.NetworkConfig
-import kotlin.jvm.Volatile
+import kotlin.concurrent.Volatile
 
 object AppConfig {
     val env: AppEnvironment get() = appEnvironment
