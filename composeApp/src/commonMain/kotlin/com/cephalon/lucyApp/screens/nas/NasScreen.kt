@@ -426,6 +426,7 @@ fun NasScreen(
     ) {
         if (loadingMap[category] == true || loadingMoreMap[category] == true) return
         val kind = category.toNasListKind()
+        val pageSize = category.nasPageSize()
         val cachedCursor = nasCacheMap[kind]?.nextCursor
         val cursor = if (loadMore) cachedCursor else null
         if (loadMore && cursor.isNullOrBlank()) return
@@ -443,7 +444,7 @@ fun NasScreen(
                 .listFilesFromNas(
                     targetCdi = targetCdi,
                     kind = kind,
-                    pageSize = NAS_PAGE_SIZE,
+                    pageSize = pageSize,
                     cursor = cursor,
                 )
                 .onSuccess { response ->
@@ -547,12 +548,13 @@ fun NasScreen(
     /** 上传成功后刷新：先拉取新数据，成功后再替换缓存，避免清空造成闪白 */
     fun refreshNasListAfterUpload(category: NasCategory) {
         val kind = category.toNasListKind()
+        val pageSize = category.nasPageSize()
         NasUploadTaskStore.scope.launch {
             sdkSessionManager
                 .listFilesFromNas(
                     targetCdi = targetCdi,
                     kind = kind,
-                    pageSize = NAS_PAGE_SIZE,
+                    pageSize = pageSize,
                     cursor = null,
                 )
                 .onSuccess { response ->
@@ -1040,9 +1042,7 @@ fun NasScreen(
 
         val remainingPx = activeScrollState.maxValue - activeScrollState.value
         val loadMoreThresholdPx = with(density) { 180.dp.roundToPx() }
-        val shouldLoadMore =
-            activeScrollState.maxValue <= 0 ||
-                remainingPx <= loadMoreThresholdPx
+        val shouldLoadMore = remainingPx <= loadMoreThresholdPx
         if (shouldLoadMore) {
             requestNasList(selectedCategory, loadMore = true)
         }
@@ -1906,6 +1906,12 @@ private fun NasCategory.toNasListKind(): String =
         NasCategory.Documents -> "doc"
     }
 
+private fun NasCategory.nasPageSize(): Int =
+    when (this) {
+        NasCategory.Photos -> NAS_PHOTO_PAGE_SIZE
+        NasCategory.Recordings, NasCategory.Documents -> NAS_DEFAULT_PAGE_SIZE
+    }
+
 private fun deriveUploadDisplayName(uri: String, defaultPrefix: String): String {
     val sanitized = uri.substringAfterLast('/').substringBefore('?').substringBefore('#')
     return sanitized.takeIf { it.isNotBlank() } ?: "$defaultPrefix-${currentTimeMillisSafe()}"
@@ -2036,4 +2042,5 @@ private fun String.toMonthLabel(): String {
     }
 }
 
-private const val NAS_PAGE_SIZE = 20
+private const val NAS_PHOTO_PAGE_SIZE = 50
+private const val NAS_DEFAULT_PAGE_SIZE = 20
