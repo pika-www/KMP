@@ -1,5 +1,6 @@
 package com.cephalon.lucyApp.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -14,7 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +74,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
@@ -144,6 +148,7 @@ import com.cephalon.lucyApp.screens.nas.NasDocumentItem
 import com.cephalon.lucyApp.screens.nas.NasImageDetailScreen
 import com.cephalon.lucyApp.screens.nas.NasImageItem
 import com.cephalon.lucyApp.screens.nas.NasScreen
+import androidios.composeapp.generated.resources.ai_npc
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -686,7 +691,7 @@ fun AgentModelScreen(
     var showProfilePage by remember { mutableStateOf(false) }
     var showRechargePage by remember { mutableStateOf(false) }
     var showRechargePackagePage by remember { mutableStateOf(false) }
-    var showNasNotSupportedDialog by remember { mutableStateOf(false) }
+    var showNasUpgradePage by remember { mutableStateOf(false) }
     var showNasScreen by remember { mutableStateOf(false) }
     var taobaoLinkUrl by remember { mutableStateOf<String?>(null) }
     var showSearchPage by remember { mutableStateOf(false) }
@@ -1866,19 +1871,18 @@ fun AgentModelScreen(
                                 focusManager.clearFocus()
                                 attachmentsExpanded = false
                                 previewState = null
-                                if (currentMessages.isNotEmpty()) {
-                                    coroutineScope.launch {
-                                        val cdi = currentCdi
-                                        val device = if (!cdi.isNullOrBlank())
-                                            authRepository.findDeviceByChannelDeviceId(cdi) else null
-                                        if (device?.deviceType == "ai_npc") {
-                                            openNasScreen()
-                                        } else {
-                                            showNasNotSupportedDialog = true
-                                        }
+                                coroutineScope.launch {
+                                    val cdi = currentCdi
+                                    val device = if (!cdi.isNullOrBlank()) {
+                                        authRepository.findDeviceByChannelDeviceId(cdi)
+                                    } else {
+                                        null
                                     }
-                                } else {
-                                    showRechargePage = true
+                                    if (device?.deviceType == "ai_npc") {
+                                        openNasScreen()
+                                    } else {
+                                        showNasUpgradePage = true
+                                    }
                                 }
                             },
                             isDeviceOnline = currentCdi != null && currentCdi in onlineDeviceCdis
@@ -2091,7 +2095,6 @@ fun AgentModelScreen(
                         attachmentsExpanded = attachmentsExpanded,
                         onToggleAttachments = {
                             attachmentsExpanded = !attachmentsExpanded
-                            if (attachmentsExpanded) focusManager.clearFocus()
                         },
                         onOpenCamera = {
                             mediaAccessController.openCamera()
@@ -2136,6 +2139,29 @@ fun AgentModelScreen(
                 }
 
                 AnimatedVisibility(
+                    visible = showNasUpgradePage,
+                    enter = nasEnterSlide,
+                    exit = nasExitSlide,
+                ) {
+                    LaunchedEffect(Unit) {
+                        val links = authRepository.getTaobaoLinks()
+                        taobaoLinkUrl = links?.aiNpc?.takeIf { it.isNotBlank() }
+                    }
+                    NasUpgradePage(
+                        modifier = Modifier.fillMaxSize(),
+                        onBack = { showNasUpgradePage = false },
+                        onBuy = {
+                            val url = taobaoLinkUrl?.takeIf { it.isNotBlank() }
+                            if (url != null) {
+                                uriHandler.openUri(url)
+                            } else {
+                                toastMessage = "购买链接获取失败，请稍后重试"
+                            }
+                        },
+                    )
+                }
+
+                AnimatedVisibility(
                     visible = showRechargePage,
                     enter = fadeIn(animationSpec = tween(durationMillis = 220)),
                     exit = fadeOut(animationSpec = tween(durationMillis = 160)),
@@ -2158,42 +2184,6 @@ fun AgentModelScreen(
                         modifier = Modifier.fillMaxSize(),
                         onBack = { showRechargePackagePage = false },
                     )
-                }
-
-                AnimatedVisibility(
-                    visible = showNasNotSupportedDialog,
-                    enter = fadeIn(animationSpec = tween(200)),
-                    exit = fadeOut(animationSpec = tween(150)),
-                ) {
-                    LaunchedEffect(Unit) {
-                        val links = authRepository.getTaobaoLinks()
-                        taobaoLinkUrl = links?.aiNpc?.takeIf { it.isNotBlank() }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0x66000000))
-                            .clickable(
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }
-                            ) { showNasNotSupportedDialog = false },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AnimatedVisibility(
-                            visible = showNasNotSupportedDialog,
-                            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
-                            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
-                        ) {
-                            NasNotSupportedDialog(
-                                onDismiss = { showNasNotSupportedDialog = false },
-                                onBuy = {
-                                    showNasNotSupportedDialog = false
-                                    val url = taobaoLinkUrl ?: ""
-                                    uriHandler.openUri(url)
-                                }
-                            )
-                        }
-                    }
                 }
 
                 AnimatedVisibility(
@@ -2529,88 +2519,97 @@ private fun LowBalanceReminderDialog(
 }
 
 @Composable
-private fun NasNotSupportedDialog(
-    onDismiss: () -> Unit,
+private fun NasUpgradePage(
+    onBack: () -> Unit,
     onBuy: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
-    Surface(
-        shape = RoundedCornerShape(ds.sm(20.dp)),
-        color = Color.White,
-        shadowElevation = 6.dp,
+    Column(
         modifier = Modifier
-            .fillMaxWidth(0.85f)
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { /* consume click */ }
+            .then(modifier)
+            .background(Color(0xFFFAFAFC))
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(12.dp))
     ) {
         Column(
             modifier = Modifier
+                .weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = ds.sh(4.dp), bottom = ds.sh(16.dp)),
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(ds.sm(28.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(28.dp))
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.05f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                            contentDescription = "Back",
+                            tint = Color.Black.copy(alpha = 0.60f),
+                            modifier = Modifier.size(
+                                width = ds.sw(11.dp),
+                                height = ds.sh(17.dp),
+                            ),
+                        )
+                    }
+                }
+                Text(
+                    text = "AI NPC",
+                    fontSize = ds.sp(20f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Black.copy(alpha = 0.90f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Image(
+                    painter = painterResource(Res.drawable.ai_npc),
+                    contentDescription = "AI NPC",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
+                .padding(top = ds.sh(16.dp), bottom = ds.sh(8.dp))
+                .height(ds.sh(40.dp))
+                .clip(RoundedCornerShape(ds.sm(100.dp)))
+                .background(Color(0xFF1F1F22))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { onBuy() },
+            contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "NAS 功能提示",
-                fontSize = ds.sp(20f),
+                text = "去购买 AI NPC",
+                fontSize = ds.sp(18f),
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF1F2535),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                color = Color.White,
             )
-
-            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-
-            Text(
-                text = "只有 AI NPC 支持 NAS 功能，请点击按钮前往购买 AI NPC",
-                fontSize = ds.sp(14f),
-                fontWeight = FontWeight.Normal,
-                color = Color(0xFF717580),
-            )
-
-            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(ds.sm(100.dp)))
-                        .background(Color.Black.copy(alpha = 0.05f))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) { onDismiss() }
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "知道了",
-                        fontSize = ds.sp(16f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color(0xFF1F2535),
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(ds.sm(100.dp)))
-                        .background(Color.Black.copy(alpha = 0.05f))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) { onBuy() }
-                        .padding(vertical = ds.sh(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "去购买",
-                        fontSize = ds.sp(16f),
-                        fontWeight = FontWeight.Normal,
-                        color = Color(0xFFE84026),
-                    )
-                }
-            }
         }
     }
 }

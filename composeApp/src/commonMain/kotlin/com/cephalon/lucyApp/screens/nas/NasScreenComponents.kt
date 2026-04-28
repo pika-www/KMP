@@ -950,7 +950,7 @@ internal fun NasPhotosContent(
             .fillMaxWidth()
             .verticalScroll(scrollState)
             .padding(top = 56.dp, bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(ds.sm(16.dp))
     ) {
         if (imageMonths.isEmpty() && !emptyText.isNullOrBlank()) {
             Text(
@@ -959,6 +959,7 @@ internal fun NasPhotosContent(
                 color = Color.White.copy(alpha = 0.72f)
             )
         } else {
+            Spacer(modifier = Modifier.height(ds.sm(16.dp)))
             imageMonths.forEach { monthGroup ->
                 if (showMonthHeaders) {
                     Text(
@@ -1045,6 +1046,7 @@ internal fun NasRecordingsContent(
                 color = Color.White.copy(alpha = 0.72f)
             )
         } else {
+            Spacer(modifier = Modifier.height(ds.sm(16.dp)))
             audioMonths.forEach { monthGroup ->
                 NasMonthCapsuleSection(
                     label = monthGroup.label,
@@ -1099,6 +1101,7 @@ internal fun NasDocumentsContent(
                 color = Color.White.copy(alpha = 0.72f)
             )
         } else {
+            Spacer(modifier = Modifier.height(ds.sm(16.dp)))
             documentMonths.forEach { monthGroup ->
                 NasMonthCapsuleSection(
                     label = monthGroup.label,

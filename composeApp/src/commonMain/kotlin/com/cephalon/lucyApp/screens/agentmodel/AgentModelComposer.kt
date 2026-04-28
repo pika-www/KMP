@@ -52,7 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -74,7 +74,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import kotlin.math.roundToInt
 
 @Composable
 internal fun AgentModelComposer(
@@ -111,8 +110,8 @@ internal fun AgentModelComposer(
     val inputLineHeight = ds.sp(16f)
     val inputScrollState = rememberScrollState()
     val density = LocalDensity.current
-    val popupLeftPx = with(density) { ds.sw(20.dp).roundToPx() }
-    var bottomBarTopPx by remember { mutableStateOf(0) }
+    val quickMenuLeftPx = with(density) { 20.dp.roundToPx() }
+    var bottomActionBarTopInWindowPx by remember { mutableStateOf(0) }
     var quickMenuSize by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
@@ -146,8 +145,7 @@ internal fun AgentModelComposer(
                     .fillMaxWidth()
                     .height(ds.sh(74.dp))
                     .onGloballyPositioned { coordinates ->
-                        val position = coordinates.boundsInRoot().topLeft
-                        bottomBarTopPx = position.y.roundToInt()
+                        bottomActionBarTopInWindowPx = coordinates.boundsInWindow().top.toInt()
                     },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
@@ -276,37 +274,37 @@ internal fun AgentModelComposer(
                 }
             }
         }
-        if (attachmentsExpanded) {
-            val popupOffset = IntOffset(
-                x = popupLeftPx,
-                y = bottomBarTopPx - quickMenuSize.height - with(density) { ds.sh(74.dp).roundToPx() }
+    }
+    if (attachmentsExpanded) {
+        val quickMenuOffset = IntOffset(
+            x = quickMenuLeftPx,
+            y = bottomActionBarTopInWindowPx - quickMenuSize.height
+        )
+        Popup(
+            alignment = Alignment.TopStart,
+            offset = quickMenuOffset,
+            properties = PopupProperties(
+                focusable = true,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true,
+            ),
+            onDismissRequest = { onToggleAttachments() }
+        ) {
+            AttachmentQuickMenu(
+                onOpenCamera = {
+                    onOpenCamera()
+                    onToggleAttachments()
+                },
+                onOpenGallery = {
+                    onOpenGallery()
+                    onToggleAttachments()
+                },
+                onOpenFilePicker = {
+                    onOpenFilePicker()
+                    onToggleAttachments()
+                },
+                onMeasured = { quickMenuSize = it }
             )
-            Popup(
-                alignment = Alignment.TopStart,
-                offset = popupOffset,
-                properties = PopupProperties(
-                    focusable = true,
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = true,
-                ),
-                onDismissRequest = { onToggleAttachments() }
-            ) {
-                AttachmentQuickMenu(
-                    onOpenCamera = {
-                        onOpenCamera()
-                        onToggleAttachments()
-                    },
-                    onOpenGallery = {
-                        onOpenGallery()
-                        onToggleAttachments()
-                    },
-                    onOpenFilePicker = {
-                        onOpenFilePicker()
-                        onToggleAttachments()
-                    },
-                    onMeasured = { quickMenuSize = it }
-                )
-            }
         }
     }
 }
@@ -334,7 +332,7 @@ private fun AttachmentQuickMenu(
             .clip(menuShape)
             .background(Color.White)
             .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(16.dp)),
-        verticalArrangement = Arrangement.spacedBy(ds.sh(12.dp))
+        verticalArrangement = Arrangement.spacedBy(ds.sh(0.dp))
     ) {
         AttachmentQuickMenuItem(
             iconRes = Res.drawable.ic_camera,
@@ -361,10 +359,10 @@ private fun AttachmentQuickMenuItem(
     onClick: () -> Unit,
 ) {
     val ds = LocalDesignScale.current
-    val iconCircle = RoundedCornerShape(ds.sm(99.dp))
     Row(
         modifier = Modifier
             .wrapContentWidth()
+            .heightIn(min = ds.sh(40.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -372,21 +370,13 @@ private fun AttachmentQuickMenuItem(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(ds.sm(24.dp))
-                .clip(iconCircle)
-                .background(Color(0xFFF7F7F7)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier.size(ds.sm(12.dp))
-            )
-        }
-        Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = label,
             color = Color.Black.copy(alpha = 0.9f),
