@@ -245,10 +245,8 @@ fun LoginScreen(
     }
 
     val validateAccount: () -> Unit = {
-        val input = username.trim()
-        if (input.isNotBlank() && normalizeCurrentAccount() == null) {
-            toastState.show("请输入正确的11位手机号")
-        }
+        // 仅触发 LaunchedEffect 中的账号存在性检查，不弹 toast。
+        // toast 由 performLogin 统一处理，避免焦点丢失 + 点击提交时重复弹出。
     }
 
     LaunchedEffect(username, sheetPage, loginSheetVisible, showCodeLoginPage, showPasswordLoginPage, showRegisterPage) {
@@ -1150,8 +1148,6 @@ private fun PasswordLoginPage(
                 )
             }
         }
-
-        ToastHost(state = toastState)
     }
 }
 
@@ -1426,8 +1422,6 @@ private fun RegisterPage(
                     .padding(bottom = ds.sh(10.dp)),
             )
         }
-
-        ToastHost(state = toastState)
     }
 }
 
