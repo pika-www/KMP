@@ -7,7 +7,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -16,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
-import androidx.compose.ui.viewinterop.UIKitViewController
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -34,10 +32,10 @@ import platform.QuickLook.QLPreviewController
 import platform.QuickLook.QLPreviewControllerDataSourceProtocol
 import platform.QuickLook.QLPreviewItemProtocol
 import platform.UIKit.UIColor
-import platform.UIKit.UIApplication
 import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
-import platform.UIKit.UIViewController
+import platform.WebKit.WKWebView
+import platform.WebKit.WKWebViewConfiguration
 import platform.darwin.NSObject
 
 @Composable
@@ -101,7 +99,7 @@ actual fun PlatformDocumentPreview(
                     modifier = modifier
                 )
             } else {
-                IOSQuickLookDocumentPreview(
+                IOSNativeOfficeDocumentPreview(
                     fileUrl = state.fileUrl,
                     modifier = modifier
                 )
@@ -164,14 +162,47 @@ private fun IOSQuickLookDocumentPreview(
     fileUrl: NSURL,
     modifier: Modifier = Modifier,
 ) {
-    val controller = remember(fileUrl.absoluteString) { createQuickLookViewController(fileUrl) }
-
-    UIKitViewController(
+    val controller = remember(fileUrl.absoluteString) { IOSRetainedQuickLookPreviewController(fileUrl) }
+    UIKitView(
         modifier = modifier.fillMaxSize(),
         factory = {
-            controller
+            controller.view.apply {
+                autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+            }
         },
-        update = {
+        update = { view ->
+            view.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+        },
+        properties = UIKitInteropProperties(
+            isInteractive = true,
+            isNativeAccessibilityEnabled = true
+        )
+    )
+}
+
+@Composable
+@OptIn(ExperimentalForeignApi::class)
+private fun IOSNativeOfficeDocumentPreview(
+    fileUrl: NSURL,
+    modifier: Modifier = Modifier,
+) {
+    UIKitView(
+        modifier = modifier.fillMaxSize(),
+        factory = {
+            WKWebView(
+                frame = CGRectMake(0.0, 0.0, 0.0, 0.0),
+                configuration = WKWebViewConfiguration()
+            ).apply {
+                autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+                opaque = false
+                backgroundColor = UIColor.whiteColor
+                scrollView.scrollEnabled = true
+                loadFileURL(fileUrl, allowingReadAccessToURL = fileUrl)
+            }
+        },
+        update = { view ->
+            view.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+            view.loadFileURL(fileUrl, allowingReadAccessToURL = fileUrl)
         },
         properties = UIKitInteropProperties(
             isInteractive = true,
@@ -184,16 +215,6 @@ private sealed interface IOSDocumentPreviewState {
     data object Loading : IOSDocumentPreviewState
     data class Ready(val fileUrl: NSURL) : IOSDocumentPreviewState
     data class Error(val message: String) : IOSDocumentPreviewState
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun createQuickLookViewController(fileUrl: NSURL): UIViewController {
-    val previewItem = IOSPreviewItem(fileUrl)
-    val dataSource = IOSQuickLookDataSource(previewItem)
-    return QLPreviewController().apply {
-        this.dataSource = dataSource
-        this.reloadData()
-    }
 }
 
 private class IOSQuickLookDataSource(
@@ -213,6 +234,19 @@ private class IOSPreviewItem(
     override fun previewItemURL(): NSURL = fileUrl
 
     override fun previewItemTitle(): String? = fileUrl.lastPathComponent
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private class IOSRetainedQuickLookPreviewController(
+    fileUrl: NSURL,
+) : QLPreviewController(nibName = null, bundle = null) {
+    private val previewItem = IOSPreviewItem(fileUrl)
+    private val previewDataSource = IOSQuickLookDataSource(previewItem)
+
+    init {
+        dataSource = previewDataSource
+        reloadData()
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
