@@ -3482,6 +3482,7 @@ private fun WifiConfigContent(
     var configState by remember { mutableStateOf<WifiConfigState>(WifiConfigState.Loading) }
     var wifiPassword by remember { mutableStateOf("") }
     var deviceNetworkStatus by remember { mutableStateOf<com.cephalon.lucyApp.deviceaccess.gatt.NetworkStatusPayload?>(null) }
+    var didLoadDeviceNetworkStatus by remember { mutableStateOf(false) }
 
     // Android 专用：BLE 断开 → 立即停止所有操作（iOS Core Bluetooth 自行管理，不干预）
     val isAndroid = remember { getPlatform().name.startsWith("Android", ignoreCase = true) }
@@ -3493,13 +3494,31 @@ private fun WifiConfigContent(
     // ── 初始化：读本机 Wi‑Fi 并和设备对比 ──
     LaunchedEffect(device.id, retryKey) {
         configState = WifiConfigState.Loading
-        when (val phoneWifi = controller.readCurrentPhoneWifi()) {
+        deviceNetworkStatus = null
+        didLoadDeviceNetworkStatus = false
+        val phoneWifi = runCatching { controller.readCurrentPhoneWifi() }
+            .getOrElse {
+                println("[WifiConfig] readCurrentPhoneWifi failed: ${it.message}")
+                com.cephalon.lucyApp.brainbox.PhoneWifiState.Unknown
+            }
+        // 确保蓝牙权限已授予，否则 BLE 扫描会被静默跳过
+        if (!controller.bluetoothPermissionGranted) {
+            val granted = runCatching { controller.requestBluetoothPermission() }.getOrDefault(false)
+            println("[WifiConfig] 蓝牙权限请求结果: $granted")
+            if (!granted) {
+                println("[WifiConfig] 蓝牙权限未授予，无法扫描设备")
+            }
+        }
+        if (!controller.bluetoothEnabled) {
+            println("[WifiConfig] 蓝牙未开启，请先打开蓝牙")
+        }
+        val ns = readDeviceNetworkStatus(provisionManager, device)
+        if (isAndroid) coroutineContext.ensureActive()
+        deviceNetworkStatus = ns
+        didLoadDeviceNetworkStatus = true
+        when (phoneWifi) {
             is com.cephalon.lucyApp.brainbox.PhoneWifiState.Connected -> {
                 val phoneSsid = phoneWifi.ssid
-                // 尝试 BLE 读设备当前 Wi‑Fi
-                val ns = readDeviceNetworkStatus(provisionManager, device)
-                if (isAndroid) coroutineContext.ensureActive()
-                deviceNetworkStatus = ns
                 val deviceSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
                 if (deviceSsid != null && deviceSsid.equals(phoneSsid, ignoreCase = true)) {
                     configState = WifiConfigState.SsidMatch(phoneSsid)
@@ -3535,7 +3554,6 @@ private fun WifiConfigContent(
             }
         }
 
-        // 监听 ProvisionManager stage 变为 Reconnecting/Failed
         val provisionState by provisionManager.state.collectAsState()
         LaunchedEffect(provisionState.stage) {
             val stage = provisionState.stage
@@ -3572,6 +3590,13 @@ private fun WifiConfigContent(
     val ns = deviceNetworkStatus
     val wifiSsid = ns?.ssid?.trim()?.takeIf { it.isNotBlank() }
     val wifiIp = ns?.ip?.trim()?.takeIf { it.isNotBlank() }
+    val isDeviceWifiConnected = ns?.isConnected == true
+    val wifiStatusText = when {
+        wifiSsid != null -> wifiSsid
+        isDeviceWifiConnected -> "已连接（设备未返回名称）"
+        !didLoadDeviceNetworkStatus -> "读取中…"
+        else -> "未读取到"
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -3616,9 +3641,9 @@ private fun WifiConfigContent(
                     modifier = Modifier.width(ds.sw(56.dp)),
                 )
                 Text(
-                    text = wifiSsid ?: if (ns == null) "读取中…" else "未连接",
+                    text = wifiStatusText,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = if (wifiSsid != null) Color(0xFF111111) else Color(0xFFBBBBBB),
+                    color = if (wifiSsid != null || isDeviceWifiConnected) Color(0xFF111111) else Color(0xFFBBBBBB),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -3636,7 +3661,7 @@ private fun WifiConfigContent(
                     modifier = Modifier.width(ds.sw(56.dp)),
                 )
                 Text(
-                    text = wifiIp ?: if (ns == null) "读取中…" else "—",
+                    text = wifiIp ?: if (!didLoadDeviceNetworkStatus) "读取中…" else "—",
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                     color = if (wifiIp != null) Color(0xFF111111) else Color(0xFFBBBBBB),
                     maxLines = 1,
@@ -3712,6 +3737,8 @@ private fun WifiConfigContent(
                             append("本机已连接「${state.phoneSsid}」")
                             if (!state.deviceSsid.isNullOrBlank()) {
                                 append("，设备当前连接「${state.deviceSsid}」")
+                            } else if (deviceNetworkStatus?.isConnected == true) {
+                                append("，设备已联网但未返回 Wi‑Fi 名称")
                             }
                             append("。\n可将设备切换到本机所在的 Wi‑Fi 网络。")
                         },
@@ -3944,9 +3971,35 @@ private fun WifiConfigContent(
                     )
                     Spacer(modifier = Modifier.height(ds.sh(8.dp)))
                     Text(
-                        text = "请确认手机已开启 Wi‑Fi 并连接到目标网络，然后重新打开此页面。",
+                        text = "请确认手机已开启 Wi‑Fi、已连接到目标网络，并已授予定位 / Wi‑Fi 权限；若仍失败，请检查系统定位开关后重试。上方仍会显示设备当前网络状态（若读取成功）。",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color(0xFF333333),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(ds.sh(20.dp)))
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        configState = WifiConfigState.Loading
+                        retryKey++
+                    },
+                shape = RoundedCornerShape(ds.sm(14.dp)),
+                color = Color(0xFF1F2535),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "重新检测",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        color = Color.White,
                     )
                 }
             }
@@ -4008,6 +4061,10 @@ private fun WifiConfigContent(
 private const val SCAN_AND_MATCH_TIMEOUT_MS = 60_000L
 /** 每轮扫描列表不变时的等待间隔 */
 private const val SCAN_POLL_INTERVAL_MS = 2_000L
+/** 同一台设备 probe 失败的最大重试次数，超过后视为"已探测"跳过 */
+private const val MAX_PROBE_FAILURES_PER_DEVICE = 2
+/** probe 失败后等待 BLE 栈恢复的冷却时间 */
+private const val PROBE_FAILURE_COOLDOWN_MS = 1_000L
 
 /**
  * 持续 BLE 扫描 + probe，直到找到 channelDeviceId == [targetCdi] 的设备或超时。
@@ -4030,7 +4087,8 @@ private suspend fun scanAndMatchDeviceByCdi(
 
     provisionManager.startScan()
 
-    val probedIds = mutableSetOf<String>() // 已经 probe 过的 BLE device id
+    val probedIds = mutableSetOf<String>() // 已成功 probe 过的 BLE device id
+    val probeFailCounts = mutableMapOf<String, Int>() // 每台设备的 probe 失败次数
     val startTime = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
 
     while (kotlinx.datetime.Clock.System.now().toEpochMilliseconds() - startTime < SCAN_AND_MATCH_TIMEOUT_MS) {
@@ -4057,17 +4115,31 @@ private suspend fun scanAndMatchDeviceByCdi(
         val newDevices = allDevices.filter { it.id !in probedIds }
         for (candidate in newDevices) {
             coroutineContext.ensureActive()
-            probedIds.add(candidate.id)
+            val failures = probeFailCounts[candidate.id] ?: 0
+            if (failures >= MAX_PROBE_FAILURES_PER_DEVICE) {
+                println("[WifiConfig] 跳过 ${candidate.name}(${candidate.id})：已失败 $failures 次")
+                probedIds.add(candidate.id)
+                continue
+            }
             val probeResult = provisionManager.probeDevice(candidate).getOrNull()
             println("[WifiConfig] probe ${candidate.name}(${candidate.id}): cdi=${probeResult?.channelDeviceId}")
-            if (probeResult != null && probeResult.channelDeviceId.equals(targetCdi, ignoreCase = true)) {
+            if (probeResult == null) {
+                probeFailCounts[candidate.id] = failures + 1
+                println("[WifiConfig] probe 失败 (${failures + 1}/$MAX_PROBE_FAILURES_PER_DEVICE)，等待 ${PROBE_FAILURE_COOLDOWN_MS}ms 后继续")
+                kotlinx.coroutines.delay(PROBE_FAILURE_COOLDOWN_MS)
+                provisionManager.startScan()
+                continue
+            }
+            probedIds.add(candidate.id)
+            if (probeResult.channelDeviceId.equals(targetCdi, ignoreCase = true)) {
                 println("[WifiConfig] ✓ 匹配到目标设备: ${candidate.name}")
                 return candidate
             }
+            provisionManager.startScan()
         }
 
         // 所有已知设备都 probe 过且没命中 → 等新设备出现
-        println("[WifiConfig] 已探测 ${probedIds.size} 台均未命中，等待更多设备...")
+        println("[WifiConfig] 已探测 ${probedIds.size} 台均未命中（失败跳过含在内），等待更多设备...")
         kotlinx.coroutines.delay(SCAN_POLL_INTERVAL_MS)
     }
 
@@ -4095,7 +4167,15 @@ private suspend fun readDeviceNetworkStatus(
 
         println("[WifiConfig] 连接目标设备: ${target.name} (${target.id})")
         provisionManager.connectDevice(target).getOrThrow()
-        val networkStatus = provisionManager.state.value.networkStatus
+        val provisionState = provisionManager.state.value
+        val networkStatus = provisionState.networkStatus?.let { status ->
+            val fallbackSsid = provisionState.deviceInfo?.ssid?.trim()?.takeIf { it.isNotBlank() }
+            val fallbackIp = provisionState.deviceInfo?.ip?.trim()?.takeIf { it.isNotBlank() }
+            status.copy(
+                ssid = status.ssid.ifBlank { fallbackSsid.orEmpty() },
+                ip = status.ip.ifBlank { fallbackIp.orEmpty() },
+            )
+        }
         println("[WifiConfig] 设备当前 SSID: ${networkStatus?.ssid}, IP: ${networkStatus?.ip}")
         networkStatus
     } catch (e: CancellationException) {
@@ -4145,20 +4225,23 @@ private suspend fun configureDeviceWifi(
         val result = provisionManager.configureWifi(ssid = ssid, password = password)
         coroutineContext.ensureActive()
         result.onSuccess { ns ->
-            onNetworkStatus(ns)
             val deviceSsid = ns.ssid.trim().takeIf { it.isNotBlank() }
-            // 必须确认 network_status 返回的 SSID 与目标 SSID 一致才算成功
-            if (deviceSsid != null && deviceSsid.equals(ssid, ignoreCase = true)) {
+            // network_status 返回 SSID 时必须与目标一致；固件可能只返回 connected + IP。
+            if (ns.isConnected && (deviceSsid == null || deviceSsid.equals(ssid, ignoreCase = true))) {
+                onNetworkStatus(ns.copy(ssid = ns.ssid.ifBlank { ssid }))
                 if (password.isNotBlank()) {
                     wifiCredentialCache.save(ssid, password)
                 }
                 onState(WifiConfigState.Success(ssid))
+            } else if (!ns.isConnected) {
+                onNetworkStatus(ns)
+                onState(WifiConfigState.Error(
+                    ns.error.ifBlank { "设备联网失败（state=${ns.state}）" },
+                    ssid,
+                ))
             } else {
-                val hint = if (deviceSsid != null) {
-                    "设备当前连接的是「$deviceSsid」而非目标「$ssid」，网络未切换成功"
-                } else {
-                    "设备未返回有效的 Wi‑Fi 名称，网络切换可能未生效"
-                }
+                onNetworkStatus(ns)
+                val hint = "设备当前连接的是「$deviceSsid」而非目标「$ssid」，网络未切换成功"
                 println("[WifiConfig] SSID 不匹配: target=$ssid, actual=$deviceSsid")
                 onState(WifiConfigState.Error(hint, ssid))
             }

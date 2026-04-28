@@ -55,6 +55,12 @@ private const val GATT_CONNECT_TIMEOUT_MS = 15_000L
 
 // 服务发现超时。
 private const val DISCOVER_SERVICES_TIMEOUT_MS = 10_000L
+// 服务发现前等待 MTU 协商稳定的延迟。
+private const val PRE_DISCOVER_DELAY_MS = 500L
+// 服务发现超时后的最大重试次数。
+private const val DISCOVER_SERVICES_MAX_ATTEMPTS = 2
+// 服务发现重试间隔。
+private const val DISCOVER_RETRY_DELAY_MS = 500L
 
 // 单次读 / 写 / 描述符写超时。
 private const val READ_WRITE_TIMEOUT_MS = 10_000L
@@ -447,23 +453,36 @@ private class AndroidBleGattConnection private constructor(
     }
 
     override suspend fun discoverServices(): Result<List<BleGattService>> {
-        return try {
-            withTimeout(DISCOVER_SERVICES_TIMEOUT_MS) {
-                suspendCancellableCoroutine { continuation ->
-                    discoverContinuation = continuation
-                    state.value = BleGattConnectionState.Discovering
-                    val started = runCatching { gatt.discoverServices() }.getOrDefault(false)
-                    if (!started) {
-                        discoverContinuation = null
-                        continuation.resume(Result.failure(IllegalStateException("无法开始发现 GATT 服务")))
+        // 等待 MTU 协商稳定后再发起服务发现，避免 Android BLE 栈 GATT 操作排队冲突
+        // 导致 onServicesDiscovered 永远不回调。
+        kotlinx.coroutines.delay(PRE_DISCOVER_DELAY_MS)
+        var lastError: Throwable? = null
+        for (attempt in 1..DISCOVER_SERVICES_MAX_ATTEMPTS) {
+            val result = try {
+                withTimeout(DISCOVER_SERVICES_TIMEOUT_MS) {
+                    suspendCancellableCoroutine { continuation ->
+                        discoverContinuation = continuation
+                        state.value = BleGattConnectionState.Discovering
+                        val started = runCatching { gatt.discoverServices() }.getOrDefault(false)
+                        if (!started) {
+                            discoverContinuation = null
+                            continuation.resume(Result.failure(IllegalStateException("无法开始发现 GATT 服务")))
+                        }
                     }
                 }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                println("[BrainBox] 发现 GATT 服务超时 (${DISCOVER_SERVICES_TIMEOUT_MS}ms), attempt $attempt/$DISCOVER_SERVICES_MAX_ATTEMPTS")
+                discoverContinuation = null
+                Result.failure(IllegalStateException("发现 GATT Service 超时(${DISCOVER_SERVICES_TIMEOUT_MS / 1000}s)"))
             }
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            println("[BrainBox] 发现 GATT 服务超时 (${DISCOVER_SERVICES_TIMEOUT_MS}ms)")
-            discoverContinuation = null
-            Result.failure(IllegalStateException("发现 GATT Service 超时(${DISCOVER_SERVICES_TIMEOUT_MS / 1000}s)"))
+            if (result.isSuccess) return result
+            lastError = result.exceptionOrNull()
+            if (attempt < DISCOVER_SERVICES_MAX_ATTEMPTS) {
+                println("[BrainBox] 服务发现失败，${DISCOVER_RETRY_DELAY_MS}ms 后重试...")
+                kotlinx.coroutines.delay(DISCOVER_RETRY_DELAY_MS)
+            }
         }
+        return Result.failure(lastError ?: IllegalStateException("发现 GATT Service 失败"))
     }
 
     override suspend fun readCharacteristic(serviceUuid: String, characteristicUuid: String): Result<ByteArray> {

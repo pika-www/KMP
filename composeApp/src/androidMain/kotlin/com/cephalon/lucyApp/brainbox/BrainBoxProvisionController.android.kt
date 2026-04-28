@@ -7,6 +7,7 @@ import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -69,6 +70,17 @@ private fun hasWifiPermissions(context: Context): Boolean {
     return wifiPermissionList().all(context::hasPermission)
 }
 
+private fun isSystemLocationEnabled(context: Context): Boolean {
+    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        locationManager.isLocationEnabled
+    } else {
+        @Suppress("DEPRECATION")
+        locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
+}
+
 private fun wifiSignalLevel(level: Int): Int {
     return when {
         level >= -55 -> 4
@@ -105,22 +117,86 @@ private fun normalizeWifiSsid(rawSsid: String?): String? {
 /**
  * 当前连接中的 Wi‑Fi 信息（若有）。
  *
- * 优先从 API 31+ 的 `NetworkCapabilities.transportInfo` 取 WifiInfo，
- * 老版本退回 `WifiManager.connectionInfo`。两条路径都需要 ACCESS_FINE_LOCATION（API 28+）。
+ * Android 12+ (API 31) 直接调 getNetworkCapabilities() 拿到的 WifiInfo 会隐去 SSID，
+ * 必须通过 NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) 才能拿到真实 SSID。
+ *
+ * 策略：
+ * 1. API 31+: 优先 NetworkCallback + FLAG_INCLUDE_LOCATION_INFO（最可靠）
+ * 2. API 31+: 退回 getNetworkCapabilities().transportInfo（部分 OEM 可用）
+ * 3. 所有版本: 最后退回 WifiManager.connectionInfo
+ * 每一步拿到的 WifiInfo 如果 SSID 有效就立即返回。
  */
-private fun readActiveWifiInfo(
+private suspend fun readActiveWifiInfo(
     connectivityManager: ConnectivityManager,
     wifiManager: WifiManager,
 ): WifiInfo? {
+    // ── 策略 1: NetworkCallback + FLAG_INCLUDE_LOCATION_INFO (API 31+) ──
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val active = connectivityManager.activeNetwork ?: return null
-        val caps = connectivityManager.getNetworkCapabilities(active) ?: return null
-        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
-        val info = caps.transportInfo
-        return info as? WifiInfo
+        val callbackInfo = readWifiInfoViaCallback(connectivityManager)
+        if (callbackInfo != null && normalizeWifiSsid(callbackInfo.ssid) != null) {
+            println("[BrainBox] readActiveWifiInfo: 策略1(callback) ssid=${callbackInfo.ssid}")
+            return callbackInfo
+        }
+        // ── 策略 2: 直接 getNetworkCapabilities (部分 OEM) ──
+        val directInfo = runCatching {
+            val active = connectivityManager.activeNetwork ?: return@runCatching null
+            val caps = connectivityManager.getNetworkCapabilities(active) ?: return@runCatching null
+            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return@runCatching null
+            caps.transportInfo as? WifiInfo
+        }.getOrNull()
+        if (directInfo != null && normalizeWifiSsid(directInfo.ssid) != null) {
+            println("[BrainBox] readActiveWifiInfo: 策略2(direct) ssid=${directInfo.ssid}")
+            return directInfo
+        }
     }
+    // ── 策略 3: WifiManager.connectionInfo (所有版本) ──
     @Suppress("DEPRECATION")
-    return wifiManager.connectionInfo
+    val legacyInfo = runCatching { wifiManager.connectionInfo }.getOrNull()
+    println("[BrainBox] readActiveWifiInfo: 策略3(legacy) ssid=${legacyInfo?.ssid}")
+    return legacyInfo
+}
+
+/**
+ * 通过 NetworkCallback + FLAG_INCLUDE_LOCATION_INFO 获取 WifiInfo。
+ * Android 12+ 必须用此方式才能拿到未被遮蔽的 SSID。
+ */
+@android.annotation.SuppressLint("MissingPermission")
+private suspend fun readWifiInfoViaCallback(
+    connectivityManager: ConnectivityManager,
+): WifiInfo? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+    return try {
+        kotlinx.coroutines.withTimeout(3_000) {
+            kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+                val request = NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .build()
+                val callback = object : ConnectivityManager.NetworkCallback(
+                    ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
+                ) {
+                    override fun onCapabilitiesChanged(
+                        network: Network,
+                        networkCapabilities: NetworkCapabilities,
+                    ) {
+                        val info = networkCapabilities.transportInfo as? WifiInfo
+                        runCatching { connectivityManager.unregisterNetworkCallback(this) }
+                        if (continuation.isActive) continuation.resume(info)
+                    }
+
+                    override fun onUnavailable() {
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                }
+                continuation.invokeOnCancellation {
+                    runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+                }
+                connectivityManager.registerNetworkCallback(request, callback)
+            }
+        }
+    } catch (e: Exception) {
+        println("[BrainBox] readWifiInfoViaCallback failed: ${e.message}")
+        null
+    }
 }
 
 private fun mapWifiNetworks(results: List<WifiScanResult>): List<BrainBoxWifiNetwork> {
@@ -334,15 +410,11 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
 
             override suspend fun readCurrentPhoneWifi(): PhoneWifiState {
                 refreshState()
-                // 1) 不管权限怎样，WifiManager.isWifiEnabled 都能读。Wi‑Fi 被关 → 直接告诉 UI
-                //    提示用户打开。
                 val wifiEnabled = runCatching { wifiManager.isWifiEnabled }.getOrDefault(false)
                 if (!wifiEnabled) {
                     println("[BrainBox] readCurrentPhoneWifi: wifi disabled")
                     return PhoneWifiState.Disabled
                 }
-                // 2) 要读到 SSID，Android 9+ 必须同时持有 ACCESS_FINE_LOCATION。先尝试授权；
-                //    用户拒绝时仍然能落到下面的 `Unknown` 分支，UI 会回退到手动输入。
                 val granted = if (!wifiPermissionGrantedState) {
                     requestWifiPermission()
                 } else {
@@ -352,13 +424,17 @@ actual fun rememberBrainBoxProvisionController(): BrainBoxProvisionController {
                     println("[BrainBox] readCurrentPhoneWifi: wifi permission denied -> Unknown")
                     return PhoneWifiState.Unknown
                 }
+                if (!isSystemLocationEnabled(appContext)) {
+                    println("[BrainBox] readCurrentPhoneWifi: system location disabled -> Unknown")
+                    return PhoneWifiState.Unknown
+                }
                 val info = readActiveWifiInfo(connectivityManager, wifiManager)
                 val ssid = normalizeWifiSsid(info?.ssid)
                 return if (ssid != null) {
                     println("[BrainBox] readCurrentPhoneWifi: connected ssid=$ssid")
                     PhoneWifiState.Connected(ssid)
                 } else {
-                    println("[BrainBox] readCurrentPhoneWifi: wifi on but ssid unreadable -> Unknown")
+                    println("[BrainBox] readCurrentPhoneWifi: wifi on but ssid unreadable -> Unknown, raw=${info?.ssid}")
                     PhoneWifiState.Unknown
                 }
             }

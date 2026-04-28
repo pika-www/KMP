@@ -198,8 +198,6 @@ class SdkSessionManager(
             LucyImAppConfig(
                 lucyServerBaseUrl = "${AppConfig.baseDomain}/aiden/lucy-server",
                 dispatcher = sdkDispatcher,
-                jetStreamVerboseLoggingProvider = { AppConfig.lucyImJetStreamVerboseLogging },
-                jetStreamPayloadPreviewMaxChars = AppConfig.lucyImJetStreamPayloadPreviewMaxChars,
             ),
         )
 

@@ -1915,11 +1915,12 @@ fun AgentModelScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     text = "探索您的精力上线",
-                                    color = Color(0xFF1F2535),
+                                    color = Color.Black.copy(alpha = 0.9f),
                                     fontSize = ds.sp(28f),
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(ds.sh(33.dp)))
+                                Spacer(modifier = Modifier.height(ds.sh(25.dp)))
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
