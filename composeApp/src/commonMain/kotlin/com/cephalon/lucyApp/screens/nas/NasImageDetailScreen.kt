@@ -4,7 +4,6 @@ import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_download
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -36,13 +35,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import com.cephalon.lucyApp.components.decodeImageBytes
 import com.cephalon.lucyApp.sdk.SdkSessionManager
-import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,8 +74,7 @@ internal fun NasImageDetailScreen(
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
     val sdkSessionManager = koinInject<SdkSessionManager>()
-    val coroutineScope = rememberCoroutineScope()
-    val fullImageCache = remember { mutableStateMapOf<Long, ImageBitmap?>() }
+    val fullImageBlobRefs = remember { mutableStateMapOf<Long, String?>() }
     val fullImageLoading = remember { mutableStateMapOf<Long, Boolean>() }
     val backgroundColor = if (isChatMode) Color.White else Color.Black
     val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
@@ -129,42 +122,43 @@ internal fun NasImageDetailScreen(
         ) { page ->
             val pageImage = images[page]
             val fid = pageImage.fileId
-            val cachedBitmap = fid?.let { fullImageCache[it] }
+            val resolvedBlobRef = fid?.let { fullImageBlobRefs[it] }?.takeIf { it.isNotBlank() }
+            val displayPath = resolvedBlobRef ?: pageImage.path.takeIf { it.isNotBlank() }
 
             LaunchedEffect(fid) {
-                if (fid == null || fid in fullImageCache || fullImageLoading[fid] == true) return@LaunchedEffect
+                if (fid == null || fid in fullImageBlobRefs || fullImageLoading[fid] == true) return@LaunchedEffect
                 fullImageLoading[fid] = true
-                coroutineScope.launch {
-                    sdkSessionManager.getFileFromNas(
+                try {
+                    val response = sdkSessionManager.getFileFromNas(
                         targetCdi = targetCdi,
                         fileId = fid,
-                    ).onSuccess { response ->
-                        val blobRef = response.item?.blobRef
-                        if (!blobRef.isNullOrBlank()) {
-                            sdkSessionManager.fetchBlobBytes(blobRef)
-                                .onSuccess { bytes ->
-                                    fullImageCache[fid] = decodeImageBytes(bytes)
-                                }
-                                .onFailure {
-                                    fullImageCache[fid] = null
-                                }
-                        } else {
-                            fullImageCache[fid] = null
-                        }
-                    }.onFailure {
-                        fullImageCache[fid] = null
-                    }
+                    ).getOrThrow()
+                    fullImageBlobRefs[fid] = response.item?.blobRef?.trim()?.takeIf { it.isNotEmpty() }
+                } catch (_: Throwable) {
+                    fullImageBlobRefs[fid] = null
+                } finally {
                     fullImageLoading[fid] = false
                 }
             }
 
             when {
-                cachedBitmap != null -> {
-                    Image(
-                        painter = BitmapPainter(cachedBitmap),
+                displayPath != null && displayPath.isLocalAttachmentSource() -> {
+                    PlatformImageThumbnail(
+                        uri = displayPath,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                displayPath != null -> {
+                    BlobImage(
+                        blobRef = displayPath,
                         contentDescription = pageImage.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
+                        errorContent = {
+                            Box(
+                                modifier = Modifier.fillMaxSize().background(if (isChatMode) Color(0xFFF2F2F2) else Color(0xFF1A1A1A))
+                            )
+                        }
                     )
                 }
                 fullImageLoading[fid] == true -> {
@@ -175,25 +169,6 @@ internal fun NasImageDetailScreen(
                             strokeWidth = 3.dp,
                         )
                     }
-                }
-                pageImage.path.isLocalAttachmentSource() -> {
-                    PlatformImageThumbnail(
-                        uri = pageImage.path,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                pageImage.path.isNotBlank() -> {
-                    BlobImage(
-                        blobRef = pageImage.path,
-                        contentDescription = pageImage.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                        errorContent = {
-                            Box(
-                                modifier = Modifier.fillMaxSize().background(if (isChatMode) Color(0xFFF2F2F2) else Color(0xFF1A1A1A))
-                            )
-                        }
-                    )
                 }
                 else -> {
                     Box(

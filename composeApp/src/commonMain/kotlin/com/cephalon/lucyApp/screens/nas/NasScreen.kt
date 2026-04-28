@@ -85,11 +85,28 @@ import kotlin.math.abs
 internal object NasUploadTaskStore {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val tasks = mutableStateListOf<NasUploadTaskItem>()
+    val progressBatches = mutableStateListOf<NasUploadBatchSummary>()
+    var taskProgressSummary by mutableStateOf<NasUploadProgressSummary?>(null)
     var showDialog by mutableStateOf(false)
 
     fun append(newTasks: List<NasUploadTaskItem>) {
         if (newTasks.isEmpty()) return
         tasks.addAll(0, newTasks.asReversed())
+        showDialog = true
+    }
+
+    fun beginProgressBatch(batchId: String, totalCount: Int) {
+        if (totalCount <= 0) return
+        cleanupFinishedUploadBatches()
+        progressBatches.add(
+            0,
+            NasUploadBatchSummary(
+                id = batchId,
+                totalCount = totalCount,
+                completedCount = 0
+            )
+        )
+        refreshUploadProgressSummary()
         showDialog = true
     }
 
@@ -100,8 +117,59 @@ internal object NasUploadTaskStore {
         }
     }
 
+    fun setBatchCompletedCount(batchId: String, completedCount: Int) {
+        val batchIndex = progressBatches.indexOfFirst { it.id == batchId }
+        if (batchIndex < 0) return
+        val current = progressBatches[batchIndex]
+        progressBatches[batchIndex] = current.copy(
+            completedCount = completedCount.coerceIn(current.completedCount, current.totalCount)
+        )
+        refreshUploadProgressSummary()
+    }
+
+    fun completeTask(taskId: String, countTowardBatch: Boolean = true) {
+        val index = tasks.indexOfFirst { it.id == taskId }
+        if (index < 0) return
+        val task = tasks[index]
+        val batchId = task.batchId
+        if (countTowardBatch && batchId != null) {
+            val batchIndex = progressBatches.indexOfFirst { it.id == batchId }
+            if (batchIndex >= 0) {
+                val current = progressBatches[batchIndex]
+                progressBatches[batchIndex] = current.copy(
+                    completedCount = (current.completedCount + 1).coerceAtMost(current.totalCount)
+                )
+                refreshUploadProgressSummary()
+            }
+        }
+        tasks.removeAt(index)
+        cleanupFinishedUploadBatches()
+        if (tasks.isEmpty() && progressBatches.isEmpty()) {
+            showDialog = false
+        }
+    }
+
+    fun cleanupFinishedUploadBatches() {
+        for (index in progressBatches.lastIndex downTo 0) {
+            val batch = progressBatches[index]
+            if (batch.completedCount >= batch.totalCount) {
+                progressBatches.removeAt(index)
+            }
+        }
+        refreshUploadProgressSummary()
+        if (progressBatches.isEmpty()) {
+            showDialog = false
+        }
+    }
+
+    fun refreshUploadProgressSummary() {
+        taskProgressSummary = progressBatches.toProgressSummary()
+    }
+
     fun clear() {
         tasks.clear()
+        progressBatches.clear()
+        taskProgressSummary = null
         showDialog = false
     }
 }
@@ -148,6 +216,7 @@ fun NasScreen(
     val selectedAudioIds = remember { mutableStateListOf<String>() }
     val selectedDocumentIds = remember { mutableStateListOf<String>() }
     val uploadTasks = NasUploadTaskStore.tasks
+    val taskProgressSummary = NasUploadTaskStore.taskProgressSummary
     val nasCacheMap by sdkSessionManager.nasCache.collectAsState()
     val searchCacheMap = remember { mutableStateMapOf<String, NasCategoryCache>() }
     val errorMap = remember { mutableStateMapOf<NasCategory, String?>() }
@@ -158,6 +227,7 @@ fun NasScreen(
     val activeTasks = uploadTasks.filter {
         it.status == NasUploadTaskStatus.Uploading ||
             it.status == NasUploadTaskStatus.Downloading ||
+            it.status == NasUploadTaskStatus.Deleting ||
             it.status == NasUploadTaskStatus.Registering ||
             it.status == NasUploadTaskStatus.Saving ||
             it.status == NasUploadTaskStatus.Waiting
@@ -276,7 +346,7 @@ fun NasScreen(
                 replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Saving, progress = 0.85f) }
                 platformSaveFile(bytes, fileName, mimeType)
             }.onSuccess {
-                replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Completed, progress = 1f) }
+                NasUploadTaskStore.completeTask(taskId)
             }.onFailure {
                 replaceUploadTask(taskId) { it.copy(status = NasUploadTaskStatus.Failed) }
             }
@@ -318,7 +388,7 @@ fun NasScreen(
                     replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Saving, progress = 0.85f) }
                     platformSaveFile(bytes, fileName, mimeType)
                 }.onSuccess {
-                    replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Completed, progress = 1f) }
+                    NasUploadTaskStore.completeTask(task.id)
                 }.onFailure {
                     replaceUploadTask(task.id) { it.copy(status = NasUploadTaskStatus.Failed) }
                 }
@@ -484,46 +554,65 @@ fun NasScreen(
         }
     }
 
-    /** 删除单个 NAS 文件，成功后刷新列表 */
-    fun deleteNasFile(fileId: Long?, category: NasCategory) {
-        if (fileId == null) return
-        coroutineScope.launch {
-            sdkSessionManager.deleteFileFromNas(
-                targetCdi = targetCdi,
-                fileId = fileId,
-            ).onSuccess { response ->
-                if (response.ok) {
-                    refreshNasListAfterUpload(category)
-                } else {
-                    println("NAS 删除失败: ${response.error ?: "unknown"}")
-                }
-            }.onFailure { error ->
-                println("NAS 删除异常: ${error.message ?: "unknown"}")
-            }
-        }
-    }
-
     /** 批量删除 NAS 文件，全部完成后刷新列表 */
     fun deleteNasFiles(fileIds: List<Long?>, category: NasCategory) {
         val validIds = fileIds.filterNotNull()
         if (validIds.isEmpty()) return
         coroutineScope.launch {
+            val batchId = "nas_delete_batch_${currentTimeMillisSafe()}_${category.name.lowercase()}"
+            val preparedTasks = validIds.mapIndexed { index, fileId ->
+                NasUploadTaskItem(
+                    id = "nas_delete_${currentTimeMillisSafe()}_${index}_$fileId",
+                    title = when (category) {
+                        NasCategory.Photos -> "删除图片"
+                        NasCategory.Recordings -> "删除音频"
+                        NasCategory.Documents -> "删除文档"
+                    },
+                    type = category.toUploadTaskType(),
+                    progress = if (index == 0) 0.2f else 0f,
+                    status = if (index == 0) NasUploadTaskStatus.Deleting else NasUploadTaskStatus.Waiting,
+                    direction = NasTaskDirection.Delete,
+                    batchId = batchId
+                )
+            }
+            NasUploadTaskStore.beginProgressBatch(batchId = batchId, totalCount = preparedTasks.size)
+            NasUploadTaskStore.append(preparedTasks)
             var anySuccess = false
-            validIds.forEach { fid ->
+            preparedTasks.forEachIndexed { index, task ->
+                val fid = validIds[index]
+                replaceUploadTask(task.id) {
+                    it.copy(status = NasUploadTaskStatus.Deleting, progress = 0.35f)
+                }
                 sdkSessionManager.deleteFileFromNas(
                     targetCdi = targetCdi,
                     fileId = fid,
                 ).onSuccess { response ->
-                    if (response.ok) anySuccess = true
-                    else println("NAS 删除失败 fileId=$fid: ${response.error ?: "unknown"}")
+                    if (response.ok) {
+                        anySuccess = true
+                        NasUploadTaskStore.completeTask(task.id)
+                    } else {
+                        println("NAS 删除失败 fileId=$fid: ${response.error ?: "unknown"}")
+                        replaceUploadTask(task.id) {
+                            it.copy(status = NasUploadTaskStatus.Failed, progress = 0.35f)
+                        }
+                    }
                 }.onFailure { error ->
                     println("NAS 删除异常 fileId=$fid: ${error.message ?: "unknown"}")
+                    replaceUploadTask(task.id) {
+                        it.copy(status = NasUploadTaskStatus.Failed, progress = 0.35f)
+                    }
                 }
             }
             if (anySuccess) {
                 refreshNasListAfterUpload(category)
             }
         }
+    }
+
+    /** 删除单个 NAS 文件，成功后刷新列表 */
+    fun deleteNasFile(fileId: Long?, category: NasCategory) {
+        if (fileId == null) return
+        deleteNasFiles(listOf(fileId), category)
     }
 
     fun queueDeleteConfirmation(
@@ -557,6 +646,7 @@ fun NasScreen(
     ) {
         if (items.isEmpty()) return
 
+        val batchId = "nas_upload_batch_${currentTimeMillisSafe()}_${category.name.lowercase()}"
         val preparedTasks =
             items.mapIndexed { index, (uri, displayName) ->
                 NasUploadTaskItem(
@@ -565,8 +655,10 @@ fun NasScreen(
                     type = category.toUploadTaskType(),
                     progress = if (index == 0) 0.08f else 0f,
                     status = if (index == 0) NasUploadTaskStatus.Uploading else NasUploadTaskStatus.Waiting,
+                    batchId = batchId
                 )
             }
+        NasUploadTaskStore.beginProgressBatch(batchId = batchId, totalCount = preparedTasks.size)
         appendUploadTasks(preparedTasks)
 
         NasUploadTaskStore.scope.launch {
@@ -617,6 +709,7 @@ fun NasScreen(
                         val orderedIds = uploadPayloads.map { it.entryId }
                         val byteSizeMap = uploadPayloads.associate { it.entryId to it.bytes.size.toLong() }
                         val completedCount = frame.completedEntries.coerceIn(0, orderedIds.size)
+                        NasUploadTaskStore.setBatchCompletedCount(batchId, completedCount)
                         orderedIds.forEachIndexed { index, entryId ->
                             when {
                                 index < completedCount -> {
@@ -687,10 +780,13 @@ fun NasScreen(
                                 val registerResult = resultMap[registerItem.blobRef]
                                 val ok = registerResult?.ok == true
                                 if (ok) hasAnySuccess = true
-                                replaceUploadTask(registerItem.entryId.orEmpty()) { current ->
-                                    if (ok) {
-                                        current.copy(status = NasUploadTaskStatus.Completed, progress = 1f)
-                                    } else {
+                                if (ok) {
+                                    NasUploadTaskStore.completeTask(
+                                        taskId = registerItem.entryId.orEmpty(),
+                                        countTowardBatch = false
+                                    )
+                                } else {
+                                    replaceUploadTask(registerItem.entryId.orEmpty()) { current ->
                                         current.copy(
                                             status = NasUploadTaskStatus.Failed,
                                             progress = current.progress.coerceAtLeast(0.96f),
@@ -1220,7 +1316,10 @@ fun NasScreen(
                                             .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
                                     }
                                 }
-                                downloadNasFiles(downloadItems)
+                                if (downloadItems.isNotEmpty()) {
+                                    downloadNasFiles(downloadItems)
+                                    exitAllSelectionModes()
+                                }
                             },
                             icon = Res.drawable.ic_download
                         )
@@ -1277,15 +1376,16 @@ fun NasScreen(
                                 if (isVisible && targetCdi.isNotBlank()) {
                                     requestNasList(it, loadMore = false)
                                 }
+                            },
+                            trailingContent = {
+                                if (taskProgressSummary != null) {
+                                    NasUploadProgressEntry(
+                                        summary = taskProgressSummary,
+                                        onClick = { NasUploadTaskStore.showDialog = true }
+                                    )
+                                }
                             }
                         )
-                        if (activeTaskCount > 0) {
-                            NasUploadBanner(
-                                activeUploadCount = activeUploadCount,
-                                activeDownloadCount = activeDownloadCount,
-                                onClick = { NasUploadTaskStore.showDialog = true }
-                            )
-                        }
                     }
                 }
             }
@@ -1375,11 +1475,15 @@ fun NasScreen(
                                                     .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
                                             }
                                             NasCategory.Documents -> {
-                                                documentItems.filter { it.id in selectedDocumentIds }
+                                        documentItems.filter { it.id in selectedDocumentIds }
                                                     .map { Triple(it.fileId, it.name, it.name.toMimeType()) }
                                             }
                                         }
-                                        downloadNasFiles(downloadItems)
+                                        if (downloadItems.isNotEmpty()) {
+                                            downloadNasFiles(downloadItems)
+                                            exitAllSelectionModes()
+                                            isSearchSelectionMode = false
+                                        }
                                     },
                                     modifier = Modifier.size(44.dp)
                                 )
@@ -1539,7 +1643,11 @@ fun NasScreen(
     if (NasUploadTaskStore.showDialog) {
         NasUploadProgressDialog(
             tasks = uploadTasks,
-            onDismiss = { NasUploadTaskStore.showDialog = false }
+            uploadSummary = taskProgressSummary,
+            onDismiss = {
+                NasUploadTaskStore.showDialog = false
+                NasUploadTaskStore.cleanupFinishedUploadBatches()
+            }
         )
     }
 

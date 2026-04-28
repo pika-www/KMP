@@ -21,11 +21,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -107,13 +109,15 @@ internal enum class NasUploadTaskType {
 
 internal enum class NasTaskDirection {
     Upload,
-    Download
+    Download,
+    Delete
 }
 
 internal enum class NasUploadTaskStatus {
     Waiting,
     Uploading,
     Downloading,
+    Deleting,
     Registering,
     Saving,
     Completed,
@@ -126,27 +130,121 @@ internal data class NasUploadTaskItem(
     val type: NasUploadTaskType,
     val progress: Float,
     val status: NasUploadTaskStatus,
-    val direction: NasTaskDirection = NasTaskDirection.Upload
+    val direction: NasTaskDirection = NasTaskDirection.Upload,
+    val batchId: String? = null
 )
+
+internal data class NasUploadBatchSummary(
+    val id: String,
+    val totalCount: Int,
+    val completedCount: Int = 0
+)
+
+internal data class NasUploadProgressSummary(
+    val totalCount: Int,
+    val completedCount: Int
+) {
+    val progressFraction: Float
+        get() = if (totalCount <= 0) 0f else completedCount.toFloat() / totalCount.toFloat()
+
+    val progressPercentText: String
+        get() = "${(progressFraction * 100).toInt().coerceIn(0, 100)}%"
+
+    val progressDetailText: String
+        get() = "$completedCount/$totalCount"
+}
 
 @Composable
 internal fun NasTopCategoryRow(
     selected: NasCategory,
     onSelect: (NasCategory) -> Unit,
+    trailingContent: @Composable RowScope.() -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier,
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        NasCategory.values().forEach { category ->
-            NasTopTabButton(
-                title = category.title,
-                icon = category.icon,
-                selected = selected == category,
-                onClick = { onSelect(category) },
-                modifier = Modifier
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NasCategory.values().forEach { category ->
+                NasTopTabButton(
+                    title = category.title,
+                    icon = category.icon,
+                    selected = selected == category,
+                    onClick = { onSelect(category) },
+                    modifier = Modifier
+                )
+            }
+        }
+        trailingContent()
+    }
+}
+
+@Composable
+internal fun NasUploadProgressEntry(
+    summary: NasUploadProgressSummary,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val ds = LocalDesignScale.current
+    val shape = CircleShape
+    Surface(
+        modifier = modifier.size(ds.sm(44.dp)),
+        shape = shape,
+        color = Color(0x1FFFFFFF),
+        border = BorderStroke(1.dp, Color(0x33FFFFFF))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val strokeWidth = size.minDimension * 0.06f
+                val inset = strokeWidth / 2f + size.minDimension * 0.04f
+                drawArc(
+                    color = Color.White.copy(alpha = 0.18f),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = strokeWidth
+                    ),
+                    topLeft = Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(
+                        width = size.width - inset * 2,
+                        height = size.height - inset * 2
+                    )
+                )
+                drawArc(
+                    color = Color(0xFF279CFF),
+                    startAngle = -90f,
+                    sweepAngle = 360f * summary.progressFraction.coerceIn(0f, 1f),
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = strokeWidth
+                    ),
+                    topLeft = Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(
+                        width = size.width - inset * 2,
+                        height = size.height - inset * 2
+                    )
+                )
+            }
+            Text(
+                text = summary.progressPercentText,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = ds.sp(11f),
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = Color.White
             )
         }
     }
@@ -171,7 +269,6 @@ internal fun NasUploadBanner(
     }
     Surface(
         modifier = modifier
-            .fillMaxWidth()
             .clip(shape)
             .clickable(onClick = onClick),
         shape = shape,
@@ -208,17 +305,14 @@ internal fun NasUploadBanner(
 @Composable
 internal fun NasUploadProgressDialog(
     tasks: List<NasUploadTaskItem>,
+    uploadSummary: NasUploadProgressSummary?,
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
         val ds = LocalDesignScale.current
-        val activeCount = tasks.count {
-            it.status == NasUploadTaskStatus.Uploading ||
-                it.status == NasUploadTaskStatus.Downloading ||
-                it.status == NasUploadTaskStatus.Registering ||
-                it.status == NasUploadTaskStatus.Saving ||
-                it.status == NasUploadTaskStatus.Waiting
-        }
+        val visibleTasks = tasks.filter { it.status != NasUploadTaskStatus.Completed }
+        val taskListScrollState = rememberScrollState()
+        val taskListMaxHeight = ds.sm(106.dp * 4)
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(ds.sm(28.dp)),
@@ -256,15 +350,8 @@ internal fun NasUploadProgressDialog(
                             )
                         }
                     }
-                    val hasUpload = tasks.any { it.direction == NasTaskDirection.Upload }
-                    val hasDownload = tasks.any { it.direction == NasTaskDirection.Download }
-                    val dialogTitle = when {
-                        hasUpload && hasDownload -> "上传/下载进度"
-                        hasDownload -> "下载进度"
-                        else -> "上传进度"
-                    }
                     Text(
-                        text = dialogTitle,
+                        text = "任务进度",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontSize = ds.sp(20f),
                             fontWeight = FontWeight.SemiBold
@@ -284,45 +371,36 @@ internal fun NasUploadProgressDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = "收起进度",
-                                tint = Color(0xFF717580),
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "完成上传进度",
+                                tint = Color.White,
                                 modifier = Modifier.size(ds.sm(18.dp))
                             )
                         }
                     }
                 }
 
-                if (activeCount > 0) {
-                    val activeUploads = tasks.count {
-                        it.direction == NasTaskDirection.Upload && it.status in listOf(
-                            NasUploadTaskStatus.Uploading, NasUploadTaskStatus.Registering, NasUploadTaskStatus.Waiting
-                        )
-                    }
-                    val activeDownloads = tasks.count {
-                        it.direction == NasTaskDirection.Download && it.status in listOf(
-                            NasUploadTaskStatus.Downloading, NasUploadTaskStatus.Saving, NasUploadTaskStatus.Waiting
-                        )
-                    }
-                    val subtitleParts = mutableListOf<String>()
-                    if (activeUploads > 0) subtitleParts += "上传${activeUploads}个"
-                    if (activeDownloads > 0) subtitleParts += "下载${activeDownloads}个"
-                    Text(
-                        text = "还有${subtitleParts.joinToString("、")}任务进行中",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = ds.sp(12f),
-                            fontWeight = FontWeight.Normal
-                        ),
-                        color = Color.White.copy(alpha = 0.72f)
-                    )
-                }
-
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = taskListMaxHeight)
+                        .verticalScroll(taskListScrollState),
                     verticalArrangement = Arrangement.spacedBy(ds.sm(10.dp))
                 ) {
-                    tasks.filter { it.status != NasUploadTaskStatus.Completed }.forEach { task ->
+                    visibleTasks.forEach { task ->
                         NasUploadTaskCard(task = task)
+                    }
+                    if (visibleTasks.isEmpty() && uploadSummary != null && uploadSummary.totalCount > 0) {
+                        Text(
+                            text = "本次上传已完成",
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = ds.sp(14f),
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            ),
+                            color = Color.White.copy(alpha = 0.82f)
+                        )
                     }
                 }
             }
@@ -1460,6 +1538,7 @@ private fun NasUploadTaskItem.progressForDisplay(): Float =
         NasUploadTaskStatus.Waiting -> 0f
         NasUploadTaskStatus.Uploading -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Downloading -> progress.coerceIn(0f, 1f)
+        NasUploadTaskStatus.Deleting -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Registering -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Saving -> progress.coerceIn(0f, 1f)
         NasUploadTaskStatus.Completed -> 1f
@@ -1468,15 +1547,36 @@ private fun NasUploadTaskItem.progressForDisplay(): Float =
 
 private fun NasUploadTaskItem.statusText(): String {
     val isDownload = direction == NasTaskDirection.Download
+    val isDelete = direction == NasTaskDirection.Delete
     return when (status) {
-        NasUploadTaskStatus.Waiting -> if (isDownload) "等待下载" else "等待上传"
+        NasUploadTaskStatus.Waiting -> when {
+            isDelete -> "等待删除"
+            isDownload -> "等待下载"
+            else -> "等待上传"
+        }
         NasUploadTaskStatus.Uploading -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
         NasUploadTaskStatus.Downloading -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
+        NasUploadTaskStatus.Deleting -> "${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
         NasUploadTaskStatus.Registering -> "登记中"
         NasUploadTaskStatus.Saving -> "保存中"
         NasUploadTaskStatus.Completed -> "已完成"
-        NasUploadTaskStatus.Failed -> if (isDownload) "下载失败" else "上传失败"
+        NasUploadTaskStatus.Failed -> when {
+            isDelete -> "删除失败"
+            isDownload -> "下载失败"
+            else -> "上传失败"
+        }
     }
+}
+
+internal fun List<NasUploadBatchSummary>.toProgressSummary(): NasUploadProgressSummary? {
+    if (isEmpty()) return null
+    val totalCount = sumOf { it.totalCount }
+    if (totalCount <= 0) return null
+    val completedCount = sumOf { it.completedCount }.coerceIn(0, totalCount)
+    return NasUploadProgressSummary(
+        totalCount = totalCount,
+        completedCount = completedCount
+    )
 }
 
 private fun formatAudioDuration(durationSec: Int): String {
