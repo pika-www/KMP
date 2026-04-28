@@ -190,6 +190,9 @@ class SdkSessionManager(
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + exceptionHandler)
     private val connectMutex = Mutex()
+    private var connectMutexOwner: String? = null
+    private var connectMutexAcquiredAtMs: Long? = null
+    private var connectMutexWatchdogJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     private val sdkDispatcher = Dispatchers.Default.limitedParallelism(4)
@@ -493,7 +496,7 @@ class SdkSessionManager(
         if (session == null && _connectionState.value == SdkConnectionState.DISCONNECTED) return
         appLogD(TAG, "网络变化检测，主动断开旧连接并重连")
         scope.launch {
-            connectMutex.withLock {
+            withConnectMutex("onNetworkChanged.reset") {
                 logSdkEvent("网络变化触发断开, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
@@ -509,7 +512,7 @@ class SdkSessionManager(
     private fun disconnectInBackground() {
         appLogD(TAG, "应用在后台，主动断开 NATS 连接")
         scope.launch {
-            connectMutex.withLock {
+            withConnectMutex("disconnectInBackground") {
                 logSdkEvent("后台触发断开连接, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
@@ -539,16 +542,42 @@ class SdkSessionManager(
     }
 
     suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
-        // 获取 mutex 最多等 25s，防止死锁
-        val locked = withTimeoutOrNull(25_000L) { connectMutex.lock() }
-        if (locked == null) {
-            appLogD(TAG, "ensureConnectedIfTokenValid: 获取 connectMutex 超时(25s)")
+        if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
+            val observersActive = areObserversActive()
+            appLogD(
+                TAG,
+                "ensureConnectedIfTokenValid: 快速路径，当前已连接，observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}",
+            )
+            if (!observersActive && observerRestartAttempts <= MAX_OBSERVER_RESTART_ATTEMPTS) {
+                withConnectMutex("ensureConnectedIfTokenValid.fastPathRestart") {
+                    val activeSession = session
+                    if (activeSession != null && _connectionState.value == SdkConnectionState.CONNECTED && !areObserversActive()) {
+                        appLogD(TAG, "ensureConnectedIfTokenValid: 快速路径检测到监听未激活，进入锁内重建监听")
+                        _connectionLog.value = "连接正常，正在恢复监听..."
+                        observerRestartAttempts++
+                        restartObservers(session = activeSession, reason = "主动恢复监听")
+                    }
+                }
+            }
+            return Result.success(Unit)
+        }
+
+        // 获取 mutex 最多等 60s，防止死锁
+        val owner = "ensureConnectedIfTokenValid"
+        val locked = lockConnectMutexWithTimeout(owner = owner, timeoutMs = 60_000L)
+        if (!locked) {
+            val currentOwner = connectMutexOwner ?: "unknown"
+            val heldMs = connectMutexAcquiredAtMs?.let { (currentTimeMillis() - it).coerceAtLeast(0L) } ?: -1L
+            appLogD(
+                TAG,
+                "ensureConnectedIfTokenValid: 获取 connectMutex 超时(60s), currentOwner=$currentOwner, ownerHeldMs=$heldMs, state=${_connectionState.value}, hasSession=${session != null}",
+            )
             return Result.failure(IllegalStateException("SDK 连接锁超时，请稍后重试"))
         }
         return try {
             ensureConnectedIfTokenValidLocked()
         } finally {
-            connectMutex.unlock()
+            unlockConnectMutex(owner)
         }
     }
 
@@ -634,7 +663,7 @@ class SdkSessionManager(
 
     fun disconnect() {
         scope.launch {
-            connectMutex.withLock {
+            withConnectMutex("disconnect") {
                 logSdkEvent("断开连接 requested, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
@@ -1272,7 +1301,7 @@ class SdkSessionManager(
     }
 
     private suspend fun reconnectWithFreshToken() {
-        connectMutex.withLock {
+        withConnectMutex("reconnectWithFreshToken.reset") {
             // 检查是否有新 token（可能已被刷新）
             val token = tokenStore.getValidTokenOrNull()
             if (token.isNullOrBlank()) {
@@ -1489,7 +1518,9 @@ class SdkSessionManager(
         nasConsumerJob?.cancel()
         deviceObserverJob?.cancel()
         try {
+            val stopStartedAt = currentTimeMillis()
             deviceObserver?.stop()
+            appLogD(TAG, "resetSessionResources: deviceObserver.stop() 完成, costMs=${(currentTimeMillis() - stopStartedAt).coerceAtLeast(0L)}")
         } catch (e: Throwable) {
             appLogD(TAG, "deviceObserver.stop() 异常: ${e.message}")
         }
@@ -1498,7 +1529,9 @@ class SdkSessionManager(
         deviceObserverJob = null
         deviceObserver = null
         try {
+            val closeStartedAt = currentTimeMillis()
             session?.close()
+            appLogD(TAG, "resetSessionResources: session.close() 完成, costMs=${(currentTimeMillis() - closeStartedAt).coerceAtLeast(0L)}")
         } catch (e: Throwable) {
             appLogD(TAG, "session.close() 异常: ${e.message}")
         }
@@ -1538,6 +1571,64 @@ class SdkSessionManager(
         logSdkEvent("resetSessionResources")
     }
 
+    private suspend inline fun <T> withConnectMutex(owner: String, block: () -> T): T {
+        val waitStartedAt = currentTimeMillis()
+        appLogD(TAG, "connectMutex 等待获取，owner=$owner, isLocked=${connectMutex.isLocked}")
+        connectMutex.lock()
+        val waitedMs = (currentTimeMillis() - waitStartedAt).coerceAtLeast(0L)
+        onConnectMutexAcquired(owner = owner, waitedMs = waitedMs)
+        return try {
+            block()
+        } finally {
+            unlockConnectMutex(owner)
+        }
+    }
+
+    private suspend fun lockConnectMutexWithTimeout(owner: String, timeoutMs: Long): Boolean {
+        val waitStartedAt = currentTimeMillis()
+        appLogD(TAG, "connectMutex 等待获取，owner=$owner, timeoutMs=$timeoutMs, isLocked=${connectMutex.isLocked}")
+        val locked = withTimeoutOrNull(timeoutMs) { connectMutex.lock() } != null
+        if (!locked) return false
+        val waitedMs = (currentTimeMillis() - waitStartedAt).coerceAtLeast(0L)
+        onConnectMutexAcquired(owner = owner, waitedMs = waitedMs)
+        return true
+    }
+
+    private fun onConnectMutexAcquired(owner: String, waitedMs: Long) {
+        connectMutexOwner = owner
+        connectMutexAcquiredAtMs = currentTimeMillis()
+        connectMutexWatchdogJob?.cancel()
+        connectMutexWatchdogJob =
+            scope.launch {
+                val checkpoints = listOf(5_000L, 15_000L, 30_000L)
+                var elapsed = 0L
+                checkpoints.forEach { checkpoint ->
+                    delay((checkpoint - elapsed).coerceAtLeast(0L))
+                    elapsed = checkpoint
+                    if (connectMutexOwner == owner && connectMutexAcquiredAtMs != null) {
+                        val heldMs = (currentTimeMillis() - (connectMutexAcquiredAtMs ?: 0L)).coerceAtLeast(0L)
+                        appLogD(
+                            TAG,
+                            "connectMutex 仍被持有，owner=$owner, heldMs=$heldMs, state=${_connectionState.value}, hasSession=${session != null}",
+                        )
+                    } else {
+                        return@launch
+                    }
+                }
+            }
+        appLogD(TAG, "connectMutex 获取成功，owner=$owner, waitedMs=$waitedMs")
+    }
+
+    private fun unlockConnectMutex(owner: String) {
+        val heldMs = connectMutexAcquiredAtMs?.let { (currentTimeMillis() - it).coerceAtLeast(0L) } ?: -1L
+        appLogD(TAG, "connectMutex 释放，owner=$owner, heldMs=$heldMs")
+        connectMutexWatchdogJob?.cancel()
+        connectMutexWatchdogJob = null
+        connectMutexOwner = null
+        connectMutexAcquiredAtMs = null
+        connectMutex.unlock()
+    }
+
     private fun handleObserverFailure(
         throwable: Throwable,
         logLabel: String,
@@ -1556,7 +1647,7 @@ class SdkSessionManager(
                 // 多次重连仍失败，app token 可能也已失效
                 appLogD(TAG, "${logLabel} NATS 鉴权重连已达上限($MAX_AUTH_RECONNECT_ATTEMPTS 次)，清除 token")
                 scope.launch {
-                    connectMutex.withLock {
+                    withConnectMutex("handleObserverFailure.authReset") {
                         tokenStore.clear()
                         resetSessionResources()
                         authReconnectAttempts = 0
@@ -1638,11 +1729,11 @@ class SdkSessionManager(
         observerRestartJob =
             scope.launch {
                 delay(delayMs)
-                connectMutex.withLock {
+                withConnectMutex("scheduleObserverRestart.$logLabel") lock@{
                     val activeSession = session
                     if (activeSession == null || _connectionState.value != SdkConnectionState.CONNECTED) {
                         appLogD(TAG, "${logLabel}重建监听跳过：当前无可用连接")
-                        return@withLock
+                        return@lock
                     }
                     restartObservers(session = activeSession, reason = "${logLabel}重建")
                 }
@@ -1658,7 +1749,7 @@ class SdkSessionManager(
         reconnectJob =
             scope.launch {
                 delay(RECONNECT_DELAY_MS)
-                connectMutex.withLock {
+                withConnectMutex("scheduleReconnect.$reason") {
                     _connectionState.value = SdkConnectionState.DISCONNECTED
                     _connectionLog.value = "$reason，正在重连..."
                     logSdkEvent(_connectionLog.value)
