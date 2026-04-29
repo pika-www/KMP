@@ -133,7 +133,7 @@ internal fun NasDocumentDetailScreen(
                     .fillMaxWidth()
                     .background(headerColor)
                     .statusBarsPadding()
-                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(12.dp)),
+                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(4.dp)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DocDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onBack) {
@@ -241,7 +241,7 @@ internal fun NasDocumentDetailScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(8.dp))
+                                .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(0.dp))
                         ) {
                             PlatformDocumentPreview(
                                 source = localFilePath!!,

@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,14 +34,17 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -58,12 +62,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
@@ -249,6 +256,7 @@ fun NasScreen(
     val photoScrollState = rememberScrollState()
     val audioScrollState = rememberScrollState()
     val documentScrollState = rememberScrollState()
+    val searchInputScrollState = rememberScrollState()
     val activeScrollState = when (selectedCategory) {
         NasCategory.Photos -> photoScrollState
         NasCategory.Recordings -> audioScrollState
@@ -270,6 +278,7 @@ fun NasScreen(
     val topSelectionActionPadding = remember(ds) {
         PaddingValues(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp))
     }
+    val searchInputShape = remember(ds) { RoundedCornerShape(ds.sm(100.dp)) }
     val searchActive = isSearchMode && debouncedSearchQuery.isNotBlank()
     val imageItems = remember(nasCacheMap["image"], searchCacheMap["image"], searchActive) {
         val source = if (searchActive) searchCacheMap["image"] else nasCacheMap["image"]
@@ -1021,6 +1030,10 @@ fun NasScreen(
         searchActive -> "暂无搜索结果"
         else -> null
     }
+    val currentSearchEmptyTextColor = when {
+        searchActive && currentCategoryError != null -> Color.Black.copy(alpha = 0.90f)
+        else -> Color.White.copy(alpha = 0.72f)
+    }
 
     LaunchedEffect(
         selectedCategory,
@@ -1179,6 +1192,7 @@ fun NasScreen(
                                 onImageLongClick = { image -> previewImage = image },
                                 onImageSelectionToggle = { image -> togglePhotoSelection(image) },
                                 emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无图片",
+                                emptyTextColor = currentSearchEmptyTextColor,
                                 footer = if (isSearchMode) null else currentCategoryFooter,
                             )
                             NasCategory.Recordings -> NasRecordingsContent(
@@ -1186,10 +1200,11 @@ fun NasScreen(
                                 bottomPadding = contentBottomPadding,
                                 scrollState = audioScrollState,
                                 selectionMode = isAudioSelectionMode,
-                                selectedAudioIds = selectedAudioIds,    
+                                selectedAudioIds = selectedAudioIds,
                                 onAudioClick = { audio -> selectedAudio = audio },
                                 onAudioSelectionToggle = { audio -> toggleAudioSelection(audio) },
                                 emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无音频",
+                                emptyTextColor = currentSearchEmptyTextColor,
                                 footer = if (isSearchMode) null else currentCategoryFooter,
                             )
                             NasCategory.Documents -> NasDocumentsContent(
@@ -1201,6 +1216,7 @@ fun NasScreen(
                                 onDocumentClick = { document -> selectedDocument = document },
                                 onDocumentSelectionToggle = { document -> toggleDocumentSelection(document) },
                                 emptyText = if (searchActive) currentSearchEmptyText else if (currentCategoryLoading) null else "暂无文档",
+                                emptyTextColor = currentSearchEmptyTextColor,
                                 footer = if (isSearchMode) null else currentCategoryFooter,
                             )
                         }
@@ -1725,9 +1741,19 @@ fun NasScreen(
                             BasicTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
+                                maxLines = Int.MAX_VALUE,
+                                cursorBrush = SolidColor(Color.Black.copy(alpha = 0.90f)),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(44.dp)
+                                    .height(28.dp)
+                                    .shadow(
+                                        elevation = 30.dp,
+                                        shape = searchInputShape,
+                                        ambientColor = Color.Black.copy(alpha = 0.10f),
+                                        spotColor = Color.Black.copy(alpha = 0.10f)
+                                    )
+                                    .clip(searchInputShape)
+                                    .verticalScroll(searchInputScrollState)
                                     .onFocusChanged { focusState ->
                                         val isFocused = focusState.isFocused
                                         if (isFocused && !searchFieldFocused) {
@@ -1738,21 +1764,24 @@ fun NasScreen(
                                         searchFieldFocused = isFocused
                                     }
                                     .background(
-                                        color = Color.White.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(12.dp)
+                                        color = Color.White,
+                                        shape = searchInputShape
                                     )
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    .padding(horizontal = 12.dp),
                                 textStyle = TextStyle(
-                                    color = Color.White,
-                                    fontSize = ds.sp(14f)
+                                    color = Color.Black.copy(alpha = 0.90f),
+                                    fontSize = ds.sp(12f)
                                 ),
                                 decorationBox = { innerTextField ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
                                         if (searchQuery.isEmpty()) {
                                             Text(
                                                 text = "搜索",
-                                                color = Color.White.copy(alpha = 0.5f),
-                                                fontSize = ds.sp(14f)
+                                                color = Color.Black.copy(alpha = 0.40f),
+                                                fontSize = ds.sp(12f)
                                             )
                                         }
                                         innerTextField()
@@ -1760,17 +1789,30 @@ fun NasScreen(
                                 }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            NasGlassCircleButton(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = "退出搜索",
-                                onClick = {
-                                    isSearchMode = false
-                                    searchQuery = ""
-                                    debouncedSearchQuery = ""
-                                    clearNasSearchState()
-                                },
-                                modifier = Modifier.size(44.dp)
-                            )
+                            Surface(
+                                modifier = Modifier.size(28.dp),
+                                shape = CircleShape,
+                                color = Color.White
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable {
+                                            isSearchMode = false
+                                            searchQuery = ""
+                                            debouncedSearchQuery = ""
+                                            clearNasSearchState()
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "退出搜索",
+                                        tint = Color(0xFF1F2535),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 } else if (isCurrentSelectionMode) {
@@ -1847,7 +1889,10 @@ fun NasScreen(
             }
         }
 
-        if (taskProgressSummary != null) {
+        val hasActiveTaskProgress = taskProgressSummary?.completedCount?.let { completedCount ->
+            completedCount < (taskProgressSummary.totalCount)
+        } == true
+        if (hasActiveTaskProgress && taskProgressSummary != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

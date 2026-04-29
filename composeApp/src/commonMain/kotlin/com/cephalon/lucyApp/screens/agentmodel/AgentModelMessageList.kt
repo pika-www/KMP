@@ -208,10 +208,8 @@ internal fun AgentModelMessageList(
                 is ChatItem.User -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         Surface(
-                            // 右侧用户发送气泡统一 22dp 圆角（旧值 99dp 是胶囊形）
                             shape = RoundedCornerShape(ds.sm(22.dp)),
-                            color = Color.White,
-                            border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
+                            color = Color.Black.copy(alpha = 0.90f),
                             modifier = Modifier
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
@@ -219,11 +217,11 @@ internal fun AgentModelMessageList(
                             SelectionContainer {
                                 Text(
                                     text = item.text,
-                                    color = Color(0xFF1F2535),
+                                    color = Color.White,
                                     fontSize = ds.sp(14f),
-                                    fontWeight = FontWeight.Normal,
-                                    lineHeight = ds.sp(20f),
-                                    modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(8.dp))
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = ds.sp(16f),
+                                    modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(10.dp))
                                 )
                             }
                         }
@@ -233,10 +231,8 @@ internal fun AgentModelMessageList(
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         Surface(
-                            // 右侧用户附件气泡同样 22dp，和文字气泡视觉一致
                             shape = RoundedCornerShape(ds.sm(22.dp)),
-                            color = Color.White,
-                            border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
+                            color = Color.Black.copy(alpha = 0.90f),
                             modifier = Modifier
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
@@ -252,9 +248,9 @@ internal fun AgentModelMessageList(
                                         Text(
                                             text = messageText,
                                             fontSize = ds.sp(14f),
-                                            fontWeight = FontWeight.Normal,
-                                            lineHeight = ds.sp(20f),
-                                            color = Color(0xFF1F2535)
+                                            fontWeight = FontWeight.Medium,
+                                            lineHeight = ds.sp(16f),
+                                            color = Color.White
                                         )
                                     }
                                 }

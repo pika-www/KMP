@@ -9,8 +9,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
@@ -51,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
-import com.cephalon.lucyApp.media.PlatformImageThumbnail
+import com.cephalon.lucyApp.media.PlatformImagePreview
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
 
@@ -79,6 +81,7 @@ internal fun NasImageDetailScreen(
     var showMenu by remember { mutableStateOf(false) }
     val backgroundColor = Color(0xFFFAFAFC)
     val foregroundColor = Color(0xFF111111)
+    val headerBackgroundColor = Color.White
 
     val initialPage = images.indexOfFirst { it.id == initialImageId }.takeIf { it >= 0 } ?: 0
     val pagerState = rememberPagerState(initialPage = initialPage) { images.size }
@@ -114,201 +117,210 @@ internal fun NasImageDetailScreen(
                 }
             }
     ) {
-        // 全屏图片翻页
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            pageSpacing = ds.sm(12.dp),
-            beyondViewportPageCount = 1
-        ) { page ->
-            val pageImage = images[page]
-            val fid = pageImage.fileId
-            val resolvedBlobRef = fid?.let { fullImageBlobRefs[it] }?.takeIf { it.isNotBlank() }
-            val displayPath = resolvedBlobRef ?: pageImage.path.takeIf { it.isNotBlank() }
-
-            LaunchedEffect(fid) {
-                if (fid == null || fid in fullImageBlobRefs || fullImageLoading[fid] == true) return@LaunchedEffect
-                fullImageLoading[fid] = true
-                try {
-                    val response = sdkSessionManager.getFileFromNas(
-                        targetCdi = targetCdi,
-                        fileId = fid,
-                    ).getOrThrow()
-                    fullImageBlobRefs[fid] = response.item?.blobRef?.trim()?.takeIf { it.isNotEmpty() }
-                } catch (_: Throwable) {
-                    fullImageBlobRefs[fid] = null
-                } finally {
-                    fullImageLoading[fid] = false
-                }
-            }
-
-            when {
-                displayPath != null && displayPath.isLocalAttachmentSource() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFFAFAFC)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        PlatformImageThumbnail(
-                            uri = displayPath,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-                displayPath != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFFAFAFC)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        BlobImage(
-                            blobRef = displayPath,
-                            contentDescription = pageImage.name,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit,
-                            errorContent = {
-                                Box(
-                                    modifier = Modifier.fillMaxSize().background(Color(0xFFFAFAFC))
-                                )
-                            }
-                        )
-                    }
-                }
-                fullImageLoading[fid] == true -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFFAFAFC)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            color = foregroundColor.copy(alpha = 0.7f),
-                            strokeWidth = 3.dp,
-                        )
-                    }
-                }
-                else -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFFFAFAFC))
-                    )
-                }
-            }
-        }
-
-        // 顶部浮层：返回 | 时间地点 | 更多
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(12.dp)),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            NasDetailGlassCircleButton(
-                size = ds.sm(32.dp),
-                onClick = onBack
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(headerBackgroundColor)
             ) {
-                Icon(
-                    imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
-                    contentDescription = "返回",
-                    tint = Color.Black.copy(alpha = 0.60f),
-                    modifier = Modifier.size(
-                        width = ds.sw(11.dp),
-                        height = ds.sh(17.dp),
-                    ),
-                )
-            }
-
-            if (isChatMode) {
-                Text(
-                    text = "${pagerState.currentPage + 1}/${images.size}",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = ds.sp(12f),
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = foregroundColor,
-                )
-                NasDetailGlassCircleButton(
-                    size = ds.sm(32.dp),
-                    onClick = { onDownload(currentImage) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(4.dp)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_download),
-                        contentDescription = "下载",
-                        tint = foregroundColor,
-                        modifier = Modifier.size(ds.sm(16.dp))
-                    )
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color.White,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE6E6E6))
-                ) {
-                    Text(
-                        text = buildString {
-                            append(currentImage.time)
-                            currentImage.location?.let { append("  $it") }
-                        },
-                        modifier = Modifier.padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontSize = ds.sp(12f),
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = Color(0xFF111111)
-                    )
-                }
-
-                Box {
                     NasDetailGlassCircleButton(
                         size = ds.sm(32.dp),
-                        onClick = { showMenu = true }
+                        onClick = onBack
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "更多",
-                            tint = Color.Black.copy(alpha = 0.40f),
-                            modifier = Modifier.size(ds.sm(18.dp))
+                            imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                            contentDescription = "返回",
+                            tint = Color.Black.copy(alpha = 0.60f),
+                            modifier = Modifier.size(
+                                width = ds.sw(11.dp),
+                                height = ds.sh(17.dp),
+                            ),
                         )
                     }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        containerColor = Color.White,
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("发送脑花", color = Color(0xFF111111)) },
-                            onClick = {
-                                showMenu = false
-                                onShare(currentImage)
-                            }
+
+                    if (isChatMode) {
+                        Text(
+                            text = "${pagerState.currentPage + 1}/${images.size}",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = foregroundColor,
                         )
-                        DropdownMenuItem(
-                            text = { Text("下载", color = Color(0xFF111111)) },
-                            onClick = {
-                                showMenu = false
-                                onDownload(currentImage)
+                        NasDetailGlassCircleButton(
+                            size = ds.sm(32.dp),
+                            onClick = { onDownload(currentImage) }
+                        ) {
+                            Icon(
+                                painter = painterResource(Res.drawable.ic_download),
+                                contentDescription = "下载",
+                                tint = foregroundColor,
+                                modifier = Modifier.size(ds.sm(16.dp))
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = Color.White,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE6E6E6))
+                        ) {
+                            Text(
+                                text = buildString {
+                                    append(currentImage.time)
+                                    currentImage.location?.let { append("  $it") }
+                                },
+                                modifier = Modifier.padding(horizontal = ds.sm(16.dp), vertical = ds.sm(9.dp)),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = ds.sp(12f),
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = Color(0xFF111111)
+                            )
+                        }
+
+                        Box {
+                            NasDetailGlassCircleButton(
+                                size = ds.sm(32.dp),
+                                onClick = { showMenu = true }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "更多",
+                                    tint = Color.Black.copy(alpha = 0.40f),
+                                    modifier = Modifier.size(ds.sm(18.dp))
+                                )
                             }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("删除", color = Color(0xFFFF3B30)) },
-                            onClick = {
-                                showMenu = false
-                                onDelete(currentImage)
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                                containerColor = Color.White,
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("发送脑花", color = Color(0xFF111111)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onShare(currentImage)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("下载", color = Color(0xFF111111)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDownload(currentImage)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("删除", color = Color(0xFFFF3B30)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDelete(currentImage)
+                                    }
+                                )
                             }
+                        }
+                    }
+                }
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(backgroundColor),
+                pageSpacing = 0.dp,
+                beyondViewportPageCount = 1
+            ) { page ->
+                val pageImage = images[page]
+                val fid = pageImage.fileId
+                val resolvedBlobRef = fid?.let { fullImageBlobRefs[it] }?.takeIf { it.isNotBlank() }
+                val displayPath = resolvedBlobRef ?: pageImage.path.takeIf { it.isNotBlank() }
+
+                LaunchedEffect(fid) {
+                    if (fid == null || fid in fullImageBlobRefs || fullImageLoading[fid] == true) return@LaunchedEffect
+                    fullImageLoading[fid] = true
+                    try {
+                        val response = sdkSessionManager.getFileFromNas(
+                            targetCdi = targetCdi,
+                            fileId = fid,
+                        ).getOrThrow()
+                        fullImageBlobRefs[fid] = response.item?.blobRef?.trim()?.takeIf { it.isNotEmpty() }
+                    } catch (_: Throwable) {
+                        fullImageBlobRefs[fid] = null
+                    } finally {
+                        fullImageLoading[fid] = false
+                    }
+                }
+
+                when {
+                    displayPath != null && displayPath.isLocalAttachmentSource() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(backgroundColor)
+                                .verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            PlatformImagePreview(
+                                uri = displayPath,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    displayPath != null -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(backgroundColor)
+                                .verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            BlobImage(
+                                blobRef = displayPath,
+                                contentDescription = pageImage.name,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentScale = ContentScale.FillWidth,
+                                errorContent = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().background(backgroundColor)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    fullImageLoading[fid] == true -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(backgroundColor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp),
+                                color = foregroundColor.copy(alpha = 0.7f),
+                                strokeWidth = 3.dp,
+                            )
+                        }
+                    }
+                    else -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(backgroundColor)
                         )
                     }
                 }
             }
         }
-
     }
 }
 

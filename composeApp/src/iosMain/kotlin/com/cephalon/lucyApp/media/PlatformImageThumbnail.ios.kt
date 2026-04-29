@@ -105,7 +105,7 @@ actual fun PlatformImagePreview(
             contentScale = ContentScale.Fit
         )
     } else {
-        Box(modifier = modifier.background(Color.Black))
+        Box(modifier = modifier.background(Color.White))
     }
 }
 
@@ -126,7 +126,7 @@ private fun IOSPlatformImageView(
                     platform.UIKit.UIViewContentMode.UIViewContentModeScaleAspectFill
                 }
                 clipsToBounds = true
-                backgroundColor = if (isPreview) UIColor.blackColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
+                backgroundColor = if (isPreview) UIColor.whiteColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
             }
         },
         update = { imageView ->
@@ -135,7 +135,7 @@ private fun IOSPlatformImageView(
             } else {
                 platform.UIKit.UIViewContentMode.UIViewContentModeScaleAspectFill
             }
-            imageView.backgroundColor = if (isPreview) UIColor.blackColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
+            imageView.backgroundColor = if (isPreview) UIColor.whiteColor else UIColor.colorWithWhite(0.93, alpha = 1.0)
             imageView.image = image
         },
         properties = UIKitInteropProperties(

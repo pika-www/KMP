@@ -14,6 +14,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +76,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun AgentModelComposer(
@@ -105,14 +108,43 @@ internal fun AgentModelComposer(
     modifier: Modifier = Modifier,
 ) {
     val ds = LocalDesignScale.current
-    val inputShape = RoundedCornerShape(ds.sm(100.dp))
     val circleShape = RoundedCornerShape(ds.sm(99.dp))
     val inputLineHeight = ds.sp(16f)
+    var visualLineCount by remember { mutableStateOf(1) }
+    val currentLineCount = maxOf(
+        inputText.text.lineSequence().count().coerceAtLeast(1),
+        visualLineCount
+    )
+    var hasEnteredMultilineMode by remember { mutableStateOf(currentLineCount > 1) }
+    LaunchedEffect(currentLineCount) {
+        hasEnteredMultilineMode = when {
+            inputText.text.isEmpty() -> false
+            currentLineCount > 1 -> true
+            else -> hasEnteredMultilineMode
+        }
+    }
+    val isMultilineInput = hasEnteredMultilineMode
+    val inputShape = if (isMultilineInput) {
+        RoundedCornerShape(16.dp)
+    } else {
+        RoundedCornerShape(ds.sm(100.dp))
+    }
     val inputScrollState = rememberScrollState()
     val density = LocalDensity.current
     val quickMenuLeftPx = with(density) { 20.dp.roundToPx() }
     var bottomActionBarTopInWindowPx by remember { mutableStateOf(0) }
     var quickMenuSize by remember { mutableStateOf(IntSize.Zero) }
+    var isInputFocused by remember { mutableStateOf(false) }
+    var previousInputLineCount by remember { mutableStateOf(currentLineCount) }
+
+    LaunchedEffect(inputText.text, isInputFocused) {
+        if (isInputFocused && currentLineCount > previousInputLineCount) {
+            // Wait one frame for scrollState.maxValue to reflect the newly inserted line.
+            delay(32)
+            inputScrollState.scrollTo(inputScrollState.maxValue)
+        }
+        previousInputLineCount = currentLineCount
+    }
 
     Box(
         modifier = modifier
@@ -137,17 +169,17 @@ internal fun AgentModelComposer(
                     uploadStates = uploadStates,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
             }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(ds.sh(74.dp))
+                    .heightIn(min = ds.sh(40.dp))
                     .onGloballyPositioned { coordinates ->
                         bottomActionBarTopInWindowPx = coordinates.boundsInWindow().top.toInt()
                     },
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(ds.sw(12.dp))
             ) {
                 Box(
@@ -170,10 +202,16 @@ internal fun AgentModelComposer(
                     )
                 }
 
-                Row(
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(ds.sh(40.dp))
+                        .then(
+                            if (isMultilineInput) {
+                                Modifier.heightIn(min = ds.sh(40.dp))
+                            } else {
+                                Modifier.height(ds.sh(40.dp))
+                            }
+                        )
                         .shadow(
                             elevation = 30.dp,
                             shape = inputShape,
@@ -183,8 +221,12 @@ internal fun AgentModelComposer(
                         .clip(inputShape)
                         .background(Color.Black.copy(alpha = 0.05f))
                         .border(0.5.dp, Color.Black.copy(alpha = 0.05f), inputShape)
-                        .padding(start = ds.sw(16.dp), end = ds.sw(12.dp)),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(
+                            start = ds.sw(16.dp),
+                            top = if (isMultilineInput) ds.sh(12.dp) else ds.sh(8.dp),
+                            end = ds.sw(12.dp),
+                            bottom = if (isMultilineInput) ds.sh(12.dp) else ds.sh(8.dp)
+                        )
                 ) {
                     BasicTextField(
                         value = inputText,
@@ -198,13 +240,44 @@ internal fun AgentModelComposer(
                         maxLines = Int.MAX_VALUE,
                         cursorBrush = SolidColor(Color.Black.copy(alpha = 0.9f)),
                         enabled = !isRecording,
+                        onTextLayout = { textLayoutResult ->
+                            visualLineCount = textLayoutResult.lineCount.coerceAtLeast(1)
+                        },
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .heightIn(max = inputLineHeight.value.dp * 4)
-                            .verticalScroll(inputScrollState)
-                            .onFocusChanged { onInputFocusChanged(it.isFocused) },
+                            .then(
+                                if (isMultilineInput) {
+                                    Modifier.verticalScroll(inputScrollState)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(
+                                end = if (isMultilineInput) ds.sw(48.dp) else ds.sw(28.dp),
+                                bottom = if (isMultilineInput) ds.sh(20.dp) else 0.dp
+                            )
+                            .onFocusChanged {
+                                isInputFocused = it.isFocused
+                                onInputFocusChanged(it.isFocused)
+                            },
                         decorationBox = { innerTextField ->
-                            Box {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isMultilineInput) {
+                                            Modifier
+                                        } else {
+                                            Modifier.fillMaxHeight()
+                                        }
+                                    ),
+                                contentAlignment = if (isMultilineInput) {
+                                    Alignment.TopStart
+                                } else {
+                                    Alignment.CenterStart
+                                }
+                            ) {
                                 if (inputText.text.isEmpty()) {
                                     Text(
                                         text = when {
@@ -222,55 +295,46 @@ internal fun AgentModelComposer(
                             }
                         }
                     )
-                    Spacer(modifier = Modifier.width(ds.sw(12.dp)))
-                    Box(
-                        modifier = Modifier
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { if (!isVoiceBusy) onVoiceStart() }
-                            .padding(vertical = ds.sh(4.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_composer_mic),
-                            contentDescription = "Voice",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(ds.sm(16.dp))
+                    if (isMultilineInput) {
+                        SendActionButton(
+                            isSendDisabled = isSendDisabled,
+                            isStopMode = isStopMode,
+                            onSend = onSend,
+                            onStop = onStop,
+                            buttonSize = 24.dp,
+                            iconSize = 12.dp,
+                            stopIndicatorSize = 7.dp,
+                            stopIndicatorCorner = 1.5.dp,
+                            modifier = Modifier.align(Alignment.BottomEnd)
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { if (!isVoiceBusy) onVoiceStart() }
+                                .padding(vertical = ds.sh(4.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(Res.drawable.ic_composer_mic),
+                                contentDescription = "Voice",
+                                tint = Color.Unspecified,
+                                modifier = Modifier.size(ds.sm(16.dp))
+                            )
+                        }
                     }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(ds.sm(36.dp))
-                        .clip(circleShape)
-                        .background(if (isSendDisabled) Color.Black.copy(alpha = 0.35f) else Color.Black)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            enabled = !isSendDisabled,
-                        ) {
-                            if (isStopMode) onStop() else onSend()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isStopMode) {
-                        Box(
-                            modifier = Modifier
-                                .size(ds.sm(10.dp))
-                                .offset(y = (-ds.sh(1.dp)))
-                                .clip(RoundedCornerShape(ds.sm(2.dp)))
-                                .background(Color.White)
-                        )
-                    } else {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_send),
-                            contentDescription = "Send",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(ds.sm(18.dp))
-                        )
-                    }
+                if (!isMultilineInput) {
+                    SendActionButton(
+                        isSendDisabled = isSendDisabled,
+                        isStopMode = isStopMode,
+                        onSend = onSend,
+                        onStop = onStop,
+                    )
                 }
             }
         }
@@ -304,6 +368,52 @@ internal fun AgentModelComposer(
                     onToggleAttachments()
                 },
                 onMeasured = { quickMenuSize = it }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SendActionButton(
+    isSendDisabled: Boolean,
+    isStopMode: Boolean,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    buttonSize: androidx.compose.ui.unit.Dp = 36.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 24.dp,
+    stopIndicatorSize: androidx.compose.ui.unit.Dp = 10.dp,
+    stopIndicatorCorner: androidx.compose.ui.unit.Dp = 2.dp,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDesignScale.current
+    Box(
+        modifier = modifier
+            .size(buttonSize)
+            .clip(RoundedCornerShape(ds.sm(99.dp)))
+            .background(if (isSendDisabled) Color.Black.copy(alpha = 0.35f) else Color.Black)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = !isSendDisabled,
+            ) {
+                if (isStopMode) onStop() else onSend()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (isStopMode) {
+            Box(
+                modifier = Modifier
+                    .size(stopIndicatorSize)
+                    .offset(y = (-ds.sh(1.dp)))
+                    .clip(RoundedCornerShape(stopIndicatorCorner))
+                    .background(Color.White)
+            )
+        } else {
+            Icon(
+                painter = painterResource(Res.drawable.ic_send),
+                contentDescription = "Send",
+                tint = Color.Unspecified,
+                modifier = Modifier.size(iconSize)
             )
         }
     }

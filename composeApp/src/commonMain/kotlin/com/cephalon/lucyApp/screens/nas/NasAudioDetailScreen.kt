@@ -406,12 +406,18 @@ private fun AudioPlayerContent(
     modifier: Modifier = Modifier
 ) {
     val ds = LocalDesignScale.current
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.Top
+    ) {
         // 中间音频图标 / 加载状态 / 错误状态
         Box(
             modifier = Modifier
+                .weight(1f)
                 .fillMaxWidth()
-                .weight(1f),
+                .padding(top = ds.sm(12.dp), bottom = ds.sm(12.dp)),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -454,7 +460,7 @@ private fun AudioPlayerContent(
                 .fillMaxWidth()
                 .padding(
                     start = ds.sm(16.dp),
-                    top = ds.sm(16.dp),
+                    top = ds.sm(0.dp),
                     end = ds.sm(16.dp)
                 ),
             style = MaterialTheme.typography.titleMedium.copy(
@@ -653,7 +659,7 @@ private fun TranscriptContent
             modifier = modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(16.dp)),
+                .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(8.dp)),
             verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
         ) {
             MarkdownTranscriptText(

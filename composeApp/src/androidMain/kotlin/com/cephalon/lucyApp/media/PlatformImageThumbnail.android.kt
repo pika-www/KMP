@@ -45,7 +45,7 @@ actual fun PlatformImagePreview(
 ) {
     val bitmap = rememberPlatformImageBitmap(uri)
     if (bitmap == null) {
-        Box(modifier = modifier.background(Color.Black))
+        Box(modifier = modifier.background(Color.White))
     } else {
         Image(
             bitmap = bitmap,

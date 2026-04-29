@@ -1866,6 +1866,13 @@ fun AgentModelScreen(
                     .fillMaxSize()
                     .background(Color(0xFFF5F5F7))
                     .padding(padding)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        focusManager.clearFocus()
+                        attachmentsExpanded = false
+                    }
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Surface(color = Color.White) {
@@ -1914,7 +1921,7 @@ fun AgentModelScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "探索您的精力上线",
+                                    text = "探索您的精力上限",
                                     color = Color.Black.copy(alpha = 0.9f),
                                     fontSize = ds.sp(28f),
                                     fontWeight = FontWeight.SemiBold,
@@ -2005,6 +2012,7 @@ fun AgentModelScreen(
                                 },
                                 onSkillClick = { skillText ->
                                     inputText = TextFieldValue(skillText)
+                                    focusManager.clearFocus()
                                     sendMessage()
                                 },
                                 onAttachmentOpen = ::handleAttachmentOpen,
@@ -2059,7 +2067,20 @@ fun AgentModelScreen(
 
                     AgentModelComposer(
                         inputText = inputText,
-                        onInputTextChange = { inputText = it },
+                        onInputTextChange = { updatedValue ->
+                            val previousLineCount = inputText.text.lineSequence().count().coerceAtLeast(1)
+                            val nextLineCount = updatedValue.text.lineSequence().count().coerceAtLeast(1)
+                            inputText = updatedValue
+                            if (composerInputFocused && nextLineCount > previousLineCount) {
+                                shouldAutoFollowBottom = true
+                                coroutineScope.launch {
+                                    val total = messageListState.layoutInfo.totalItemsCount
+                                    if (total > 0) {
+                                        messageListState.scrollToItem(total - 1)
+                                    }
+                                }
+                            }
+                        },
                         draftAttachments = draftAttachments,
                         onRemoveDraftAttachment = { att ->
                             draftAttachments.remove(att)

@@ -375,62 +375,8 @@ internal fun NasUploadProgressDialog(
                     .verticalScroll(taskListScrollState),
                 verticalArrangement = Arrangement.spacedBy(ds.sm(12.dp))
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(ds.sm(36.dp))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(ds.sm(32.dp))
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.10f))
-                                .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
-                                contentDescription = "关闭上传进度",
-                                tint = Color.Black.copy(alpha = 0.60f),
-                                modifier = Modifier.size(
-                                    width = ds.sw(11.dp),
-                                    height = ds.sh(17.dp),
-                                ),
-                            )
-                        }
-                    }
-                    Text(
-                        text = "任务进度",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = ds.sp(20f),
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = Color.White
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(ds.sm(36.dp))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(ds.sm(32.dp))
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.10f))
-                                .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = "完成上传进度",
-                                tint = Color.White,
-                                modifier = Modifier.size(ds.sm(18.dp))
-                            )
-                        }
-                    }
+                visibleTasks.forEach { task ->
+                    NasUploadTaskCard(task = task)
                 }
                 if (visibleTasks.isEmpty() && uploadSummary != null && uploadSummary.totalCount > 0) {
                     Text(
@@ -938,6 +884,7 @@ internal fun NasPhotosContent(
     onImageLongClick: (NasImageItem) -> Unit = {},
     onImageSelectionToggle: (NasImageItem) -> Unit = {},
     emptyText: String? = null,
+    emptyTextColor: Color = Color.White.copy(alpha = 0.72f),
     footer: (@Composable () -> Unit)? = null
 ) {
     val ds = LocalDesignScale.current
@@ -952,7 +899,7 @@ internal fun NasPhotosContent(
             Text(
                 text = emptyText,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = ds.sp(14f)),
-                color = Color.White.copy(alpha = 0.72f)
+                color = emptyTextColor
             )
         } else {
             Spacer(modifier = Modifier.height(ds.sm(16.dp)))
@@ -1025,6 +972,7 @@ internal fun NasRecordingsContent(
     onAudioClick: (NasAudioItem) -> Unit = {},
     onAudioSelectionToggle: (NasAudioItem) -> Unit = {},
     emptyText: String? = null,
+    emptyTextColor: Color = Color.White.copy(alpha = 0.72f),
     footer: (@Composable () -> Unit)? = null
 ) {
     val ds = LocalDesignScale.current
@@ -1039,7 +987,7 @@ internal fun NasRecordingsContent(
             Text(
                 text = emptyText,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = ds.sp(14f)),
-                color = Color.White.copy(alpha = 0.72f)
+                color = emptyTextColor
             )
         } else {
             Spacer(modifier = Modifier.height(ds.sm(16.dp)))
@@ -1080,6 +1028,7 @@ internal fun NasDocumentsContent(
     onDocumentClick: (NasDocumentItem) -> Unit = {},
     onDocumentSelectionToggle: (NasDocumentItem) -> Unit = {},
     emptyText: String? = null,
+    emptyTextColor: Color = Color.White.copy(alpha = 0.72f),
     footer: (@Composable () -> Unit)? = null
 ) {
     val ds = LocalDesignScale.current
@@ -1094,7 +1043,7 @@ internal fun NasDocumentsContent(
             Text(
                 text = emptyText,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = ds.sp(14f)),
-                color = Color.White.copy(alpha = 0.72f)
+                color = emptyTextColor
             )
         } else {
             Spacer(modifier = Modifier.height(ds.sm(16.dp)))
