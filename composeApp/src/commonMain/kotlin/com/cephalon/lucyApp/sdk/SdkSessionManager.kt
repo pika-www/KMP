@@ -7,9 +7,11 @@ import com.cephalon.lucyApp.time.currentTimeMillis
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -193,6 +195,10 @@ class SdkSessionManager(
     private var connectMutexOwner: String? = null
     private var connectMutexAcquiredAtMs: Long? = null
     private var connectMutexWatchdogJob: Job? = null
+
+    /** 合并并发的「非快速路径」连接，避免多个协程各排队等 connectMutex 60s。 */
+    private val connectSingleFlightGate = Mutex()
+    private var connectSingleFlight: Deferred<Result<Unit>>? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     private val sdkDispatcher = Dispatchers.Default.limitedParallelism(4)
@@ -541,6 +547,58 @@ class SdkSessionManager(
         }
     }
 
+    private fun formatConnectDiagnostic(
+        waitTimeoutMs: Long? = null,
+        mutexOwner: String? = null,
+        ownerHeldMs: Long? = null,
+    ): String {
+        val parts = ArrayList<String>(8)
+        parts.add("state=${_connectionState.value}")
+        parts.add("hasSession=${session != null}")
+        parts.add("mutexLocked=${connectMutex.isLocked}")
+        waitTimeoutMs?.let { parts.add("waitTimeoutMs=$it") }
+        mutexOwner?.let { parts.add("mutexOwner=${it.take(64)}") }
+        ownerHeldMs?.let { parts.add("ownerHeldMs=$it") }
+        return parts.joinToString(", ")
+    }
+
+    private fun connectMutexTimeoutException(waitTimeoutMs: Long): IllegalStateException {
+        val owner = connectMutexOwner ?: "unknown"
+        val heldMs = connectMutexAcquiredAtMs?.let { (currentTimeMillis() - it).coerceAtLeast(0L) } ?: -1L
+        val diag = formatConnectDiagnostic(waitTimeoutMs, owner, heldMs)
+        appLogD(
+            TAG,
+            "ensureConnectedIfTokenValid: 获取 connectMutex 超时(${waitTimeoutMs}ms), $diag",
+        )
+        return IllegalStateException("SDK 连接锁超时，请稍后重试 | 诊断: $diag")
+    }
+
+    private fun connectSupersededAfterSharedAwaitException(): IllegalStateException {
+        val diag = formatConnectDiagnostic()
+        appLogD(TAG, "ensureConnectedIfTokenValid: 共享连接完成后会话已失效, $diag")
+        return IllegalStateException("连接已完成，但当前会话已断开，请重试 | 诊断: $diag")
+    }
+
+    private fun sanitizeConnectResultAfterSharedAwait(result: Result<Unit>): Result<Unit> {
+        if (result.isFailure) return result
+        if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) return result
+        return Result.failure(connectSupersededAfterSharedAwaitException())
+    }
+
+    private suspend fun runConnectSlowPath(): Result<Unit> {
+        val owner = "ensureConnectedIfTokenValid"
+        val waitTimeoutMs = 60_000L
+        val locked = lockConnectMutexWithTimeout(owner = owner, timeoutMs = waitTimeoutMs)
+        if (!locked) {
+            return Result.failure(connectMutexTimeoutException(waitTimeoutMs))
+        }
+        return try {
+            ensureConnectedIfTokenValidLocked()
+        } finally {
+            unlockConnectMutex(owner)
+        }
+    }
+
     suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
         if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
             val observersActive = areObserversActive()
@@ -562,23 +620,32 @@ class SdkSessionManager(
             return Result.success(Unit)
         }
 
-        // 获取 mutex 最多等 60s，防止死锁
-        val owner = "ensureConnectedIfTokenValid"
-        val locked = lockConnectMutexWithTimeout(owner = owner, timeoutMs = 60_000L)
-        if (!locked) {
-            val currentOwner = connectMutexOwner ?: "unknown"
-            val heldMs = connectMutexAcquiredAtMs?.let { (currentTimeMillis() - it).coerceAtLeast(0L) } ?: -1L
-            appLogD(
-                TAG,
-                "ensureConnectedIfTokenValid: 获取 connectMutex 超时(60s), currentOwner=$currentOwner, ownerHeldMs=$heldMs, state=${_connectionState.value}, hasSession=${session != null}",
-            )
-            return Result.failure(IllegalStateException("SDK 连接锁超时，请稍后重试"))
-        }
-        return try {
-            ensureConnectedIfTokenValidLocked()
-        } finally {
-            unlockConnectMutex(owner)
-        }
+        val deferred =
+            connectSingleFlightGate.withLock {
+                val existing = connectSingleFlight
+                if (existing != null && existing.isActive) {
+                    appLogD(TAG, "ensureConnectedIfTokenValid: 单飞复用进行中的连接")
+                    existing
+                } else {
+                    lateinit var job: Deferred<Result<Unit>>
+                    job =
+                        scope.async {
+                            try {
+                                runConnectSlowPath()
+                            } finally {
+                                connectSingleFlightGate.withLock {
+                                    if (connectSingleFlight === job) {
+                                        connectSingleFlight = null
+                                    }
+                                }
+                            }
+                        }
+                    connectSingleFlight = job
+                    job
+                }
+            }
+        val result = deferred.await()
+        return sanitizeConnectResultAfterSharedAwait(result)
     }
 
     private suspend fun ensureConnectedIfTokenValidLocked(): Result<Unit> {
@@ -622,8 +689,12 @@ class SdkSessionManager(
             val connectResult = withTimeoutOrNull(20_000L) {
                 runCatching { sdkClient.connect(token) }
             } ?: run {
-                appLogD(TAG, "connect: sdkClient.connect() 超时(20s)")
-                return Result.failure(IllegalStateException("SDK 连接超时(20s)，请检查网络"))
+                appLogD(TAG, "connect: sdkClient.connect() 超时(20s), ${formatConnectDiagnostic()}")
+                return Result.failure(
+                    IllegalStateException(
+                        "SDK 连接超时(20s)，请检查网络 | 诊断: ${formatConnectDiagnostic()}",
+                    ),
+                )
             }
             appLogD(TAG, "connect: sdkClient.connect() 返回 isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
 
