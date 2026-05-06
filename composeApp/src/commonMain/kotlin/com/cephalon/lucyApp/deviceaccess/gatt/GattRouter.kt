@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
@@ -306,7 +307,17 @@ class GattRouter(
         return connection.observeCharacteristic(
             serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
             characteristicUuid = GattRoute.LucyPairingInfo.characteristicUuid,
-        ).map { bytes -> dispatcher.decode<LucyPairingInfoPayload>(bytes) }
+        ).mapNotNull { bytes ->
+            try {
+                dispatcher.decode<LucyPairingInfoPayload>(bytes)
+            } catch (e: Exception) {
+                val raw = bytes.decodeToString()
+                val truncated = !raw.trimEnd().endsWith("}")
+                val hint = if (truncated) "（JSON 被截断，共 ${bytes.size} 字节，可能 MTU 不足）" else ""
+                println("[BrainBox] notify LucyPairingInfo JSON 解析失败$hint: $raw")
+                null // 跳过截断的 notify，等下一个或 fallback read
+            }
+        }
     }
 
     suspend fun readJson(route: GattRoute): Result<RoutedJsonPayload> {
@@ -326,7 +337,17 @@ class GattRouter(
         return connection.readCharacteristic(
             serviceUuid = BrainBoxGattProtocol.SERVICE_UUID,
             characteristicUuid = route.characteristicUuid,
-        ).map { bytes -> dispatcher.decodeJsonObject(bytes) }
+        ).mapCatching { bytes ->
+            try {
+                dispatcher.decodeJsonObject(bytes)
+            } catch (e: Exception) {
+                val raw = bytes.decodeToString()
+                val truncated = !raw.trimEnd().endsWith("}")
+                val hint = if (truncated) "（JSON 被截断，共 ${bytes.size} 字节，可能 MTU 不足）" else ""
+                println("[BrainBox] readRoute ${route.name} JSON 解析失败$hint: $raw (isGattLayer=false)")
+                throw IllegalStateException("${route.name} JSON 解析失败$hint", e)
+            }
+        }
     }
 
     private suspend fun writeRoute(route: GattRoute, payload: JsonObject): Result<Unit> {

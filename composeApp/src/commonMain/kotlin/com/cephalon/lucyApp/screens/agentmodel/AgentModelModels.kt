@@ -3,6 +3,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 import com.cephalon.lucyApp.media.AudioRecording
 import com.cephalon.lucyApp.media.PickedFile
 import com.cephalon.lucyApp.sdk.MediaAttachment
+import com.cephalon.lucyApp.time.currentTimeMillis
 
 internal sealed class AttachmentUploadState {
     data object Uploading : AttachmentUploadState()
@@ -25,6 +26,7 @@ internal data class DraftAttachment(
     val type: DraftAttachmentType,
     val uri: String,
     val displayName: String? = null,
+    val blobRef: String? = null,
     val nasFileId: Long? = null,
 )
 
@@ -55,6 +57,7 @@ internal sealed class ChatItem {
     abstract val messageId: String?
 
     data class Assistant(
+        val assistantId: String = generateAssistantEntryId(),
         val text: String,
         override val messageId: String? = null,
         val attachments: List<MediaAttachment> = emptyList(),
@@ -77,6 +80,7 @@ internal sealed class ChatItem {
         val id: String,
         val name: String,
         val path: String,
+        val blobRef: String? = null,
         override val messageId: String? = null,
     ) : ChatItem()
     data class Error(
@@ -87,6 +91,9 @@ internal sealed class ChatItem {
         override val messageId: String? = null
     }
 }
+
+internal fun generateAssistantEntryId(): String =
+    "assistant-${currentTimeMillis()}-${kotlin.random.Random.nextLong().toString(16)}"
 
 internal data class ConversationItem(
     val id: String,
@@ -152,6 +159,7 @@ internal fun DraftAttachment.asAudioRecording(): AudioRecording {
     return AudioRecording(
         id = uri,
         name = displayName(),
-        path = uri
+        path = uri,
+        blobRef = blobRef
     )
 }

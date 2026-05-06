@@ -1,15 +1,16 @@
 package com.cephalon.lucyApp.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -111,8 +112,8 @@ fun HalfModalBottomSheet(
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedVisibility(
             visibleState = visibleState,
-            enter = fadeIn(animationSpec = tween(delayMillis = 90, durationMillis = 220)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 140))
+            enter = fadeIn(animationSpec = tween(durationMillis = 200)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 160))
         ) {
             Box(
                 modifier = Modifier
@@ -133,8 +134,11 @@ fun HalfModalBottomSheet(
                 visibleState = visibleState,
                 enter = slideInVertically(
                     initialOffsetY = { it },
-                    animationSpec = tween(delayMillis = 90, durationMillis = 360)
-                ) + fadeIn(animationSpec = tween(delayMillis = 90, durationMillis = 160)),
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeIn(animationSpec = tween(durationMillis = 150)),
                 exit = slideOutVertically(
                     targetOffsetY = { it },
                     animationSpec = spring(
@@ -205,17 +209,26 @@ fun HalfModalBottomSheet(
                                     if (showBackButton) {
                                         IconButton(
                                             onClick = { onBack?.invoke() ?: latestOnDismissRequest.value() },
-                                            modifier = Modifier
-                                                .size(ds.sm(40.dp))
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFE6E6E6))
+                                            modifier = Modifier.size(ds.sm(40.dp))
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                                contentDescription = "Back",
-                                                tint = Color(0xFF2D2D2D),
-                                                modifier = Modifier.size(ds.sm(24.dp))
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(ds.sm(32.dp))
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.10f))
+                                                    .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                                                    contentDescription = "Back",
+                                                    tint = Color.Black.copy(alpha = 0.60f),
+                                                    modifier = Modifier.size(
+                                                        width = ds.sw(11.dp),
+                                                        height = ds.sh(17.dp),
+                                                    ),
+                                                )
+                                            }
                                         }
                                     } else {
                                         Spacer(modifier = Modifier.size(ds.sm(40.dp)))
@@ -226,17 +239,23 @@ fun HalfModalBottomSheet(
                                     if (showCloseButton) {
                                         IconButton(
                                             onClick = { latestOnDismissRequest.value() },
-                                            modifier = Modifier
-                                                .size(ds.sm(40.dp))
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFE6E6E6))
+                                            modifier = Modifier.size(ds.sm(40.dp))
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Close",
-                                                tint = Color(0xFF2D2D2D),
-                                                modifier = Modifier.size(ds.sm(22.dp))
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(ds.sm(32.dp))
+                                                    .clip(CircleShape)
+                                                    .background(Color.White.copy(alpha = 0.10f))
+                                                    .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Close,
+                                                    contentDescription = "Close",
+                                                    tint = Color(0xFF717580),
+                                                    modifier = Modifier.size(ds.sm(18.dp))
+                                                )
+                                            }
                                         }
                                     } else {
                                         Spacer(modifier = Modifier.size(ds.sm(40.dp)))

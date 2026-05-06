@@ -17,6 +17,8 @@ import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.layout.fillMaxSize
 import com.arkivanov.decompose.extensions.compose.stack.Children
+import com.arkivanov.decompose.extensions.compose.stack.animation.slide
+import com.arkivanov.decompose.extensions.compose.stack.animation.stackAnimation
 import com.arkivanov.decompose.Child
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.sdk.SdkSessionManager
@@ -31,6 +33,7 @@ import com.cephalon.lucyApp.screens.HomeScreen
 import com.cephalon.lucyApp.screens.AgentModelScreen
 import com.cephalon.lucyApp.screens.nas.NasScreen
 import com.cephalon.lucyApp.screens.LoginScreen
+import com.cephalon.lucyApp.screens.LucyGuideScreen
 import com.cephalon.lucyApp.screens.ScanBindChannelScreen
 import com.cephalon.lucyApp.screens.SdkTestScreen
 import com.cephalon.lucyApp.screens.WsTestScreen
@@ -125,75 +128,88 @@ fun App(
                     sdkSessionManager,
                 )
             }
-
-            Children(stack = root.stack) { child: Child.Created<*, RootComponent.Child> ->
-                when (val instance = child.instance) {
-                    is RootComponent.Child.Login -> {
-                        LoginScreen(
-                            onLoginSuccess = instance.component::onLoginSuccess,
-                        )
-                    }
-
-
-                    is RootComponent.Child.Home -> {
-                        HomeScreen(
-                            showBack = instance.component.showBack,
-                            onBack = instance.component::onBack,
-                            onLogout = instance.component::onLogout,
-                            onOpenSdkTest = instance.component::onOpenSdkTest,
-                            onOpenWsTest = instance.component::onOpenWsTest,
-                            onOpenBrainBoxGuide = instance.component::onOpenBrainBoxGuide,
-                            onOpenBrainBoxLoginSuccess = instance.component::onOpenBrainBoxLoginSuccess,
-                            onOpenAgentModel = instance.component::onOpenAgentModel,
-                            onOpenScanBindChannel = instance.component::onOpenScanBindChannel,
-                        )
-                    }
-
-                    is RootComponent.Child.SdkTest -> {
-                        SdkTestScreen(
-                            onBack = instance.component::onBack
-                        )
-                    }
-
-                    is RootComponent.Child.BrainBoxGuide -> {
-                        BrainBoxGuideScreen(
-                            onBack = instance.component::onBack,
-                            onFinish = instance.component::onFinish
-                        )
-                    }
-
-                    is RootComponent.Child.WsTest -> {
-                        WsTestScreen(
-                            onBack = instance.component::onBack
-                        )
-                    }
-
-                    is RootComponent.Child.AgentModel -> {
-                        AgentModelScreen(
-                            onBack = instance.component::onBack,
-                            onNavigateToNas = instance.component::onNavigateToNas,
-                            onNavigateToHome = instance.component::onNavigateToHome,
-                            onLogout = instance.component::onLogout,
-                            initialTargetCdi = instance.component.targetCdi,
-                        )
-                    }
-
-                    is RootComponent.Child.ScanBindChannel -> {
-                        ScanBindChannelScreen(
-                            onBack = instance.component::onBack,
-                            onScanSuccess = instance.component::onScanSuccess,
-                        )
-                    }
-
-                    is RootComponent.Child.Nas -> {
-                        NasScreen(
-                            onBack = instance.component::onBack
-                        )
-                    }
-                }
+            Children(
+                stack = root.stack,
+                animation = stackAnimation(slide())
+            ) { child: Child.Created<*, RootComponent.Child> ->
+                RenderRootChild(child.instance)
             }
         }
       }
+    }
+}
+
+@Composable
+private fun RenderRootChild(child: RootComponent.Child) {
+    when (child) {
+        is RootComponent.Child.Login -> {
+            LoginScreen(
+                onLoginSuccess = child.component::onLoginSuccess,
+            )
+        }
+
+        is RootComponent.Child.Home -> {
+            HomeScreen(
+                showBack = child.component.showBack,
+                onBack = child.component::onBack,
+                onLogout = child.component::onLogout,
+                onOpenSdkTest = child.component::onOpenSdkTest,
+                onOpenWsTest = child.component::onOpenWsTest,
+                onOpenBrainBoxGuide = child.component::onOpenBrainBoxGuide,
+                onOpenBrainBoxLoginSuccess = child.component::onOpenBrainBoxLoginSuccess,
+                onOpenAgentModel = child.component::onOpenAgentModel,
+                onOpenScanBindChannel = child.component::onOpenScanBindChannel,
+            )
+        }
+
+        is RootComponent.Child.SdkTest -> {
+            SdkTestScreen(
+                onBack = child.component::onBack
+            )
+        }
+
+        is RootComponent.Child.BrainBoxGuide -> {
+            BrainBoxGuideScreen(
+                onBack = child.component::onBack,
+                onFinish = child.component::onFinish
+            )
+        }
+
+        is RootComponent.Child.WsTest -> {
+            WsTestScreen(
+                onBack = child.component::onBack
+            )
+        }
+
+        is RootComponent.Child.AgentModel -> {
+            AgentModelScreen(
+                onBack = child.component::onBack,
+                onNavigateToNas = child.component::onNavigateToNas,
+                onNavigateToHome = child.component::onNavigateToHome,
+                onLogout = child.component::onLogout,
+                initialTargetCdi = child.component.targetCdi,
+            )
+        }
+
+        is RootComponent.Child.ScanBindChannel -> {
+            ScanBindChannelScreen(
+                onBack = child.component::onBack,
+                onScanSuccess = child.component::onScanSuccess,
+                onOpenGuide = child.component::onOpenGuide,
+            )
+        }
+
+        is RootComponent.Child.LucyGuide -> {
+            LucyGuideScreen(
+                onBack = child.component::onBack,
+            )
+        }
+
+        is RootComponent.Child.Nas -> {
+            NasScreen(
+                onBack = child.component::onBack
+            )
+        }
     }
 }
 

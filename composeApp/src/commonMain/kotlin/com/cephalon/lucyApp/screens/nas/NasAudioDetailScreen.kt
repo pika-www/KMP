@@ -1,20 +1,27 @@
 package com.cephalon.lucyApp.screens.nas
 
 import androidios.composeapp.generated.resources.Res
+import androidios.composeapp.generated.resources.ic_big_audio
 import androidios.composeapp.generated.resources.ic_delete
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,11 +30,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -56,12 +65,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.cephalon.lucyApp.components.LocalDesignScale
 import com.cephalon.lucyApp.media.PlatformMediaAccessController
@@ -92,8 +108,10 @@ internal fun NasAudioDetailScreen(
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
-    val backgroundColor = if (isChatMode) Color.White else Color.Black
-    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
+    val backgroundColor = Color(0xFFFAFAFC)
+    val foregroundColor = Color(0xFF111111)
+    val selectedTabColor = Color(0xFF000000)
+    val unselectedTabColor = Color(0xE6000000)
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
@@ -102,6 +120,7 @@ internal fun NasAudioDetailScreen(
     var localFilePath by remember(audio.id) { mutableStateOf<String?>(null) }
     var fileLoading by remember(audio.id) { mutableStateOf(false) }
     var fileError by remember(audio.id) { mutableStateOf<String?>(null) }
+    var transcriptMarkdown by remember(audio.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(audio.id, targetCdi, resolveAudioFile) {
         if (localFilePath != null) return@LaunchedEffect
@@ -118,6 +137,7 @@ internal fun NasAudioDetailScreen(
                                 targetCdi = targetCdi,
                                 fileId = audio.fileId,
                             ).getOrThrow()
+                            transcriptMarkdown = getResponse.item?.desc?.trim()?.ifBlank { null }
                             getResponse.item?.blobRef
                                 ?: throw IllegalStateException("文件详情缺少 blobRef")
                         }
@@ -149,6 +169,8 @@ internal fun NasAudioDetailScreen(
         else -> 0L
     }
     val isPlaying = isCurrentAudio && playbackState.isPlaying
+
+    PlatformBackHandler(onBack = onBack)
 
     LaunchedEffect(audio.id, isCurrentAudio, currentPositionMillis, durationMillis, isSeeking) {
         if (!isSeeking) {
@@ -200,12 +222,15 @@ internal fun NasAudioDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = isChatMode, onClick = onBack) {
+                AudioDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onBack) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "返回",
-                        tint = foregroundColor,
-                        modifier = Modifier.size(ds.sm(16.dp))
+                        tint = Color.Black.copy(alpha = 0.60f),
+                        modifier = Modifier.size(
+                            width = ds.sw(11.dp),
+                            height = ds.sh(17.dp),
+                        ),
                     )
                 }
 
@@ -214,19 +239,21 @@ internal fun NasAudioDetailScreen(
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xFF1C1C1E))
-                            .padding(ds.sm(4.dp))
+                            .background(Color.White)
+                            .padding(ds.sm(2.dp))
                     ) {
                         listOf("音频", "文稿").forEachIndexed { index, title ->
                             Box(
                                 modifier = Modifier
+                                    .widthIn(min = ds.sm(80.dp))
+                                    .height(ds.sm(28.dp))
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(
-                                        if (selectedTab == index) Color(0xFF3A3A3C)
+                                        if (selectedTab == index) selectedTabColor
                                         else Color.Transparent
                                     )
                                     .clickable { selectedTab = index }
-                                    .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(8.dp)),
+                                    .padding(horizontal = ds.sm(20.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -235,7 +262,7 @@ internal fun NasAudioDetailScreen(
                                         fontSize = ds.sp(14f),
                                         fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
                                     ),
-                                    color = foregroundColor
+                                    color = if (selectedTab == index) Color.White else unselectedTabColor
                                 )
                             }
                         }
@@ -246,7 +273,7 @@ internal fun NasAudioDetailScreen(
 
                 // 更多按钮 + 下拉菜单
                 if (isChatMode) {
-                    AudioDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onDownload) {
+                    AudioDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onDownload) {
                         Icon(
                             painter = painterResource(Res.drawable.ic_download),
                             contentDescription = "下载",
@@ -256,54 +283,30 @@ internal fun NasAudioDetailScreen(
                     }
                 } else {
                     Box {
-                        AudioDetailGlassCircleButton(size = ds.sm(36.dp), onClick = { showMenu = true }) {
+                        AudioDetailGlassCircleButton(size = ds.sm(32.dp), onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "更多",
-                                tint = Color.White,
-                                modifier = Modifier.size(ds.sm(16.dp))
+                                tint = Color.Black.copy(alpha = 0.40f),
+                                modifier = Modifier.size(ds.sm(18.dp))
                             )
                         }
                         DropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false },
-                            containerColor = Color(0xFF1C1C1E),
-                            shape = RoundedCornerShape(ds.sm(12.dp))
+                            containerColor = Color.White,
+                            shape = RoundedCornerShape(16.dp)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("发送脑花", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_share),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
+                                text = { Text("发送脑花", color = Color(0xFF111111)) },
                                 onClick = { showMenu = false; onShare() }
                             )
                             DropdownMenuItem(
-                                text = { Text("下载", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_download),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
+                                text = { Text("下载", color = Color(0xFF111111)) },
                                 onClick = { showMenu = false; onDownload() }
                             )
                             DropdownMenuItem(
                                 text = { Text("删除", color = Color(0xFFFF3B30)) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_delete),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF3B30),
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
                                 onClick = { showMenu = false; onDelete() }
                             )
                         }
@@ -375,7 +378,11 @@ internal fun NasAudioDetailScreen(
                         onSkipNextClick = { mediaController.skipAudioPlaybackBy(10_000L) },
                         modifier = Modifier.weight(1f)
                     )
-                    1 -> TranscriptContent(modifier = Modifier.weight(1f))
+                    1 -> TranscriptContent(
+                        transcript = transcriptMarkdown,
+                        textColor = foregroundColor,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -399,12 +406,18 @@ private fun AudioPlayerContent(
     modifier: Modifier = Modifier
 ) {
     val ds = LocalDesignScale.current
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.Top
+    ) {
         // 中间音频图标 / 加载状态 / 错误状态
         Box(
             modifier = Modifier
+                .weight(1f)
                 .fillMaxWidth()
-                .weight(1f),
+                .padding(top = ds.sm(12.dp), bottom = ds.sm(12.dp)),
             contentAlignment = Alignment.Center
         ) {
             when {
@@ -431,10 +444,10 @@ private fun AudioPlayerContent(
                 }
                 else -> {
                     Icon(
-                        imageVector = Icons.Default.Audiotrack,
+                        painter = painterResource(Res.drawable.ic_big_audio),
                         contentDescription = null,
-                        modifier = Modifier.size(ds.sm(120.dp)),
-                        tint = foregroundColor.copy(alpha = 0.15f)
+                        modifier = Modifier.size(ds.sm(190.dp)),
+                        tint = Color.Unspecified
                     )
                 }
             }
@@ -447,7 +460,7 @@ private fun AudioPlayerContent(
                 .fillMaxWidth()
                 .padding(
                     start = ds.sm(16.dp),
-                    top = ds.sm(16.dp),
+                    top = ds.sm(0.dp),
                     end = ds.sm(16.dp)
                 ),
             style = MaterialTheme.typography.titleMedium.copy(
@@ -618,44 +631,320 @@ private fun AudioProgressBar(
 }
 
 @Composable
-private fun TranscriptContent(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "文稿内容为空",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color(0xFF8E8E93)
-        )
+private fun TranscriptContent
+            (
+    transcript: String?,
+    textColor: Color = Color(0xFF111111),
+    modifier: Modifier = Modifier
+) {
+    val ds = LocalDesignScale.current
+    if (transcript.isNullOrBlank()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "文稿内容为空",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color(0xFF8E8E93)
+            )
+        }
+        return
+    }
+
+    SelectionContainer {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = ds.sm(20.dp), vertical = ds.sm(8.dp)),
+            verticalArrangement = Arrangement.spacedBy(ds.sm(8.dp))
+        ) {
+            MarkdownTranscriptText(
+                markdown = transcript,
+                textColor = textColor,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun MarkdownTranscriptText(
+    markdown: String,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDesignScale.current
+    val blocks = markdown.split("```")
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))) {
+        blocks.forEachIndexed { index, block ->
+            if (index % 2 == 1) {
+                val codeContent = block.lines().let { lines ->
+                    if (lines.isNotEmpty() && lines.first().isNotBlank() && !lines.first().trimStart().contains(' ')) {
+                        lines.drop(1).joinToString("\n").trim()
+                    } else {
+                        block.trim('\n')
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(ds.sm(10.dp)),
+                    color = Color(0xFF1F1F1F)
+                ) {
+                    Text(
+                        text = codeContent,
+                        color = Color(0xFFEAEAEA),
+                        fontSize = ds.sp(13f),
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ds.sw(10.dp), vertical = ds.sh(8.dp))
+                    )
+                }
+            } else {
+                val lines = block.lines().map { it.trimEnd() }
+                var i = 0
+                while (i < lines.size) {
+                    val line = lines[i]
+                    if (line.isBlank()) {
+                        i++
+                        continue
+                    }
+
+                    if (line.trimStart().startsWith("|")) {
+                        val tableLines = mutableListOf<String>()
+                        while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                            tableLines.add(lines[i])
+                            i++
+                        }
+                        MarkdownTranscriptTable(tableLines = tableLines, textColor = textColor)
+                    } else {
+                        when {
+                            line.startsWith("### ") -> MarkdownTranscriptLine(
+                                line = line.removePrefix("### "),
+                                textColor = textColor,
+                                fontSize = ds.sp(16f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            line.startsWith("## ") -> MarkdownTranscriptLine(
+                                line = line.removePrefix("## "),
+                                textColor = textColor,
+                                fontSize = ds.sp(18f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            line.startsWith("# ") -> MarkdownTranscriptLine(
+                                line = line.removePrefix("# "),
+                                textColor = textColor,
+                                fontSize = ds.sp(20f),
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            line.startsWith("- ") || line.startsWith("* ") -> MarkdownTranscriptLine(
+                                line = "• ${line.drop(2)}",
+                                textColor = textColor,
+                                fontSize = ds.sp(14f),
+                                fontWeight = FontWeight.Normal
+                            )
+
+                            else -> MarkdownTranscriptLine(
+                                line = line,
+                                textColor = textColor,
+                                fontSize = ds.sp(14f),
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                        i++
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownTranscriptTable(
+    tableLines: List<String>,
+    textColor: Color,
+) {
+    val ds = LocalDesignScale.current
+    val borderColor = Color(0x33FFFFFF)
+    val horizontalScrollState = rememberScrollState()
+
+    val rows = tableLines.mapNotNull { line ->
+        val trimmed = line.trim()
+        if (trimmed.matches(Regex("^\\|[\\s\\-:|]+\\|$"))) return@mapNotNull null
+        trimmed.trim('|').split("|").map { it.trim() }
+    }
+    if (rows.isEmpty()) return
+
+    val columnCount = rows.maxOf { it.size }
+    val minColumnWidth = ds.sw(88.dp)
+    val columnDividerWidth = 0.5.dp
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val minTableWidth =
+            (minColumnWidth * columnCount.toFloat()) +
+                (columnDividerWidth * (columnCount - 1).coerceAtLeast(0).toFloat())
+        val tableWidth = if (minTableWidth > maxWidth) minTableWidth else maxWidth
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(horizontalScrollState)
+        ) {
+            Surface(
+                modifier = Modifier.width(tableWidth),
+                shape = RoundedCornerShape(ds.sm(8.dp)),
+                border = BorderStroke(0.5.dp, borderColor),
+                color = Color.Transparent
+            ) {
+                Column {
+                    rows.forEachIndexed { rowIndex, cells ->
+                        val isHeader = rowIndex == 0
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                                .then(
+                                    if (isHeader) Modifier.background(Color(0x14FFFFFF))
+                                    else Modifier
+                                )
+                        ) {
+                            for (colIndex in 0 until columnCount) {
+                                if (colIndex > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(columnDividerWidth)
+                                            .fillMaxHeight()
+                                            .background(borderColor)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .widthIn(min = minColumnWidth)
+                                        .padding(
+                                            horizontal = ds.sw(8.dp),
+                                            vertical = ds.sh(6.dp)
+                                        )
+                                ) {
+                                    Text(
+                                        text = markdownTranscriptInlineAnnotatedString(
+                                            text = cells.getOrElse(colIndex) { "" },
+                                            textColor = textColor
+                                        ),
+                                        fontSize = ds.sp(13f),
+                                        fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = textColor
+                                    )
+                                }
+                            }
+                        }
+                        if (rowIndex < rows.lastIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(0.5.dp)
+                                    .background(borderColor)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownTranscriptLine(
+    line: String,
+    textColor: Color,
+    fontSize: TextUnit,
+    fontWeight: FontWeight,
+) {
+    Text(
+        text = markdownTranscriptInlineAnnotatedString(line, textColor),
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        color = textColor,
+        textAlign = TextAlign.Start
+    )
+}
+
+private fun markdownTranscriptInlineAnnotatedString(text: String, textColor: Color): AnnotatedString {
+    val regex = Regex("(\\*\\*[^*]+\\*\\*)|(`[^`]+`)|(\\[[^\\]]+\\]\\([^)]*\\))")
+    return buildAnnotatedString {
+        var lastIndex = 0
+        regex.findAll(text).forEach { match ->
+            if (match.range.first > lastIndex) {
+                append(text.substring(lastIndex, match.range.first))
+            }
+            val token = match.value
+            when {
+                token.startsWith("**") && token.endsWith("**") -> {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = textColor))
+                    append(token.removePrefix("**").removeSuffix("**"))
+                    pop()
+                }
+
+                token.startsWith("`") && token.endsWith("`") -> {
+                    pushStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            background = Color(0x14FFFFFF),
+                            color = textColor
+                        )
+                    )
+                    append(token.removePrefix("`").removeSuffix("`"))
+                    pop()
+                }
+
+                token.startsWith("[") -> {
+                    val label = token.substringAfter("[").substringBefore("]")
+                    pushStyle(
+                        SpanStyle(
+                            color = Color(0xFF7DB3FF),
+                            textDecoration = TextDecoration.Underline,
+                            fontWeight = FontWeight.Medium
+                        )
+                    )
+                    append(label)
+                    pop()
+                }
+            }
+            lastIndex = match.range.last + 1
+        }
+        if (lastIndex < text.length) {
+            append(text.substring(lastIndex))
+        }
     }
 }
 
 @Composable
 private fun AudioDetailGlassCircleButton(
     size: Dp,
-    isLight: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier.size(size),
-        shape = CircleShape,
-        color = if (isLight) Color.White else Color(0x1AFFFFFF),
-        border = BorderStroke(1.dp, if (isLight) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.05f))
+            .border(
+                width = 0.5.dp,
+                color = Color.Black.copy(alpha = 0.06f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
+        content()
     }
 }
 

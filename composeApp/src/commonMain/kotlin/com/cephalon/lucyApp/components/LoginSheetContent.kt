@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.withLink
 
 val TitleColor = Color(0xFF1F2535)
 val DisabledBtnColor = Color(0xFF717580)
@@ -52,8 +56,9 @@ fun SheetBackButton(
     Box(
         modifier = Modifier
             .size(ds.sm(32.dp))
+            .background(Color.White.copy(alpha = 0.10f), CircleShape)
+            .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape)
             .clip(CircleShape)
-            .background(Color(0x3D76768080.toInt()))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -62,10 +67,13 @@ fun SheetBackButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
             contentDescription = "Back",
-            tint = Color(0xFF2D2D2D),
-            modifier = Modifier.size(ds.sm(18.dp))
+            tint = Color.Black.copy(alpha = 0.60f),
+            modifier = Modifier.size(
+                width = ds.sw(11.dp),
+                height = ds.sh(17.dp),
+            ),
         )
     }
 }
@@ -86,8 +94,6 @@ fun LoginSheetContent(
     onVerifyCodeChange: (String) -> Unit,
     isLoading: Boolean,
     canSubmit: Boolean,
-    normalizedAccount: String,
-    isAccountEmail: Boolean,
     onBackClick: () -> Unit,
     onFocusLostValidate: () -> Unit,
     onForgotClick: (() -> Unit)?,
@@ -95,8 +101,6 @@ fun LoginSheetContent(
     onSendCode: (startTimer: () -> Unit) -> Unit,
     toastState: ToastState,
     isRegisterPage: Boolean = false,
-    registerPhone: String = "",
-    onRegisterPhoneChange: (String) -> Unit = {},
     canSendCode: Boolean = true,
     isAccountRegistered: Boolean = false,
     onGotoLoginFromRegister: () -> Unit = {},
@@ -122,37 +126,12 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(52.dp)))
 
-            if (isRegisterPage && isAccountRegistered) {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = TitleColor)) {
-                            append("该账号已注册请")
-                        }
-                        withStyle(
-                            SpanStyle(
-                                color = LinkColor,
-                                textDecoration = TextDecoration.Underline,
-                            )
-                        ) {
-                            append("前往登录")
-                        }
-                    },
-                    fontSize = ds.sp(28f),
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onGotoLoginFromRegister
-                    ),
-                )
-            } else {
-                Text(
-                    text = sheetTitle,
-                    color = TitleColor,
-                    fontSize = ds.sp(28f),
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            Text(
+                text = sheetTitle,
+                color = TitleColor,
+                fontSize = ds.sp(28f),
+                fontWeight = FontWeight.SemiBold,
+            )
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
@@ -207,8 +186,7 @@ fun LoginSheetContent(
                 }
             } else if (isRegisterPage) {
                 // ===== 注册页 =====
-                // 账号输入（手机号/邮箱）
-                AccountInput(
+                PhoneOnlyInput(
                     value = username,
                     onValueChange = onUsernameChange,
                     enabled = !isLoading,
@@ -218,25 +196,7 @@ fun LoginSheetContent(
                         }
                         hadFocus = focusState.isFocused
                     },
-                    onValidationError = { toastState.show(it) },
                 )
-
-                // 邮箱注册时，显示额外的手机号输入框
-                AnimatedVisibility(
-                    visible = isAccountEmail,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
-                ) {
-                    Column {
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                        PhoneOnlyInput(
-                            value = registerPhone,
-                            onValueChange = onRegisterPhoneChange,
-                            enabled = !isLoading,
-                            label = "请输入手机号",
-                        )
-                    }
-                }
 
                 Spacer(modifier = Modifier.height(ds.sh(16.dp)))
                 CodeInput(
@@ -264,25 +224,7 @@ fun LoginSheetContent(
                 )
             } else {
                 // ===== 密码登录模式 =====
-                // 邮箱未注册时，在账号上方显示手机号输入框
-                AnimatedVisibility(
-                    visible = needsRegister && isAccountEmail,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
-                ) {
-                    Column {
-                        PhoneOnlyInput(
-                            value = registerPhone,
-                            onValueChange = onRegisterPhoneChange,
-                            enabled = !isLoading,
-                            label = "请输入手机号",
-                        )
-                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
-                    }
-                }
-
-                // 账号输入（手机号/邮箱）
-                AccountInput(
+                PhoneOnlyInput(
                     value = username,
                     onValueChange = onUsernameChange,
                     enabled = !isLoading,
@@ -292,7 +234,6 @@ fun LoginSheetContent(
                         }
                         hadFocus = focusState.isFocused
                     },
-                    onValidationError = { toastState.show(it) },
                 )
 
                 // 密码登录 — 未注册时动画弹出验证码（账号后面）
@@ -362,9 +303,38 @@ fun LoginSheetContent(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f).defaultMinSize(minHeight = ds.sh(32.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+        }
 
-            // 提交按钮
+        val uriHandler = LocalUriHandler.current
+        val termsText = buildAnnotatedString {
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append("登录即表示同意我们的 ")
+            }
+            withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                uriHandler.openUri("https://app.lucy.run/service.html")
+            }) {
+                withStyle(SpanStyle(color = LinkColor)) {
+                    append("《服务条款》")
+                }
+            }
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append(" 和 ")
+            }
+            withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                uriHandler.openUri("https://app.lucy.run/privacy.html")
+            }) {
+                withStyle(SpanStyle(color = LinkColor)) {
+                    append("《隐私政策》")
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(20.dp))
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -396,26 +366,14 @@ fun LoginSheetContent(
 
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-            // 底部服务条款
             Text(
-                text = buildAnnotatedString {
-                    withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                        append("登录即表示同意我们的 ")
-                    }
-                    withStyle(SpanStyle(color = LinkColor)) {
-                        append("《服务条款》")
-                    }
-                    withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                        append(" 和 ")
-                    }
-                    withStyle(SpanStyle(color = LinkColor)) {
-                        append("《隐私政策》")
-                    }
-                },
-                fontSize = ds.sp(10f),
-                fontWeight = FontWeight.Normal,
+                text = termsText,
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = ds.sp(10f),
+                    fontWeight = FontWeight.Normal,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                ),
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))

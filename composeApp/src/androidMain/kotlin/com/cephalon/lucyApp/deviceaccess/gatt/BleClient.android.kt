@@ -40,19 +40,36 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
 // 主动 disconnect 后等待 STATE_DISCONNECTED 平台回调的上限；超时强制走清理路径。
 private const val DISCONNECT_TIMEOUT_MS = 3_000L
 
-// 协商后的 ATT MTU 上限。选 185：ATT header 3B + 应用层 payload 182B，足够单包发完
-// wifi_config / lucy_pairing_request / wifi_scan / 完整 pairing_info 读回等所有已知 JSON，
-// 避免依赖 Prepare/Execute Write 在部分 OEM 栈上的实现 bug。设备可能协商出更小值，调用
-// requestMtu 仅为"尽力拉高"。默认 23 下 BLE 栈仍会自动做 long-write，功能不受影响。
-private const val DESIRED_ATT_MTU = 185
+// GATT 连接超时：autoConnect=false 时 Android 栈通常 ~30s 内回调，但部分 OEM 不触发。
+private const val GATT_CONNECT_TIMEOUT_MS = 15_000L
+
+// 服务发现超时。
+private const val DISCOVER_SERVICES_TIMEOUT_MS = 10_000L
+// 服务发现前等待 MTU 协商稳定的延迟。
+private const val PRE_DISCOVER_DELAY_MS = 500L
+// 服务发现超时后的最大重试次数。
+private const val DISCOVER_SERVICES_MAX_ATTEMPTS = 2
+// 服务发现重试间隔。
+private const val DISCOVER_RETRY_DELAY_MS = 500L
+
+// 单次读 / 写 / 描述符写超时。
+private const val READ_WRITE_TIMEOUT_MS = 10_000L
+
+// 协商后的 ATT MTU 上限。选 512（BLE 4.2+ 标准最大值）：
+// lucy_pairing_info 含 OTP 时 JSON 约 195 字节，超过旧值 185 的有效载荷（182B），
+// 导致 read / notify 返回截断 JSON 而解析失败。512 可覆盖所有已知 payload。
+// 设备可能协商出更小值，requestMtu 仅为"尽力拉高"。
+private const val DESIRED_ATT_MTU = 512
 
 /**
  * Android `BluetoothGattCallback` 的 status 只是一个 int，默认打出来就是个数字，
@@ -243,6 +260,11 @@ actual fun rememberBleClient(): BleClient {
                 if (!scanState.value.bluetoothPermissionGranted || !scanState.value.bluetoothEnabled) {
                     return Result.failure(IllegalStateException("蓝牙权限未授权或蓝牙未开启"))
                 }
+                // Android BLE 栈在部分 OEM 上无法同时 scan + connectGatt；
+                // 保险起见在 connectGatt 内部也做一次 stopScan + 200ms 等 adapter 收尾。
+                stopScan()
+                kotlinx.coroutines.delay(200)
+                println("[BrainBox] Android connectGatt: scan stopped, connecting ${device.id} (${device.name})")
                 val bluetoothDevice = bluetoothManager.adapter?.getRemoteDevice(device.id)
                     ?: return Result.failure(IllegalStateException("未找到蓝牙设备 ${device.id}"))
                 return AndroidBleGattConnection.connect(appContext, bluetoothDevice, device)
@@ -300,13 +322,13 @@ private class AndroidBleGattConnection private constructor(
     override val services = MutableStateFlow<List<BleGattService>>(emptyList())
 
     private lateinit var gatt: BluetoothGatt
-    private val notifications = mutableMapOf<String, MutableSharedFlow<ByteArray>>()
-    private var connectContinuation: kotlin.coroutines.Continuation<Result<BleGattConnection>>? = null
-    private var discoverContinuation: kotlin.coroutines.Continuation<Result<List<BleGattService>>>? = null
-    private val readContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<ByteArray>>>()
-    private val writeContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<Unit>>>()
-    private val descriptorContinuations = mutableMapOf<String, kotlin.coroutines.Continuation<Result<Unit>>>()
-    private var disconnectContinuation: kotlin.coroutines.Continuation<Unit>? = null
+    private val notifications = ConcurrentHashMap<String, MutableSharedFlow<ByteArray>>()
+    @Volatile private var connectContinuation: kotlin.coroutines.Continuation<Result<BleGattConnection>>? = null
+    @Volatile private var discoverContinuation: kotlin.coroutines.Continuation<Result<List<BleGattService>>>? = null
+    private val readContinuations = ConcurrentHashMap<String, kotlin.coroutines.Continuation<Result<ByteArray>>>()
+    private val writeContinuations = ConcurrentHashMap<String, kotlin.coroutines.Continuation<Result<Unit>>>()
+    private val descriptorContinuations = ConcurrentHashMap<String, kotlin.coroutines.Continuation<Result<Unit>>>()
+    @Volatile private var disconnectContinuation: kotlin.coroutines.Continuation<Unit>? = null
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -431,27 +453,57 @@ private class AndroidBleGattConnection private constructor(
     }
 
     override suspend fun discoverServices(): Result<List<BleGattService>> {
-        return suspendCancellableCoroutine { continuation ->
-            discoverContinuation = continuation
-            state.value = BleGattConnectionState.Discovering
-            val started = runCatching { gatt.discoverServices() }.getOrDefault(false)
-            if (!started) {
+        // 等待 MTU 协商稳定后再发起服务发现，避免 Android BLE 栈 GATT 操作排队冲突
+        // 导致 onServicesDiscovered 永远不回调。
+        kotlinx.coroutines.delay(PRE_DISCOVER_DELAY_MS)
+        var lastError: Throwable? = null
+        for (attempt in 1..DISCOVER_SERVICES_MAX_ATTEMPTS) {
+            val result = try {
+                withTimeout(DISCOVER_SERVICES_TIMEOUT_MS) {
+                    suspendCancellableCoroutine { continuation ->
+                        discoverContinuation = continuation
+                        state.value = BleGattConnectionState.Discovering
+                        val started = runCatching { gatt.discoverServices() }.getOrDefault(false)
+                        if (!started) {
+                            discoverContinuation = null
+                            continuation.resume(Result.failure(IllegalStateException("无法开始发现 GATT 服务")))
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                println("[BrainBox] 发现 GATT 服务超时 (${DISCOVER_SERVICES_TIMEOUT_MS}ms), attempt $attempt/$DISCOVER_SERVICES_MAX_ATTEMPTS")
                 discoverContinuation = null
-                continuation.resume(Result.failure(IllegalStateException("无法开始发现 GATT 服务")))
+                Result.failure(IllegalStateException("发现 GATT Service 超时(${DISCOVER_SERVICES_TIMEOUT_MS / 1000}s)"))
+            }
+            if (result.isSuccess) return result
+            lastError = result.exceptionOrNull()
+            if (attempt < DISCOVER_SERVICES_MAX_ATTEMPTS) {
+                println("[BrainBox] 服务发现失败，${DISCOVER_RETRY_DELAY_MS}ms 后重试...")
+                kotlinx.coroutines.delay(DISCOVER_RETRY_DELAY_MS)
             }
         }
+        return Result.failure(lastError ?: IllegalStateException("发现 GATT Service 失败"))
     }
 
     override suspend fun readCharacteristic(serviceUuid: String, characteristicUuid: String): Result<ByteArray> {
         val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
-        return suspendCancellableCoroutine { continuation ->
-            readContinuations[characteristic.uuid.toString().normalizedUuid()] = continuation
-            val started = runCatching { gatt.readCharacteristic(characteristic) }.getOrDefault(false)
-            if (!started) {
-                readContinuations.remove(characteristic.uuid.toString().normalizedUuid())
-                continuation.resume(Result.failure(IllegalStateException("无法开始读取特征 $characteristicUuid")))
+        val key = characteristic.uuid.toString().normalizedUuid()
+        return try {
+            withTimeout(READ_WRITE_TIMEOUT_MS) {
+                suspendCancellableCoroutine { continuation ->
+                    readContinuations[key] = continuation
+                    val started = runCatching { gatt.readCharacteristic(characteristic) }.getOrDefault(false)
+                    if (!started) {
+                        readContinuations.remove(key)
+                        continuation.resume(Result.failure(IllegalStateException("无法开始读取特征 $characteristicUuid")))
+                    }
+                }
             }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            readContinuations.remove(key)
+            println("[BrainBox] 读取特征超时: $characteristicUuid")
+            Result.failure(IllegalStateException("读取特征超时 $characteristicUuid"))
         }
     }
 
@@ -462,27 +514,36 @@ private class AndroidBleGattConnection private constructor(
     ): Result<Unit> {
         val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
-        return suspendCancellableCoroutine { continuation ->
-            writeContinuations[characteristic.uuid.toString().normalizedUuid()] = continuation
-            val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                runCatching {
-                    gatt.writeCharacteristic(
-                        characteristic,
-                        payload,
-                        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-                    ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
-                }.getOrDefault(false)
-            } else {
-                @Suppress("DEPRECATION")
-                characteristic.value = payload
-                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                @Suppress("DEPRECATION")
-                runCatching { gatt.writeCharacteristic(characteristic) }.getOrDefault(false)
+        val key = characteristic.uuid.toString().normalizedUuid()
+        return try {
+            withTimeout(READ_WRITE_TIMEOUT_MS) {
+                suspendCancellableCoroutine { continuation ->
+                    writeContinuations[key] = continuation
+                    val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        runCatching {
+                            gatt.writeCharacteristic(
+                                characteristic,
+                                payload,
+                                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
+                            ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
+                        }.getOrDefault(false)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        characteristic.value = payload
+                        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        @Suppress("DEPRECATION")
+                        runCatching { gatt.writeCharacteristic(characteristic) }.getOrDefault(false)
+                    }
+                    if (!started) {
+                        writeContinuations.remove(key)
+                        continuation.resume(Result.failure(IllegalStateException("无法开始写入特征 $characteristicUuid")))
+                    }
+                }
             }
-            if (!started) {
-                writeContinuations.remove(characteristic.uuid.toString().normalizedUuid())
-                continuation.resume(Result.failure(IllegalStateException("无法开始写入特征 $characteristicUuid")))
-            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            writeContinuations.remove(key)
+            println("[BrainBox] 写入特征超时: $characteristicUuid")
+            Result.failure(IllegalStateException("写入特征超时 $characteristicUuid"))
         }
     }
 
@@ -519,41 +580,50 @@ private class AndroidBleGattConnection private constructor(
     ): Result<Unit> {
         val characteristic = findCharacteristic(serviceUuid, characteristicUuid)
             ?: return Result.failure(IllegalStateException("未找到特征 $characteristicUuid"))
-        return suspendCancellableCoroutine { continuation ->
-            descriptorContinuations[characteristic.uuid.toString().normalizedUuid()] = continuation
-            val notifyResult = runCatching { gatt.setCharacteristicNotification(characteristic, enabled) }.getOrDefault(false)
-            if (!notifyResult) {
-                descriptorContinuations.remove(characteristic.uuid.toString().normalizedUuid())
-                continuation.resume(Result.failure(IllegalStateException("无法设置特征通知 $characteristicUuid")))
-                return@suspendCancellableCoroutine
+        val key = characteristic.uuid.toString().normalizedUuid()
+        return try {
+            withTimeout(READ_WRITE_TIMEOUT_MS) {
+                suspendCancellableCoroutine { continuation ->
+                    descriptorContinuations[key] = continuation
+                    val notifyResult = runCatching { gatt.setCharacteristicNotification(characteristic, enabled) }.getOrDefault(false)
+                    if (!notifyResult) {
+                        descriptorContinuations.remove(key)
+                        continuation.resume(Result.failure(IllegalStateException("无法设置特征通知 $characteristicUuid")))
+                        return@suspendCancellableCoroutine
+                    }
+                    val descriptor = characteristic.getDescriptor(UUID.fromString(BrainBoxGattProtocol.CLIENT_CONFIG_DESCRIPTOR_UUID))
+                    if (descriptor == null) {
+                        descriptorContinuations.remove(key)
+                        continuation.resume(Result.success(Unit))
+                        return@suspendCancellableCoroutine
+                    }
+                    val value = if (enabled) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+                    val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        runCatching {
+                            gatt.writeDescriptor(descriptor, value) == android.bluetooth.BluetoothStatusCodes.SUCCESS
+                        }.getOrDefault(false)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        descriptor.value = value
+                        @Suppress("DEPRECATION")
+                        runCatching { gatt.writeDescriptor(descriptor) }.getOrDefault(false)
+                    }
+                    if (!started) {
+                        descriptorContinuations.remove(key)
+                        continuation.resume(Result.failure(IllegalStateException("无法写入通知描述符 $characteristicUuid")))
+                    }
+                }
             }
-            val descriptor = characteristic.getDescriptor(UUID.fromString(BrainBoxGattProtocol.CLIENT_CONFIG_DESCRIPTOR_UUID))
-            if (descriptor == null) {
-                descriptorContinuations.remove(characteristic.uuid.toString().normalizedUuid())
-                continuation.resume(Result.success(Unit))
-                return@suspendCancellableCoroutine
-            }
-            val value = if (enabled) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-            val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                runCatching {
-                    gatt.writeDescriptor(descriptor, value) == android.bluetooth.BluetoothStatusCodes.SUCCESS
-                }.getOrDefault(false)
-            } else {
-                @Suppress("DEPRECATION")
-                descriptor.value = value
-                @Suppress("DEPRECATION")
-                runCatching { gatt.writeDescriptor(descriptor) }.getOrDefault(false)
-            }
-            if (!started) {
-                descriptorContinuations.remove(characteristic.uuid.toString().normalizedUuid())
-                continuation.resume(Result.failure(IllegalStateException("无法写入通知描述符 $characteristicUuid")))
-            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            descriptorContinuations.remove(key)
+            println("[BrainBox] 设置通知超时: $characteristicUuid")
+            Result.failure(IllegalStateException("设置通知超时 $characteristicUuid"))
         }
     }
 
     override fun observeCharacteristic(serviceUuid: String, characteristicUuid: String): Flow<ByteArray> {
         val key = characteristicUuid.normalizedUuid()
-        return notifications.getOrPut(key) {
+        return notifications.computeIfAbsent(key) {
             MutableSharedFlow(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         }
     }
@@ -587,7 +657,7 @@ private class AndroidBleGattConnection private constructor(
     }
 
     private fun emitNotification(characteristicUuid: String, value: ByteArray) {
-        notifications.getOrPut(characteristicUuid.normalizedUuid()) {
+        notifications.computeIfAbsent(characteristicUuid.normalizedUuid()) {
             MutableSharedFlow(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         }.tryEmit(value)
     }
@@ -631,19 +701,38 @@ private class AndroidBleGattConnection private constructor(
             device: BleScanDevice,
         ): Result<BleGattConnection> {
             val connection = AndroidBleGattConnection(device = device, bluetoothDevice = bluetoothDevice)
-            return suspendCancellableCoroutine { continuation ->
-                connection.connectContinuation = continuation
-                connection.state.value = BleGattConnectionState.Connecting
-                connection.gatt = bluetoothDevice.connectGatt(
-                    context,
-                    false,
-                    connection.callback,
-                    BluetoothDevice.TRANSPORT_LE,
-                )
-                continuation.invokeOnCancellation {
+            return try {
+                withTimeout(GATT_CONNECT_TIMEOUT_MS) {
+                    suspendCancellableCoroutine { continuation ->
+                        connection.connectContinuation = continuation
+                        connection.state.value = BleGattConnectionState.Connecting
+                        val gattObj = bluetoothDevice.connectGatt(
+                            context,
+                            false,
+                            connection.callback,
+                            BluetoothDevice.TRANSPORT_LE,
+                        )
+                        if (gattObj == null) {
+                            connection.connectContinuation = null
+                            continuation.resume(Result.failure(IllegalStateException("connectGatt 返回 null，蓝牙适配器可能已关闭")))
+                            return@suspendCancellableCoroutine
+                        }
+                        connection.gatt = gattObj
+                        continuation.invokeOnCancellation {
+                            runCatching { connection.gatt.disconnect() }
+                            runCatching { connection.gatt.close() }
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                println("[BrainBox] GATT 连接超时 (${GATT_CONNECT_TIMEOUT_MS}ms)，设备 ${device.id}")
+                connection.connectContinuation = null
+                if (connection::gatt.isInitialized) {
                     runCatching { connection.gatt.disconnect() }
                     runCatching { connection.gatt.close() }
                 }
+                connection.state.value = BleGattConnectionState.Error
+                Result.failure(IllegalStateException("GATT 连接超时(${GATT_CONNECT_TIMEOUT_MS / 1000}s)"))
             }
         }
     }

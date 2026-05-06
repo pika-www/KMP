@@ -3,6 +3,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,34 +16,32 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import com.cephalon.lucyApp.clipboard.platformCopyToClipboard
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.components.LocalDesignScale
+import androidx.compose.foundation.layout.wrapContentWidth
+import com.cephalon.lucyApp.clipboard.platformCopyToClipboard
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 
 @Composable
 internal fun Bubble(
@@ -56,7 +55,8 @@ internal fun Bubble(
     onCopySuccess: (() -> Unit)? = null,
 ) {
     val ds = LocalDesignScale.current
-    BubbleContainer(alignEnd = alignEnd) { bubbleMaxWidth ->
+    val bubbleWidthFraction = if (alignEnd) 0.82f else 1f
+    BubbleContainer(alignEnd = alignEnd, maxWidthFraction = bubbleWidthFraction) { bubbleMaxWidth ->
         if (alignEnd) {
             Card(
                 shape = RoundedCornerShape(ds.sm(16.dp)),
@@ -131,7 +131,6 @@ private fun MarkdownBubbleText(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))) {
         blocks.forEachIndexed { index, block ->
             if (index % 2 == 1) {
-                val clipboardManager = LocalClipboardManager.current
                 val codeContent = block.lines().let { lines ->
                     if (lines.isNotEmpty() && lines.first().isNotBlank() && !lines.first().trimStart().contains(' '))
                         lines.drop(1).joinToString("\n").trim()
@@ -154,9 +153,6 @@ private fun MarkdownBubbleText(
                         )
                         IconButton(
                             onClick = {
-                                // 双写：先写 Compose 剪贴板（自动跨平台），再走一层平台原生 API，
-                                // 保证 iOS 侧在 BasicTextField 长按菜单"粘贴"时一定能取到这段文本。
-                                clipboardManager.setText(AnnotatedString(codeContent))
                                 platformCopyToClipboard(codeContent)
                                 onCopySuccess?.invoke()
                             },
@@ -234,6 +230,7 @@ private fun MarkdownTable(
 ) {
     val ds = LocalDesignScale.current
     val borderColor = Color(0xFFE0E0E0)
+    val horizontalScrollState = rememberScrollState()
 
     val rows = tableLines.mapNotNull { line ->
         val trimmed = line.trim()
@@ -243,60 +240,77 @@ private fun MarkdownTable(
     if (rows.isEmpty()) return
 
     val columnCount = rows.maxOf { it.size }
+    val minColumnWidth = ds.sw(88.dp)
+    val columnDividerWidth = 0.5.dp
 
-    Surface(
-        shape = RoundedCornerShape(ds.sm(8.dp)),
-        border = BorderStroke(0.5.dp, borderColor),
-        color = Color.Transparent
-    ) {
-        Column {
-            rows.forEachIndexed { rowIndex, cells ->
-                val isHeader = rowIndex == 0
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(IntrinsicSize.Min)
-                        .then(
-                            if (isHeader) Modifier.background(Color(0xFFF5F5F7))
-                            else Modifier
-                        )
-                ) {
-                    for (colIndex in 0 until columnCount) {
-                        if (colIndex > 0) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val minTableWidth =
+            (minColumnWidth * columnCount.toFloat()) +
+                (columnDividerWidth * (columnCount - 1).coerceAtLeast(0).toFloat())
+        val tableWidth = if (minTableWidth > maxWidth) minTableWidth else maxWidth
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(horizontalScrollState)
+        ) {
+            Surface(
+                modifier = Modifier.width(tableWidth),
+                shape = RoundedCornerShape(ds.sm(8.dp)),
+                border = BorderStroke(0.5.dp, borderColor),
+                color = Color.Transparent
+            ) {
+                Column {
+                    rows.forEachIndexed { rowIndex, cells ->
+                        val isHeader = rowIndex == 0
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                                .then(
+                                    if (isHeader) Modifier.background(Color(0xFFF5F5F7))
+                                    else Modifier
+                                )
+                        ) {
+                            for (colIndex in 0 until columnCount) {
+                                if (colIndex > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(columnDividerWidth)
+                                            .fillMaxHeight()
+                                            .background(borderColor)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .widthIn(min = minColumnWidth)
+                                        .padding(
+                                            horizontal = ds.sw(8.dp),
+                                            vertical = ds.sh(6.dp)
+                                        )
+                                ) {
+                                    Text(
+                                        text = markdownInlineAnnotatedString(
+                                            cells.getOrElse(colIndex) { "" },
+                                            textColor
+                                        ),
+                                        fontSize = ds.sp(13f),
+                                        fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = textColor
+                                    )
+                                }
+                            }
+                        }
+                        if (rowIndex < rows.lastIndex) {
                             Box(
                                 modifier = Modifier
-                                    .width(0.5.dp)
-                                    .fillMaxHeight()
+                                    .fillMaxWidth()
+                                    .height(0.5.dp)
                                     .background(borderColor)
                             )
                         }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(
-                                    horizontal = ds.sw(8.dp),
-                                    vertical = ds.sh(6.dp)
-                                )
-                        ) {
-                            Text(
-                                text = markdownInlineAnnotatedString(
-                                    cells.getOrElse(colIndex) { "" },
-                                    textColor
-                                ),
-                                fontSize = ds.sp(13f),
-                                fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
-                                color = textColor
-                            )
-                        }
                     }
-                }
-                if (rowIndex < rows.lastIndex) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(borderColor)
-                    )
                 }
             }
         }
@@ -370,10 +384,11 @@ private fun markdownInlineAnnotatedString(text: String, textColor: Color): Annot
 @Composable
 internal fun BubbleContainer(
     alignEnd: Boolean,
+    maxWidthFraction: Float = 0.82f,
     content: @Composable (Dp) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val bubbleMaxWidth = maxWidth * 0.82f
+        val bubbleMaxWidth = maxWidth * maxWidthFraction
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (alignEnd) Arrangement.End else Arrangement.Start

@@ -14,6 +14,7 @@ interface RootComponent {
         class WsTest(val component: WsTestComponent) : Child()
         class AgentModel(val component: AgentModelComponent) : Child()
         class ScanBindChannel(val component: ScanBindChannelComponent) : Child()
+        class LucyGuide(val component: LucyGuideComponent) : Child()
         class Nas(val component: NasComponent) : Child()
     }
 }

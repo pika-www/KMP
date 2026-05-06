@@ -10,7 +10,8 @@ data class PickedFile(
 data class AudioRecording(
     val id: String,
     val name: String,
-    val path: String
+    val path: String,
+    val blobRef: String? = null
 )
 
 data class AudioPlaybackState(

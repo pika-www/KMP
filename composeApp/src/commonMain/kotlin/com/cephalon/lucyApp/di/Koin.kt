@@ -42,7 +42,7 @@ val appModule = module {
     single { WsRepository(get()) }
     single { BalanceWsManager(get(), get(), get(), get()) }
     single { ChatHistoryCache(get()) }
-    single { WifiCredentialCache(get()) }
+    single { WifiCredentialCache(get(), get()) }
     // IAPManager is provided by platform modules
 }
 

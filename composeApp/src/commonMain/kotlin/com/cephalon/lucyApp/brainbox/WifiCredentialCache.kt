@@ -1,5 +1,6 @@
 package com.cephalon.lucyApp.brainbox
 
+import com.cephalon.lucyApp.auth.AuthTokenStore
 import com.russhwolf.settings.Settings
 
 /**
@@ -12,9 +13,12 @@ import com.russhwolf.settings.Settings
  * 说明：此处不做额外加密。该 Wi‑Fi 密码仅为"方便下次免输"的本地缓存，读/写都
  * 仅在同一台设备、同一个 App 沙盒内发生；真正的安全边界由系统 App 沙箱保证。
  */
-class WifiCredentialCache(private val settings: Settings) {
+class WifiCredentialCache(
+    private val settings: Settings,
+    private val tokenStore: AuthTokenStore,
+) {
 
-    /** 返回 null 表示该 SSID 从未成功配过或被清除过。 */
+    /** 返回 null 表示该 SSID 从未成功配过或被清除过。userId 未知时跳过缓存。 */
     fun get(ssid: String): String? {
         val key = keyOf(ssid) ?: return null
         return settings.getStringOrNull(key)?.takeIf { it.isNotEmpty() }
@@ -36,7 +40,8 @@ class WifiCredentialCache(private val settings: Settings) {
     private fun keyOf(ssid: String): String? {
         val trimmed = ssid.trim()
         if (trimmed.isEmpty()) return null
-        return KEY_PREFIX + trimmed
+        val uid = tokenStore.getCurrentUserId() ?: return null
+        return "$KEY_PREFIX$uid.$trimmed"
     }
 
     companion object {

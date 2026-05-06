@@ -21,15 +21,20 @@ actual fun rememberCameraPermissionController(): CameraPermissionController {
             AVCaptureDevice.authorizationStatusForMediaType(AVMediaTypeVideo) == AVAuthorizationStatusAuthorized
         )
     }
+    var permissionResponseCount by remember { mutableStateOf(0) }
 
     return object : CameraPermissionController {
         override val hasPermission: Boolean
             get() = hasCameraPermission
 
+        override val responseCount: Int
+            get() = permissionResponseCount
+
         override fun requestPermission() {
             val status = AVCaptureDevice.authorizationStatusForMediaType(AVMediaTypeVideo)
             if (status == AVAuthorizationStatusAuthorized) {
                 hasCameraPermission = true
+                permissionResponseCount++
                 return
             }
 
@@ -37,10 +42,12 @@ actual fun rememberCameraPermissionController(): CameraPermissionController {
                 AVCaptureDevice.requestAccessForMediaType(AVMediaTypeVideo) { granted: Boolean ->
                     dispatch_async(dispatch_get_main_queue()) {
                         hasCameraPermission = granted
+                        permissionResponseCount++
                     }
                 }
             } else {
                 hasCameraPermission = false
+                permissionResponseCount++
             }
         }
     }

@@ -18,14 +18,17 @@ private val cacheJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable
 private data class SerializableChatItem(
     val type: String,
+    val assistantId: String? = null,
     val text: String? = null,
     val messageId: String? = null,
     val attachmentUris: List<String>? = null,
     val attachmentNames: List<String>? = null,
     val attachmentTypes: List<String>? = null,
+    val attachmentBlobRefs: List<String?>? = null,
     val recordingId: String? = null,
     val recordingName: String? = null,
     val recordingPath: String? = null,
+    val recordingBlobRef: String? = null,
     val mediaBlobRefs: List<String>? = null,
     val mediaContentTypes: List<String?>? = null,
     val mediaFileNames: List<String?>? = null,
@@ -51,6 +54,7 @@ private data class SerializableChatHistory(
 private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
     is ChatItem.Assistant -> SerializableChatItem(
         type = "assistant",
+        assistantId = assistantId,
         text = text,
         messageId = messageId,
         mediaBlobRefs = attachments.map { it.blobRef }.ifEmpty { null },
@@ -66,6 +70,7 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
         attachmentUris = attachments.map { it.uri },
         attachmentNames = attachments.map { it.displayName ?: "" },
         attachmentTypes = attachments.map { it.type.name },
+        attachmentBlobRefs = attachments.map { it.blobRef },
     )
     is ChatItem.System -> SerializableChatItem(type = "system", text = text, messageId = messageId)
     is ChatItem.RecordingItem -> SerializableChatItem(
@@ -74,6 +79,7 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
         recordingId = id,
         recordingName = name,
         recordingPath = path,
+        recordingBlobRef = blobRef,
     )
     is ChatItem.Error -> SerializableChatItem(type = "error", text = text, messageId = messageId)
     is ChatItem.SkillSuggestions -> SerializableChatItem(type = "skill_suggestions")
@@ -88,13 +94,25 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
                 fileName = mediaFileNames?.getOrNull(i),
             )
         } ?: emptyList()
-        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments, timestamp = timestamp)
+        val events = streamEventTypes?.mapIndexed { i, t ->
+            StreamEvent(type = t, label = streamEventLabels?.getOrNull(i) ?: "", isActive = false)
+        } ?: emptyList()
+        ChatItem.Assistant(
+            assistantId = assistantId ?: generateAssistantEntryId(),
+            text = text ?: "",
+            messageId = messageId,
+            attachments = mediaAttachments,
+            timestamp = timestamp,
+            streamEvents = events,
+            reasoningText = reasoningText,
+        )
     }
     "user" -> ChatItem.User(text = text ?: "", messageId = messageId)
     "user_attachments" -> {
         val uris = attachmentUris.orEmpty()
         val names = attachmentNames.orEmpty()
         val types = attachmentTypes.orEmpty()
+        val blobRefs = attachmentBlobRefs.orEmpty()
         val attachments = uris.mapIndexed { i, uri ->
             val attType = when (types.getOrNull(i)) {
                 "File" -> DraftAttachmentType.File
@@ -105,6 +123,7 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
                 type = attType,
                 uri = uri,
                 displayName = names.getOrNull(i)?.ifBlank { null },
+                blobRef = blobRefs.getOrNull(i)?.ifBlank { null },
             )
         }
         ChatItem.UserAttachments(text = text, attachments = attachments, messageId = messageId)
@@ -114,6 +133,7 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
         id = recordingId ?: "",
         name = recordingName ?: "",
         path = recordingPath ?: "",
+        blobRef = recordingBlobRef,
         messageId = messageId,
     )
     "error" -> ChatItem.Error(text = text ?: "", messageId = messageId)
@@ -162,7 +182,6 @@ internal class ChatHistoryCache(private val settings: Settings) {
         )
         val jsonStr = cacheJson.encodeToString(history)
         settings.putString(keyOf(userId, cdi), jsonStr)
-        appLogD(TAG, "已保存 userId=$userId cdi=$cdi 的聊天记录: ${conversations.size}个对话")
     }
 
     fun load(

@@ -7,22 +7,24 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
-import androidx.compose.ui.viewinterop.UIKitViewController
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import platform.CoreGraphics.CGRectMake
+import platform.Foundation.NSString
+import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSURL
+import platform.Foundation.stringWithContentsOfFile
 import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
 import platform.PDFKit.kPDFDisplaySinglePageContinuous
@@ -30,10 +32,10 @@ import platform.QuickLook.QLPreviewController
 import platform.QuickLook.QLPreviewControllerDataSourceProtocol
 import platform.QuickLook.QLPreviewItemProtocol
 import platform.UIKit.UIColor
-import platform.UIKit.UIApplication
 import platform.UIKit.UIViewAutoresizingFlexibleHeight
 import platform.UIKit.UIViewAutoresizingFlexibleWidth
-import platform.UIKit.UIViewController
+import platform.WebKit.WKWebView
+import platform.WebKit.WKWebViewConfiguration
 import platform.darwin.NSObject
 
 @Composable
@@ -42,6 +44,18 @@ actual fun PlatformDocumentPreview(
     fileName: String,
     modifier: Modifier,
 ) {
+    val extension = remember(fileName, source) {
+        fileName.substringAfterLast('.', source.substringAfterLast('.', "")).lowercase()
+    }
+    if (extension in setOf("md", "markdown", "txt", "log", "json", "xml", "yaml", "yml", "csv")) {
+        TextDocumentPreview(
+            source = source,
+            fileName = fileName,
+            modifier = modifier
+        )
+        return
+    }
+
     val previewState by produceState<IOSDocumentPreviewState>(
         initialValue = IOSDocumentPreviewState.Loading,
         key1 = source,
@@ -85,13 +99,27 @@ actual fun PlatformDocumentPreview(
                     modifier = modifier
                 )
             } else {
-                IOSQuickLookDocumentPreview(
+                IOSNativeOfficeDocumentPreview(
                     fileUrl = state.fileUrl,
                     modifier = modifier
                 )
             }
         }
     }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+suspend actual fun platformReadTextDocument(
+    source: String,
+    fileName: String,
+): String {
+    val fileUrl = materializeDocumentUrl(source = source, fileName = fileName)
+    val filePath = fileUrl.path ?: error("无法解析文档路径")
+    return NSString.stringWithContentsOfFile(
+        path = filePath,
+        encoding = NSUTF8StringEncoding,
+        error = null
+    ) ?: error("读取文档内容失败")
 }
 
 @Composable
@@ -110,11 +138,21 @@ private fun IOSPdfDocumentPreview(
                 this.displaysPageBreaks = false
                 this.backgroundColor = UIColor.whiteColor
                 this.document = PDFDocument(uRL = fileUrl)
+                this.minScaleFactor = this.scaleFactorForSizeToFit
+                this.scaleFactor = this.scaleFactorForSizeToFit
             }
         },
         update = { view ->
             view.document = PDFDocument(uRL = fileUrl)
+            view.autoScales = true
+            view.minScaleFactor = view.scaleFactorForSizeToFit
+            view.scaleFactor = view.scaleFactorForSizeToFit
         }
+        ,
+        properties = UIKitInteropProperties(
+            isInteractive = true,
+            isNativeAccessibilityEnabled = true
+        )
     )
 }
 
@@ -124,15 +162,52 @@ private fun IOSQuickLookDocumentPreview(
     fileUrl: NSURL,
     modifier: Modifier = Modifier,
 ) {
-    val controller = remember(fileUrl.absoluteString) { createQuickLookViewController(fileUrl) }
-
-    UIKitViewController(
+    val controller = remember(fileUrl.absoluteString) { IOSRetainedQuickLookPreviewController(fileUrl) }
+    UIKitView(
         modifier = modifier.fillMaxSize(),
         factory = {
-            controller
+            controller.view.apply {
+                autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+            }
         },
-        update = {
-        }
+        update = { view ->
+            view.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+        },
+        properties = UIKitInteropProperties(
+            isInteractive = true,
+            isNativeAccessibilityEnabled = true
+        )
+    )
+}
+
+@Composable
+@OptIn(ExperimentalForeignApi::class)
+private fun IOSNativeOfficeDocumentPreview(
+    fileUrl: NSURL,
+    modifier: Modifier = Modifier,
+) {
+    UIKitView(
+        modifier = modifier.fillMaxSize(),
+        factory = {
+            WKWebView(
+                frame = CGRectMake(0.0, 0.0, 0.0, 0.0),
+                configuration = WKWebViewConfiguration()
+            ).apply {
+                autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+                opaque = false
+                backgroundColor = UIColor.whiteColor
+                scrollView.scrollEnabled = true
+                loadFileURL(fileUrl, allowingReadAccessToURL = fileUrl)
+            }
+        },
+        update = { view ->
+            view.autoresizingMask = UIViewAutoresizingFlexibleWidth or UIViewAutoresizingFlexibleHeight
+            view.loadFileURL(fileUrl, allowingReadAccessToURL = fileUrl)
+        },
+        properties = UIKitInteropProperties(
+            isInteractive = true,
+            isNativeAccessibilityEnabled = true
+        )
     )
 }
 
@@ -140,16 +215,6 @@ private sealed interface IOSDocumentPreviewState {
     data object Loading : IOSDocumentPreviewState
     data class Ready(val fileUrl: NSURL) : IOSDocumentPreviewState
     data class Error(val message: String) : IOSDocumentPreviewState
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun createQuickLookViewController(fileUrl: NSURL): UIViewController {
-    val previewItem = IOSPreviewItem(fileUrl)
-    val dataSource = IOSQuickLookDataSource(previewItem)
-    return QLPreviewController().apply {
-        this.dataSource = dataSource
-        this.reloadData()
-    }
 }
 
 private class IOSQuickLookDataSource(
@@ -169,6 +234,19 @@ private class IOSPreviewItem(
     override fun previewItemURL(): NSURL = fileUrl
 
     override fun previewItemTitle(): String? = fileUrl.lastPathComponent
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private class IOSRetainedQuickLookPreviewController(
+    fileUrl: NSURL,
+) : QLPreviewController(nibName = null, bundle = null) {
+    private val previewItem = IOSPreviewItem(fileUrl)
+    private val previewDataSource = IOSQuickLookDataSource(previewItem)
+
+    init {
+        dataSource = previewDataSource
+        reloadData()
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
@@ -196,4 +274,3 @@ private suspend fun materializeDocumentUrl(
         }
     }
 }
-

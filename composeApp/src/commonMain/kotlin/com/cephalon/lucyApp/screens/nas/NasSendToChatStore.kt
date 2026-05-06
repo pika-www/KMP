@@ -8,7 +8,7 @@ internal data class NasSendItem(
     val fileId: Long,
     val fileName: String,
     val fileType: NasSendFileType,
-    val thumbnailBlobRef: String,
+    val previewBlobRef: String,
     val sizeKB: Int,
     val format: String,
 )

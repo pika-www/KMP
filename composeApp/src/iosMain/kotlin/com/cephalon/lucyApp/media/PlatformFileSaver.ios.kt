@@ -1,5 +1,6 @@
 package com.cephalon.lucyApp.media
 
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
@@ -19,7 +20,7 @@ import platform.Photos.PHPhotoLibrary
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual suspend fun platformSaveFile(bytes: ByteArray, fileName: String, mimeType: String): String =
     withContext(Dispatchers.Main) {
         val isImage = mimeType.startsWith("image/")
@@ -31,7 +32,7 @@ actual suspend fun platformSaveFile(bytes: ByteArray, fileName: String, mimeType
         }
     }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 private suspend fun saveImageToPhotoLibrary(bytes: ByteArray, fileName: String): String =
     suspendCancellableCoroutine { continuation ->
         val nsData = bytes.usePinned { pinned ->
@@ -62,7 +63,7 @@ private suspend fun saveImageToPhotoLibrary(bytes: ByteArray, fileName: String):
         }
     }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual suspend fun platformSaveCacheFile(bytes: ByteArray, fileName: String): String =
     withContext(Dispatchers.IO) {
         val cacheDir = platform.Foundation.NSTemporaryDirectory() + "NaoHuaCache"
@@ -81,7 +82,7 @@ actual suspend fun platformSaveCacheFile(bytes: ByteArray, fileName: String): St
         filePath
     }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 private fun saveFileToDocuments(bytes: ByteArray, fileName: String): String {
     val documentsDir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true)
         .firstOrNull() as? String ?: throw IllegalStateException("无法获取 Documents 目录")

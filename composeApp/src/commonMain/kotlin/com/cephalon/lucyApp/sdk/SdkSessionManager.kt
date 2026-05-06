@@ -7,9 +7,11 @@ import com.cephalon.lucyApp.time.currentTimeMillis
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -164,12 +166,20 @@ data class NasCategoryCache(
     val items: List<NasFileListItem> = emptyList(),
     val nextCursor: String? = null,
     val hasLoaded: Boolean = false,
+    val refreshVersion: Long = 0L,
 )
 
 private data class PendingNasFileListRequest(
     val requestId: String,
     val kind: String,
     val cursor: String?,
+    val waiter: CompletableDeferred<NasFileListResponse>,
+)
+
+private data class PendingNasFileSearchRequest(
+    val requestId: String,
+    val kind: String,
+    val keyword: String,
     val waiter: CompletableDeferred<NasFileListResponse>,
 )
 
@@ -182,6 +192,13 @@ class SdkSessionManager(
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + exceptionHandler)
     private val connectMutex = Mutex()
+    private var connectMutexOwner: String? = null
+    private var connectMutexAcquiredAtMs: Long? = null
+    private var connectMutexWatchdogJob: Job? = null
+
+    /** 合并并发的「非快速路径」连接，避免多个协程各排队等 connectMutex 60s。 */
+    private val connectSingleFlightGate = Mutex()
+    private var connectSingleFlight: Deferred<Result<Unit>>? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     private val sdkDispatcher = Dispatchers.Default.limitedParallelism(4)
@@ -239,11 +256,14 @@ class SdkSessionManager(
     val selectedDeviceCdi: StateFlow<String?> = _selectedDeviceCdi.asStateFlow()
 
     init {
-        // 启动时从缓存恢复上次选中的设备
-        val cached = settings.getStringOrNull(KEY_SELECTED_DEVICE_CDI)
-        if (!cached.isNullOrBlank()) {
-            _selectedDeviceCdi.value = cached
-            appLogD(TAG, "从缓存恢复选中设备 cdi=$cached")
+        // 启动时从缓存恢复上次选中的设备（仅当 userId 已知时使用缓存，防止跨用户污染）
+        val cdiKey = userKeyOf(KEY_SELECTED_DEVICE_CDI)
+        if (cdiKey != null) {
+            val cached = settings.getStringOrNull(cdiKey)
+            if (!cached.isNullOrBlank()) {
+                _selectedDeviceCdi.value = cached
+                appLogD(TAG, "从缓存恢复选中设备 cdi=$cached")
+            }
         }
     }
 
@@ -269,96 +289,35 @@ class SdkSessionManager(
         )
     }
 
-    private data class AssistantFinalRecordResult(
-        val aggregate: AssistantFinalAggregate,
-        val isNewChunk: Boolean,
-    )
-
-    private fun recordAssistantFinalChunk(msgId: String, event: NpcMachineEvent): AssistantFinalRecordResult {
-        val chunkKey = event.timestamp?.toString() ?: "no-ts-${assistantFinalNoTimestampCounter++}"
-        val chunks = assistantFinalChunks.getOrPut(msgId) { linkedMapOf() }
-        val existing = chunks[chunkKey]
-        if (existing != null) {
-            return AssistantFinalRecordResult(
-                aggregate = buildAssistantFinalAggregate(msgId),
-                isNewChunk = false,
-            )
-        }
-        chunks[chunkKey] = AssistantFinalChunk(
-            key = chunkKey,
-            timestamp = event.timestamp,
-            text = event.text,
-            attachments = event.attachments,
-        )
-        return AssistantFinalRecordResult(
-            aggregate = buildAssistantFinalAggregate(msgId),
-            isNewChunk = true,
-        )
-    }
-
-    private fun buildAssistantFinalAggregate(msgId: String): AssistantFinalAggregate {
-        val chunks = assistantFinalChunks[msgId].orEmpty().values
-        val sortedChunks = chunks.sortedWith(
-            compareBy<AssistantFinalChunk> { it.timestamp ?: Long.MAX_VALUE }
-                .thenBy { it.key },
-        )
-        val aggregatedText = sortedChunks
-            .mapNotNull { it.text?.trimEnd()?.takeIf { text -> text.isNotBlank() } }
-            .joinToString(separator = "\n\n")
-        val attachments = linkedSetOf<MediaAttachment>()
-        sortedChunks.forEach { chunk ->
-            chunk.attachments.forEach { attachment ->
-                attachments.add(attachment)
-            }
-        }
-        val latestTimestamp = sortedChunks.maxOfOrNull { it.timestamp ?: Long.MIN_VALUE }
-            ?.takeIf { it != Long.MIN_VALUE }
-        return AssistantFinalAggregate(
-            text = aggregatedText,
-            attachments = attachments.toList(),
-            latestTimestamp = latestTimestamp,
-        )
-    }
-
-    private fun restartAssistantFinalCompletionTimer(msgId: String, isLatest: Boolean) {
-        assistantFinalCompletionJobs.remove(msgId)?.cancel()
-        assistantFinalCompletionJobs[msgId] = scope.launch {
-            delay(ASSISTANT_FINAL_SETTLE_DELAY_MS)
-            assistantFinalCompletionJobs.remove(msgId)
-            val aggregate = buildAssistantFinalAggregate(msgId)
-            updateReplyState(msgId) { state ->
-                state.copy(
-                    text = aggregate.text.ifBlank { state.text },
-                    streaming = false,
-                    streamingStatusText = null,
-                    attachments = aggregate.attachments.ifEmpty { state.attachments },
-                    timestamp = aggregate.latestTimestamp ?: state.timestamp,
-                )
-            }
-            if (isLatest && aggregate.text.isNotBlank()) {
-                _assistantReplyText.value = aggregate.text
-            }
-            completeRequest(msgId, msgId == _latestRequestId, "对话结束(assistant.final settle)")
-        }
-    }
-
     fun selectDevice(cdi: String?) {
         val normalized = cdi?.trim()?.takeIf { it.isNotEmpty() }
         _selectedDeviceCdi.value = normalized
-        if (normalized != null) {
-            settings.putString(KEY_SELECTED_DEVICE_CDI, normalized)
-        } else {
-            settings.remove(KEY_SELECTED_DEVICE_CDI)
+        val key = userKeyOf(KEY_SELECTED_DEVICE_CDI)
+        if (key != null) {
+            if (normalized != null) {
+                settings.putString(key, normalized)
+            } else {
+                settings.remove(key)
+            }
         }
     }
 
     fun clearSelectedDeviceCache() {
         _selectedDeviceCdi.value = null
-        settings.remove(KEY_SELECTED_DEVICE_CDI)
+        userKeyOf(KEY_SELECTED_DEVICE_CDI)?.let { settings.remove(it) }
+    }
+
+    private var blobRelayConfiguredForProcess: Boolean = false
+
+    private fun ensureBlobRelayConfiguredForProcess() {
+        if (blobRelayConfiguredForProcess) return
+        blobRelayConfiguredForProcess = true
+        runCatching { configurePlatformBlobRelay() }
     }
 
     private val blobTransfer by lazy { createPlatformBlobTransfer() }
     private val blobBytesCache = linkedMapOf<String, ByteArray>()
+    private val blobRefDebugCache = linkedMapOf<String, BlobRefDebugInfo?>()
     private val blobFetchingSet = mutableSetOf<String>()
     private val blobCacheLock = Mutex()
     private val BLOB_CACHE_MAX_SIZE = 100
@@ -374,6 +333,24 @@ class SdkSessionManager(
         }
 
         return runCatching {
+            val debug =
+                blobCacheLock.withLock {
+                    blobRefDebugCache[blobRef] ?: parseBlobRefDebugInfo(blobRef).also {
+                        if (blobRefDebugCache.size >= BLOB_CACHE_MAX_SIZE) {
+                            val oldest = blobRefDebugCache.keys.first()
+                            blobRefDebugCache.remove(oldest)
+                        }
+                        blobRefDebugCache[blobRef] = it
+                    }
+                }
+            if (debug != null) {
+                appLogD(
+                    TAG,
+                    "[BlobFetch] 解析 blobRef nodeId=${debug.nodeId} relayUrl=${debug.relayUrl ?: "none"} directAddrs=${debug.directAddresses.size} blobRef=${blobRef.take(40)}",
+                )
+            } else {
+                appLogD(TAG, "[BlobFetch] 解析 blobRef 失败/不可用 blobRef=${blobRef.take(40)}")
+            }
             appLogD(TAG, "[BlobFetch] 开始下载 blobRef=${blobRef.take(40)}...")
             val bytes = blobTransfer.fetch(blobRef)
             appLogD(TAG, "[BlobFetch] 下载完成 blobRef=${blobRef.take(40)} size=${bytes.size}")
@@ -417,18 +394,26 @@ class SdkSessionManager(
     private val _completedEventKeys = linkedSetOf<String>()
     private val COMPLETED_EVENT_KEYS_MAX_SIZE = 1000
 
+    private data class RequestTimingTrace(
+        val clientSendAt: Long,
+        val payloadTimestamp: Long?,
+        val firstReceiveAt: Long? = null,
+        val finalReceiveAt: Long? = null,
+        val firstReceiveEventType: String? = null,
+        val finalReceiveEventType: String? = null,
+    )
+
+    private val requestTimingTraceMap = mutableMapOf<String, RequestTimingTrace>()
+
     private val _replyStateMap = MutableStateFlow<Map<String, ReplyState>>(emptyMap())
     val replyStateMap: StateFlow<Map<String, ReplyState>> = _replyStateMap.asStateFlow()
 
     private val _npcReplyEvents = MutableSharedFlow<NpcReplyEvent>(extraBufferCapacity = 64)
     val npcReplyEvents: SharedFlow<NpcReplyEvent> = _npcReplyEvents.asSharedFlow()
 
-    private val assistantFinalChunks = mutableMapOf<String, MutableMap<String, AssistantFinalChunk>>()
-    private val assistantFinalCompletionJobs = mutableMapOf<String, Job>()
-    private var assistantFinalNoTimestampCounter = 0L
-
     private val pendingNasRegisterRequests = MutableStateFlow<Map<String, PendingNasRegisterRequest>>(emptyMap())
     private val pendingNasFileListRequests = MutableStateFlow<Map<String, PendingNasFileListRequest>>(emptyMap())
+    private val pendingNasFileSearchRequests = MutableStateFlow<Map<String, PendingNasFileSearchRequest>>(emptyMap())
     private val pendingNasFileGetRequests = MutableStateFlow<Map<String, PendingNasFileGetRequest>>(emptyMap())
     private val pendingNasFileDeleteRequests = MutableStateFlow<Map<String, PendingNasFileDeleteRequest>>(emptyMap())
     private val _activeFileTransferCount = MutableStateFlow(0)
@@ -517,7 +502,7 @@ class SdkSessionManager(
         if (session == null && _connectionState.value == SdkConnectionState.DISCONNECTED) return
         appLogD(TAG, "网络变化检测，主动断开旧连接并重连")
         scope.launch {
-            connectMutex.withLock {
+            withConnectMutex("onNetworkChanged.reset") {
                 logSdkEvent("网络变化触发断开, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
@@ -533,7 +518,7 @@ class SdkSessionManager(
     private fun disconnectInBackground() {
         appLogD(TAG, "应用在后台，主动断开 NATS 连接")
         scope.launch {
-            connectMutex.withLock {
+            withConnectMutex("disconnectInBackground") {
                 logSdkEvent("后台触发断开连接, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
@@ -562,21 +547,109 @@ class SdkSessionManager(
         }
     }
 
-    suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
-        // 获取 mutex 最多等 25s，防止死锁
-        val locked = withTimeoutOrNull(25_000L) { connectMutex.lock() }
-        if (locked == null) {
-            appLogD(TAG, "ensureConnectedIfTokenValid: 获取 connectMutex 超时(25s)")
-            return Result.failure(IllegalStateException("SDK 连接锁超时，请稍后重试"))
+    private fun formatConnectDiagnostic(
+        waitTimeoutMs: Long? = null,
+        mutexOwner: String? = null,
+        ownerHeldMs: Long? = null,
+    ): String {
+        val parts = ArrayList<String>(8)
+        parts.add("state=${_connectionState.value}")
+        parts.add("hasSession=${session != null}")
+        parts.add("mutexLocked=${connectMutex.isLocked}")
+        waitTimeoutMs?.let { parts.add("waitTimeoutMs=$it") }
+        mutexOwner?.let { parts.add("mutexOwner=${it.take(64)}") }
+        ownerHeldMs?.let { parts.add("ownerHeldMs=$it") }
+        return parts.joinToString(", ")
+    }
+
+    private fun connectMutexTimeoutException(waitTimeoutMs: Long): IllegalStateException {
+        val owner = connectMutexOwner ?: "unknown"
+        val heldMs = connectMutexAcquiredAtMs?.let { (currentTimeMillis() - it).coerceAtLeast(0L) } ?: -1L
+        val diag = formatConnectDiagnostic(waitTimeoutMs, owner, heldMs)
+        appLogD(
+            TAG,
+            "ensureConnectedIfTokenValid: 获取 connectMutex 超时(${waitTimeoutMs}ms), $diag",
+        )
+        return IllegalStateException("SDK 连接锁超时，请稍后重试 | 诊断: $diag")
+    }
+
+    private fun connectSupersededAfterSharedAwaitException(): IllegalStateException {
+        val diag = formatConnectDiagnostic()
+        appLogD(TAG, "ensureConnectedIfTokenValid: 共享连接完成后会话已失效, $diag")
+        return IllegalStateException("连接已完成，但当前会话已断开，请重试 | 诊断: $diag")
+    }
+
+    private fun sanitizeConnectResultAfterSharedAwait(result: Result<Unit>): Result<Unit> {
+        if (result.isFailure) return result
+        if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) return result
+        return Result.failure(connectSupersededAfterSharedAwaitException())
+    }
+
+    private suspend fun runConnectSlowPath(): Result<Unit> {
+        val owner = "ensureConnectedIfTokenValid"
+        val waitTimeoutMs = 60_000L
+        val locked = lockConnectMutexWithTimeout(owner = owner, timeoutMs = waitTimeoutMs)
+        if (!locked) {
+            return Result.failure(connectMutexTimeoutException(waitTimeoutMs))
         }
         return try {
             ensureConnectedIfTokenValidLocked()
         } finally {
-            connectMutex.unlock()
+            unlockConnectMutex(owner)
         }
     }
 
+    suspend fun ensureConnectedIfTokenValid(): Result<Unit> {
+        if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
+            val observersActive = areObserversActive()
+            appLogD(
+                TAG,
+                "ensureConnectedIfTokenValid: 快速路径，当前已连接，observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}",
+            )
+            if (!observersActive && observerRestartAttempts <= MAX_OBSERVER_RESTART_ATTEMPTS) {
+                withConnectMutex("ensureConnectedIfTokenValid.fastPathRestart") {
+                    val activeSession = session
+                    if (activeSession != null && _connectionState.value == SdkConnectionState.CONNECTED && !areObserversActive()) {
+                        appLogD(TAG, "ensureConnectedIfTokenValid: 快速路径检测到监听未激活，进入锁内重建监听")
+                        _connectionLog.value = "连接正常，正在恢复监听..."
+                        observerRestartAttempts++
+                        restartObservers(session = activeSession, reason = "主动恢复监听")
+                    }
+                }
+            }
+            return Result.success(Unit)
+        }
+
+        val deferred =
+            connectSingleFlightGate.withLock {
+                val existing = connectSingleFlight
+                if (existing != null && existing.isActive) {
+                    appLogD(TAG, "ensureConnectedIfTokenValid: 单飞复用进行中的连接")
+                    existing
+                } else {
+                    lateinit var job: Deferred<Result<Unit>>
+                    job =
+                        scope.async {
+                            try {
+                                runConnectSlowPath()
+                            } finally {
+                                connectSingleFlightGate.withLock {
+                                    if (connectSingleFlight === job) {
+                                        connectSingleFlight = null
+                                    }
+                                }
+                            }
+                        }
+                    connectSingleFlight = job
+                    job
+                }
+            }
+        val result = deferred.await()
+        return sanitizeConnectResultAfterSharedAwait(result)
+    }
+
     private suspend fun ensureConnectedIfTokenValidLocked(): Result<Unit> {
+            ensureBlobRelayConfiguredForProcess()
             if (session != null && _connectionState.value == SdkConnectionState.CONNECTED) {
                 val observersActive = areObserversActive()
                 appLogD(TAG, "SDK 已连接(复用), userId=${session!!.userId}, observersActive=$observersActive, onlineDeviceCdis=${_onlineDeviceCdis.value}, consumerJob=${consumerJob?.isActive}, nasConsumerJob=${nasConsumerJob?.isActive}, deviceObserverJob=${deviceObserverJob?.isActive}")
@@ -616,8 +689,12 @@ class SdkSessionManager(
             val connectResult = withTimeoutOrNull(20_000L) {
                 runCatching { sdkClient.connect(token) }
             } ?: run {
-                appLogD(TAG, "connect: sdkClient.connect() 超时(20s)")
-                return Result.failure(IllegalStateException("SDK 连接超时(20s)，请检查网络"))
+                appLogD(TAG, "connect: sdkClient.connect() 超时(20s), ${formatConnectDiagnostic()}")
+                return Result.failure(
+                    IllegalStateException(
+                        "SDK 连接超时(20s)，请检查网络 | 诊断: ${formatConnectDiagnostic()}",
+                    ),
+                )
             }
             appLogD(TAG, "connect: sdkClient.connect() 返回 isSuccess=${connectResult.isSuccess}, error=${connectResult.exceptionOrNull()?.message}")
 
@@ -657,7 +734,7 @@ class SdkSessionManager(
 
     fun disconnect() {
         scope.launch {
-            connectMutex.withLock {
+            withConnectMutex("disconnect") {
                 logSdkEvent("断开连接 requested, currentState=${_connectionState.value}, userId=${session?.userId}")
                 resetSessionResources()
                 _connectionState.value = SdkConnectionState.DISCONNECTED
@@ -690,8 +767,12 @@ class SdkSessionManager(
 
         val outgoingMessageId = extractMessageId(payload)
         if (outgoingMessageId != null) {
-            assistantFinalCompletionJobs.remove(outgoingMessageId)?.cancel()
-            assistantFinalChunks.remove(outgoingMessageId)
+            val clientSendAt = currentTimeMillis()
+            val payloadTimestamp = extractPayloadTimestamp(payload)
+            requestTimingTraceMap[outgoingMessageId] = RequestTimingTrace(
+                clientSendAt = clientSendAt,
+                payloadTimestamp = payloadTimestamp,
+            )
             _activeRequestIds.update { it + outgoingMessageId }
             _replyStateMap.update { it + (outgoingMessageId to ReplyState()) }
             _latestRequestId = outgoingMessageId
@@ -700,6 +781,12 @@ class SdkSessionManager(
             _streamingStatusText.value = null
             _reasoningText.value = ""
             appLogD(TAG, "发送请求 messageId=$outgoingMessageId，当前活跃: ${_activeRequestIds.value}")
+            logTimingTrace(
+                messageId = outgoingMessageId,
+                phase = "send",
+                clientSendAt = clientSendAt,
+                payloadTimestamp = payloadTimestamp,
+            )
         }
         val userId = activeSession.userId
         val natsSubject = "cephalon.im.npc.$userId.$cdi"
@@ -712,11 +799,12 @@ class SdkSessionManager(
             if (outgoingMessageId != null) {
                 _activeRequestIds.update { it - outgoingMessageId }
                 _replyStateMap.update { it - outgoingMessageId }
+                requestTimingTraceMap.remove(outgoingMessageId)
                 if (_latestRequestId == outgoingMessageId) {
                     _latestRequestId = _activeRequestIds.value.lastOrNull()
                 }
             }
-            appLogD(TAG, "发送失败 cdi=$cdi error=${error.message ?: "unknown"}")
+            appLogD(TAG, "发送失败 cdi=$cdi error=${error.message ?: "unknown"} rootCause=${error.cause?.message ?: "-"}")
         }
     }
 
@@ -735,8 +823,8 @@ class SdkSessionManager(
         targetCdi: String,
         items: List<TransferUploadItem>,
         deviceKind: FileTransferDeviceKind = FileTransferDeviceKind.Nas,
-        retryCount: Int = 3,
-        timeoutMs: Long = 60_000L,
+        retryCount: Int = 30,
+        timeoutMs: Long = 10000L,
         onProgress: (ProgressFrame) -> Unit = {},
     ): Result<SendFileOutcome> {
         if (items.isEmpty()) {
@@ -783,6 +871,14 @@ class SdkSessionManager(
                     ),
                 )
         }.onSuccess { outcome ->
+            val firstBlobRef = outcome.sentItems.firstOrNull()?.blobRef
+            if (!firstBlobRef.isNullOrBlank()) {
+                val debug = parseBlobRefDebugInfo(firstBlobRef)
+                appLogD(
+                    TAG,
+                    "[BlobSend] 解析发送侧 blobRef relayUrl=${debug?.relayUrl ?: "none"} blobRef=${firstBlobRef.take(40)}",
+                )
+            }
             appLogD(
                 TAG,
                 "批量传输成功 target=${deviceKind.name} cdi=$resolvedTargetCdi status=${outcome.done.status} items=${outcome.done.items.size}",
@@ -929,6 +1025,80 @@ class SdkSessionManager(
             waiter.cancel(error as? CancellationException)
         }.also {
             pendingNasFileListRequests.update { current -> current - requestId }
+            scheduleBackgroundDisconnectIfNeeded()
+        }
+    }
+
+    suspend fun searchFilesFromNas(
+        targetCdi: String,
+        kind: String,
+        keyword: String,
+        timeoutMs: Long = 180_000L,
+    ): Result<NasFileListResponse> {
+        if (targetCdi.isBlank()) {
+            return Result.failure(IllegalArgumentException("targetCdi 为空，无可用设备"))
+        }
+        val normalizedKind = kind.trim()
+        if (normalizedKind.isBlank()) {
+            return Result.failure(IllegalArgumentException("kind 不能为空"))
+        }
+        val normalizedKeyword = keyword.trim()
+        if (normalizedKeyword.isBlank()) {
+            return Result.failure(IllegalArgumentException("keyword 不能为空"))
+        }
+
+        ensureConnectedIfTokenValid()
+            .exceptionOrNull()
+            ?.let { error -> return Result.failure(error) }
+
+        val activeSession = session
+            ?: return Result.failure(IllegalStateException("请先连接 SDK"))
+
+        val requestId = generateMessageId19()
+        val waiter = CompletableDeferred<NasFileListResponse>()
+        val rspSubject = "cephalon.nas.user.${activeSession.userId}"
+        val resolvedTargetCdi = targetCdi.trim()
+        pendingNasFileSearchRequests.update { current ->
+            current + (
+                requestId to PendingNasFileSearchRequest(
+                    requestId = requestId,
+                    kind = normalizedKind,
+                    keyword = normalizedKeyword,
+                    waiter = waiter,
+                )
+            )
+        }
+
+        val nasPayload = buildNasFileSearchPayload(
+            rspSubject = rspSubject,
+            kind = normalizedKind,
+            keyword = normalizedKeyword,
+        )
+        appLogD(
+            TAG,
+            "开始搜索 NAS 文件 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind keyword=$normalizedKeyword payload=$nasPayload",
+        )
+
+        return runCatching {
+            activeSession.publishToNas(
+                cdi = resolvedTargetCdi,
+                payload = nasPayload,
+            )
+            withTimeoutOrNull(timeoutMs) { waiter.await() }
+                ?: throw IllegalStateException("等待 NAS 文件搜索响应超时")
+        }.onSuccess { response ->
+            appLogD(
+                TAG,
+                "搜索 NAS 文件成功 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind keyword=$normalizedKeyword count=${response.items.size} error=${response.error ?: "null"}",
+            )
+        }.onFailure { error ->
+            appLogD(
+                TAG,
+                "搜索 NAS 文件失败 cdi=$resolvedTargetCdi requestId=$requestId kind=$normalizedKind keyword=$normalizedKeyword error=${error.message ?: "unknown"}",
+            )
+            waiter.cancel(error as? CancellationException)
+        }.also {
+            pendingNasFileSearchRequests.update { current -> current - requestId }
             scheduleBackgroundDisconnectIfNeeded()
         }
     }
@@ -1202,7 +1372,7 @@ class SdkSessionManager(
     }
 
     private suspend fun reconnectWithFreshToken() {
-        connectMutex.withLock {
+        withConnectMutex("reconnectWithFreshToken.reset") {
             // 检查是否有新 token（可能已被刷新）
             val token = tokenStore.getValidTokenOrNull()
             if (token.isNullOrBlank()) {
@@ -1269,25 +1439,40 @@ class SdkSessionManager(
                     val activeIds = _activeRequestIds.value
                     val hasSourceId = !incomingSourceMessageId.isNullOrBlank()
                     val sourceMatched = hasSourceId && incomingSourceMessageId in activeIds
-                    val completedEventKey = if (hasSourceId && machineEvent != null) buildCompletedEventKey(incomingSourceMessageId!!, machineEvent) else null
+                    val completedEventKey = if (hasSourceId && machineEvent != null) buildCompletedEventKey(incomingSourceMessageId, machineEvent) else null
 
                     if (hasSourceId && !sourceMatched) {
-                        // 有 source_message_id 但匹配不上活跃请求
-                        // 仅 assistant.final 转发（服务器可能对同一请求分批发送多个 final）
-                        // 其他类型（partial/start/reasoning 等中间事件）直接丢弃，避免重复渲染
-                        if (machineEvent?.type == "assistant.final" &&
-                            (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())
-                        ) {
-                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，assistant.final 转为异步媒体推送")
-                            _incomingMediaEvents.tryEmit(
-                                IncomingMediaEvent(
+                        // 已完成后的完全重复事件 → 直接丢弃；不同 timestamp / 内容的事件继续放行。
+                        if (completedEventKey != null && completedEventKey in _completedEventKeys) {
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成，丢弃重复事件 type=${machineEvent?.type} timestamp=${machineEvent?.timestamp}")
+                            return@startUserChannelConsumer
+                        }
+                        // 不在活跃列表也不在已完成列表 → 发射到 npcReplyEvents 供 UI 直接处理（不过滤内容，允许 tool.start 等状态事件通过）
+                        if (machineEvent != null) {
+                            completedEventKey?.let(::rememberCompletedEventKey)
+                            if (machineEvent.type == "assistant.final") {
+                                appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成但收到新的 assistant.final，作为独立 final 转发")
+                                _npcReplyEvents.tryEmit(NpcReplyEvent(
+                                    messageId = incomingSourceMessageId,
+                                    type = machineEvent.type,
                                     text = machineEvent.text,
+                                    eventId = machineEvent.eventId,
+                                    toolName = machineEvent.toolName,
                                     attachments = machineEvent.attachments,
-                                    eventType = machineEvent.type,
-                                    sourceMessageId = incomingSourceMessageId,
                                     timestamp = machineEvent.timestamp,
-                                )
-                            )
+                                ))
+                                return@startUserChannelConsumer
+                            }
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，转发到 npcReplyEvents type=${machineEvent.type}")
+                            _npcReplyEvents.tryEmit(NpcReplyEvent(
+                                messageId = incomingSourceMessageId,
+                                type = machineEvent.type,
+                                text = machineEvent.text,
+                                eventId = machineEvent.eventId,
+                                toolName = machineEvent.toolName,
+                                attachments = machineEvent.attachments,
+                                timestamp = machineEvent.timestamp,
+                            ))
                         } else {
                             appLogD(TAG, "[Consumer] 过滤掉无法解析的事件: source_message_id=$incomingSourceMessageId")
                         }
@@ -1404,7 +1589,9 @@ class SdkSessionManager(
         nasConsumerJob?.cancel()
         deviceObserverJob?.cancel()
         try {
+            val stopStartedAt = currentTimeMillis()
             deviceObserver?.stop()
+            appLogD(TAG, "resetSessionResources: deviceObserver.stop() 完成, costMs=${(currentTimeMillis() - stopStartedAt).coerceAtLeast(0L)}")
         } catch (e: Throwable) {
             appLogD(TAG, "deviceObserver.stop() 异常: ${e.message}")
         }
@@ -1413,7 +1600,9 @@ class SdkSessionManager(
         deviceObserverJob = null
         deviceObserver = null
         try {
+            val closeStartedAt = currentTimeMillis()
             session?.close()
+            appLogD(TAG, "resetSessionResources: session.close() 完成, costMs=${(currentTimeMillis() - closeStartedAt).coerceAtLeast(0L)}")
         } catch (e: Throwable) {
             appLogD(TAG, "session.close() 异常: ${e.message}")
         }
@@ -1424,14 +1613,13 @@ class SdkSessionManager(
         _lastReplyMessageId.value = null
         _activeRequestIds.value = emptySet()
         _replyStateMap.value = emptyMap()
-        assistantFinalCompletionJobs.values.forEach { it.cancel() }
-        assistantFinalCompletionJobs.clear()
-        assistantFinalChunks.clear()
-        assistantFinalNoTimestampCounter = 0L
         pendingNasRegisterRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
         pendingNasFileListRequests.value.values.forEach { pending ->
+            pending.waiter.cancel()
+        }
+        pendingNasFileSearchRequests.value.values.forEach { pending ->
             pending.waiter.cancel()
         }
         pendingNasFileGetRequests.value.values.forEach { pending ->
@@ -1442,6 +1630,7 @@ class SdkSessionManager(
         }
         pendingNasRegisterRequests.value = emptyMap()
         pendingNasFileListRequests.value = emptyMap()
+        pendingNasFileSearchRequests.value = emptyMap()
         pendingNasFileGetRequests.value = emptyMap()
         pendingNasFileDeleteRequests.value = emptyMap()
         _activeFileTransferCount.value = 0
@@ -1451,6 +1640,64 @@ class SdkSessionManager(
         _streamingStatusText.value = null
         _reasoningText.value = ""
         logSdkEvent("resetSessionResources")
+    }
+
+    private suspend inline fun <T> withConnectMutex(owner: String, block: () -> T): T {
+        val waitStartedAt = currentTimeMillis()
+        appLogD(TAG, "connectMutex 等待获取，owner=$owner, isLocked=${connectMutex.isLocked}")
+        connectMutex.lock()
+        val waitedMs = (currentTimeMillis() - waitStartedAt).coerceAtLeast(0L)
+        onConnectMutexAcquired(owner = owner, waitedMs = waitedMs)
+        return try {
+            block()
+        } finally {
+            unlockConnectMutex(owner)
+        }
+    }
+
+    private suspend fun lockConnectMutexWithTimeout(owner: String, timeoutMs: Long): Boolean {
+        val waitStartedAt = currentTimeMillis()
+        appLogD(TAG, "connectMutex 等待获取，owner=$owner, timeoutMs=$timeoutMs, isLocked=${connectMutex.isLocked}")
+        val locked = withTimeoutOrNull(timeoutMs) { connectMutex.lock() } != null
+        if (!locked) return false
+        val waitedMs = (currentTimeMillis() - waitStartedAt).coerceAtLeast(0L)
+        onConnectMutexAcquired(owner = owner, waitedMs = waitedMs)
+        return true
+    }
+
+    private fun onConnectMutexAcquired(owner: String, waitedMs: Long) {
+        connectMutexOwner = owner
+        connectMutexAcquiredAtMs = currentTimeMillis()
+        connectMutexWatchdogJob?.cancel()
+        connectMutexWatchdogJob =
+            scope.launch {
+                val checkpoints = listOf(5_000L, 15_000L, 30_000L)
+                var elapsed = 0L
+                checkpoints.forEach { checkpoint ->
+                    delay((checkpoint - elapsed).coerceAtLeast(0L))
+                    elapsed = checkpoint
+                    if (connectMutexOwner == owner && connectMutexAcquiredAtMs != null) {
+                        val heldMs = (currentTimeMillis() - (connectMutexAcquiredAtMs ?: 0L)).coerceAtLeast(0L)
+                        appLogD(
+                            TAG,
+                            "connectMutex 仍被持有，owner=$owner, heldMs=$heldMs, state=${_connectionState.value}, hasSession=${session != null}",
+                        )
+                    } else {
+                        return@launch
+                    }
+                }
+            }
+        appLogD(TAG, "connectMutex 获取成功，owner=$owner, waitedMs=$waitedMs")
+    }
+
+    private fun unlockConnectMutex(owner: String) {
+        val heldMs = connectMutexAcquiredAtMs?.let { (currentTimeMillis() - it).coerceAtLeast(0L) } ?: -1L
+        appLogD(TAG, "connectMutex 释放，owner=$owner, heldMs=$heldMs")
+        connectMutexWatchdogJob?.cancel()
+        connectMutexWatchdogJob = null
+        connectMutexOwner = null
+        connectMutexAcquiredAtMs = null
+        connectMutex.unlock()
     }
 
     private fun handleObserverFailure(
@@ -1471,7 +1718,7 @@ class SdkSessionManager(
                 // 多次重连仍失败，app token 可能也已失效
                 appLogD(TAG, "${logLabel} NATS 鉴权重连已达上限($MAX_AUTH_RECONNECT_ATTEMPTS 次)，清除 token")
                 scope.launch {
-                    connectMutex.withLock {
+                    withConnectMutex("handleObserverFailure.authReset") {
                         tokenStore.clear()
                         resetSessionResources()
                         authReconnectAttempts = 0
@@ -1553,11 +1800,11 @@ class SdkSessionManager(
         observerRestartJob =
             scope.launch {
                 delay(delayMs)
-                connectMutex.withLock {
+                withConnectMutex("scheduleObserverRestart.$logLabel") lock@{
                     val activeSession = session
                     if (activeSession == null || _connectionState.value != SdkConnectionState.CONNECTED) {
                         appLogD(TAG, "${logLabel}重建监听跳过：当前无可用连接")
-                        return@withLock
+                        return@lock
                     }
                     restartObservers(session = activeSession, reason = "${logLabel}重建")
                 }
@@ -1573,7 +1820,7 @@ class SdkSessionManager(
         reconnectJob =
             scope.launch {
                 delay(RECONNECT_DELAY_MS)
-                connectMutex.withLock {
+                withConnectMutex("scheduleReconnect.$reason") {
                     _connectionState.value = SdkConnectionState.DISCONNECTED
                     _connectionLog.value = "$reason，正在重连..."
                     logSdkEvent(_connectionLog.value)
@@ -1630,6 +1877,25 @@ class SdkSessionManager(
                 appLogD(
                     TAG,
                     "[NAS] 收到未匹配的文件列表响应 requestId=${nasFileListResponse.requestId ?: "none"} kind=${nasFileListResponse.kind ?: "unknown"} count=${nasFileListResponse.items.size}",
+                )
+            }
+            return true
+        }
+        val nasFileSearchResponse = runCatching { parseNasFileSearchResponse(messageText) }.getOrNull()
+        if (nasFileSearchResponse != null) {
+            val matchedRequestId = findMatchingNasFileSearchRequestId(nasFileSearchResponse)
+            if (matchedRequestId != null) {
+                appLogD(
+                    TAG,
+                    "[NAS] 接受文件搜索响应 requestId=$matchedRequestId kind=${nasFileSearchResponse.kind ?: "unknown"} count=${nasFileSearchResponse.items.size}",
+                )
+                recordReceivedMessage(subject, messageText)
+                pendingNasFileSearchRequests.value[matchedRequestId]?.waiter?.complete(nasFileSearchResponse)
+                pendingNasFileSearchRequests.update { current -> current - matchedRequestId }
+            } else {
+                appLogD(
+                    TAG,
+                    "[NAS] 收到未匹配的文件搜索响应 requestId=${nasFileSearchResponse.requestId ?: "none"} kind=${nasFileSearchResponse.kind ?: "unknown"} count=${nasFileSearchResponse.items.size}",
                 )
             }
             return true
@@ -1704,6 +1970,13 @@ class SdkSessionManager(
             return
         }
         val isLatest = msgId == _latestRequestId
+        val receivedAt = currentTimeMillis()
+        recordReceiveTiming(
+            messageId = msgId,
+            eventType = event.type,
+            backendEventTimestamp = event.timestamp,
+            receivedAt = receivedAt,
+        )
         appLogD(TAG, "[Event] 处理事件 type=${event.type}, msgId=$msgId, isLatest=$isLatest, textLen=${event.text?.length ?: 0}, tool=${event.toolName ?: "none"}")
 
         when (event.type) {
@@ -1836,36 +2109,59 @@ class SdkSessionManager(
             }
 
             "assistant.final" -> {
-                val recordResult = recordAssistantFinalChunk(msgId, event)
-                val aggregate = recordResult.aggregate
                 emitNpcReplyEvent(
                     messageId = msgId,
                     type = event.type,
-                    text = aggregate.text,
+                    text = event.text,
                     eventId = event.eventId,
                     toolName = event.toolName,
-                    attachments = aggregate.attachments,
-                    timestamp = aggregate.latestTimestamp,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
                 )
                 updateReplyState(msgId) { state ->
                     state.copy(
-                        text = aggregate.text.ifBlank { state.text },
+                        text = event.text ?: state.text,
                         streaming = true,
                         streamingStatusText = null,
-                        attachments = mergedAttachments,
+                        attachments = event.attachments.ifEmpty { state.attachments },
                         timestamp = event.timestamp ?: state.timestamp,
                     )
                 }
                 if (isLatest) {
-                    if (aggregate.text.isNotBlank()) _assistantReplyText.value = aggregate.text
+                    if (!event.text.isNullOrBlank()) _assistantReplyText.value = event.text
                     _assistantReplyStreaming.value = true
                     _streamingStatusText.value = null
                 }
-                if (recordResult.isNewChunk) {
-                    restartAssistantFinalCompletionTimer(msgId, isLatest)
-                } else {
-                    appLogD(TAG, "[Event] assistant.final 重复推送已忽略，不重置 settle 计时 msgId=$msgId timestamp=${event.timestamp}")
+            }
+
+            "assistant.complete" -> {
+                emitNpcReplyEvent(
+                    messageId = msgId,
+                    type = event.type,
+                    text = event.text,
+                    eventId = event.eventId,
+                    toolName = event.toolName,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                )
+                updateReplyState(msgId) { state ->
+                    state.copy(
+                        streaming = false,
+                        streamingStatusText = null,
+                        attachments = if (event.attachments.isNotEmpty()) {
+                            (state.attachments + event.attachments).distinctBy { it.blobRef }
+                        } else {
+                            state.attachments
+                        },
+                        timestamp = event.timestamp ?: state.timestamp,
+                    )
                 }
+                if (isLatest) {
+                    if (!event.text.isNullOrBlank()) _assistantReplyText.value = event.text
+                    _assistantReplyStreaming.value = false
+                    _streamingStatusText.value = null
+                }
+                completeRequest(msgId, isLatest, "对话结束(assistant.complete)")
             }
 
             "error" -> {
@@ -1905,13 +2201,25 @@ class SdkSessionManager(
     }
 
     private fun completeRequest(msgId: String, isLatest: Boolean, logLabel: String) {
-        assistantFinalCompletionJobs.remove(msgId)?.cancel()
         _activeRequestIds.update { it - msgId }
         if (isLatest) {
             _streamingStatusText.value = null
             _assistantReplyStreaming.value = false
             _latestRequestId = _activeRequestIds.value.lastOrNull()
         }
+        requestTimingTraceMap[msgId]?.let { trace ->
+            logTimingTrace(
+                messageId = msgId,
+                phase = "complete",
+                clientSendAt = trace.clientSendAt,
+                payloadTimestamp = trace.payloadTimestamp,
+                firstReceiveAt = trace.firstReceiveAt,
+                finalReceiveAt = trace.finalReceiveAt,
+                firstReceiveEventType = trace.firstReceiveEventType,
+                finalReceiveEventType = trace.finalReceiveEventType,
+            )
+        }
+        requestTimingTraceMap.remove(msgId)
         appLogD(TAG, "====== $logLabel msgId=$msgId ====== 剩余活跃: ${_activeRequestIds.value}")
     }
 
@@ -2071,11 +2379,91 @@ class SdkSessionManager(
         return root["source_message_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
     }
 
+    private fun extractPayloadTimestamp(payload: String): Long? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        return root["timestamp"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+    }
+
+    private fun recordReceiveTiming(
+        messageId: String,
+        eventType: String,
+        backendEventTimestamp: Long?,
+        receivedAt: Long,
+    ) {
+        val currentTrace = requestTimingTraceMap[messageId]
+        if (currentTrace == null) {
+            logTimingTrace(
+                messageId = messageId,
+                phase = "receive_without_send_trace",
+                backendEventTimestamp = backendEventTimestamp,
+                receivedAt = receivedAt,
+                eventType = eventType,
+            )
+            return
+        }
+
+        val isTerminalEvent = eventType == "assistant.complete" || eventType == "error"
+        val updatedTrace = currentTrace.copy(
+            firstReceiveAt = currentTrace.firstReceiveAt ?: receivedAt,
+            firstReceiveEventType = currentTrace.firstReceiveEventType ?: eventType,
+            finalReceiveAt = if (isTerminalEvent) receivedAt else currentTrace.finalReceiveAt,
+            finalReceiveEventType = if (isTerminalEvent) eventType else currentTrace.finalReceiveEventType,
+        )
+        requestTimingTraceMap[messageId] = updatedTrace
+
+        logTimingTrace(
+            messageId = messageId,
+            phase = if (currentTrace.firstReceiveAt == null) "first_receive" else "receive",
+            clientSendAt = updatedTrace.clientSendAt,
+            payloadTimestamp = updatedTrace.payloadTimestamp,
+            backendEventTimestamp = backendEventTimestamp,
+            receivedAt = receivedAt,
+            firstReceiveAt = updatedTrace.firstReceiveAt,
+            finalReceiveAt = updatedTrace.finalReceiveAt,
+            eventType = eventType,
+            firstReceiveEventType = updatedTrace.firstReceiveEventType,
+            finalReceiveEventType = updatedTrace.finalReceiveEventType,
+        )
+    }
+
+    private fun logTimingTrace(
+        messageId: String,
+        phase: String,
+        clientSendAt: Long? = null,
+        payloadTimestamp: Long? = null,
+        backendEventTimestamp: Long? = null,
+        receivedAt: Long? = null,
+        firstReceiveAt: Long? = null,
+        finalReceiveAt: Long? = null,
+        eventType: String? = null,
+        firstReceiveEventType: String? = null,
+        finalReceiveEventType: String? = null,
+    ) {
+        val sendToFirst = if (clientSendAt != null && firstReceiveAt != null) firstReceiveAt - clientSendAt else null
+        val sendToFinal = if (clientSendAt != null && finalReceiveAt != null) finalReceiveAt - clientSendAt else null
+        val payloadToBackend = if (payloadTimestamp != null && backendEventTimestamp != null) backendEventTimestamp - payloadTimestamp else null
+        val backendToReceive = if (backendEventTimestamp != null && receivedAt != null) receivedAt - backendEventTimestamp else null
+        val payloadToReceive = if (payloadTimestamp != null && receivedAt != null) receivedAt - payloadTimestamp else null
+
+        appLogD(
+            TAG,
+            "[MsgTiming] phase=$phase msgId=$messageId eventType=${eventType ?: "-"} " +
+                "clientSendAt=${clientSendAt ?: "-"} payloadTimestamp=${payloadTimestamp ?: "-"} " +
+                "backendEventTimestamp=${backendEventTimestamp ?: "-"} receivedAt=${receivedAt ?: "-"} " +
+                "firstReceiveAt=${firstReceiveAt ?: "-"}(${firstReceiveEventType ?: "-"}) " +
+                "finalReceiveAt=${finalReceiveAt ?: "-"}(${finalReceiveEventType ?: "-"}) " +
+                "sendToFirst=${sendToFirst ?: "-"}ms sendToFinal=${sendToFinal ?: "-"}ms " +
+                "payloadToBackend=${payloadToBackend ?: "-"}ms backendToReceive=${backendToReceive ?: "-"}ms " +
+                "payloadToReceive=${payloadToReceive ?: "-"}ms",
+        )
+    }
+
     private fun hasActiveTransportWork(): Boolean {
         return _activeRequestIds.value.isNotEmpty() ||
             _activeFileTransferCount.value > 0 ||
             pendingNasRegisterRequests.value.isNotEmpty() ||
             pendingNasFileListRequests.value.isNotEmpty() ||
+            pendingNasFileSearchRequests.value.isNotEmpty() ||
             pendingNasFileGetRequests.value.isNotEmpty() ||
             pendingNasFileDeleteRequests.value.isNotEmpty()
     }
@@ -2087,6 +2475,46 @@ class SdkSessionManager(
 
         val body =
             runCatching { root["file_list_rsp"]?.jsonObject }.getOrNull()
+                ?: root
+
+        val items =
+            runCatching { body["list"]?.jsonArray }.getOrNull()
+                ?.mapNotNull { item ->
+                    val itemObject = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
+                    NasFileListItem(
+                        id = itemObject["id"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                        time = itemObject["time"]?.jsonPrimitive?.contentOrNull,
+                        location = itemObject["location"]?.jsonPrimitive?.contentOrNull,
+                        kind = itemObject["kind"]?.jsonPrimitive?.contentOrNull,
+                        contentType = itemObject["contentType"]?.jsonPrimitive?.contentOrNull,
+                        size = itemObject["size"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                        fileName = itemObject["fileName"]?.jsonPrimitive?.contentOrNull,
+                        desc = itemObject["desc"]?.jsonPrimitive?.contentOrNull,
+                        thumbnailImgBlobRef = itemObject["thumbnailImgBlobRef"]?.jsonPrimitive?.contentOrNull,
+                    )
+                }
+                ?: emptyList()
+
+        val kinds = items.mapNotNull { it.kind }.distinct()
+        return NasFileListResponse(
+            cmd = cmd,
+            requestId =
+                root["request_id"]?.jsonPrimitive?.contentOrNull
+                    ?: body["request_id"]?.jsonPrimitive?.contentOrNull,
+            kind = body["kind"]?.jsonPrimitive?.contentOrNull ?: kinds.singleOrNull(),
+            items = items,
+            nextCursor = body["next_cursor"]?.jsonPrimitive?.contentOrNull,
+            error = nasJsonErrorMessage(body["error"]),
+        )
+    }
+
+    private fun parseNasFileSearchResponse(payload: String): NasFileListResponse? {
+        val root = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        val cmd = root["cmd"]?.jsonPrimitive?.contentOrNull ?: return null
+        if (cmd != "file_search_rsp") return null
+
+        val body =
+            runCatching { root["file_search_rsp"]?.jsonObject }.getOrNull()
                 ?: root
 
         val items =
@@ -2285,10 +2713,33 @@ class SdkSessionManager(
         return pendingNasFileListRequests.value.keys.singleOrNull()
     }
 
+    private fun findMatchingNasFileSearchRequestId(response: NasFileListResponse): String? {
+        response.requestId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { requestId ->
+                if (requestId in pendingNasFileSearchRequests.value) {
+                    return requestId
+                }
+            }
+
+        response.kind
+            ?.takeIf { it.isNotBlank() }
+            ?.let { responseKind ->
+                val kindMatched =
+                    pendingNasFileSearchRequests.value.values.filter { pending ->
+                        pending.kind == responseKind
+                    }
+                if (kindMatched.size == 1) {
+                    return kindMatched.first().requestId
+                }
+            }
+
+        return pendingNasFileSearchRequests.value.keys.singleOrNull()
+    }
+
     companion object {
         private const val TAG = "SdkSessionManager"
         private const val BACKGROUND_DISCONNECT_DELAY_MS = 5_000L
-        private const val ASSISTANT_FINAL_SETTLE_DELAY_MS = 3_000L
         private const val RECONNECT_DELAY_MS = 3_000L
         private const val TOKEN_RECONNECT_DELAY_MS = 2_000L
         private const val TOKEN_REFRESH_BUFFER_MS = 60_000L
@@ -2298,6 +2749,15 @@ class SdkSessionManager(
         private const val MAX_OBSERVER_RESTART_ATTEMPTS = 5      // observer 重建最多尝试次数
         private const val TOKEN_CHECK_MAX_INTERVAL_MS = 300_000L // 最多 5min 检查一次
         private const val KEY_SELECTED_DEVICE_CDI = "sdk.selected_device_cdi"
+    }
+
+    /**
+     * 拼接当前用户的隔离 key：`{base}.{userId}`。
+     * userId 未知时返回 null，调用方应跳过缓存读写。
+     */
+    private fun userKeyOf(base: String): String? {
+        val uid = tokenStore.getCurrentUserId() ?: return null
+        return "$base.$uid"
     }
 }
 
@@ -2315,6 +2775,9 @@ private fun String.escapeForJson(): String {
     return this
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
 }
 
 private fun buildNasRegisterBlobsPayload(
@@ -2396,6 +2859,29 @@ private fun buildNasFileListPayload(
             append(cursor.escapeForJson())
             append("\"")
         }
+        append("}")
+        append("}")
+    }
+}
+
+private fun buildNasFileSearchPayload(
+    rspSubject: String,
+    kind: String,
+    keyword: String,
+): String {
+    return buildString {
+        append("{")
+        append("\"cmd\":\"file_search_req\",")
+        append("\"rsp_subject\":\"")
+        append(rspSubject.escapeForJson())
+        append("\",")
+        append("\"file_search_req\":{")
+        append("\"kind\":\"")
+        append(kind.escapeForJson())
+        append("\",")
+        append("\"keyword\":\"")
+        append(keyword.escapeForJson())
+        append("\"")
         append("}")
         append("}")
     }

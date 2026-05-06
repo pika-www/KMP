@@ -1,9 +1,10 @@
 package com.cephalon.lucyApp.auth
 
-import io.ktor.util.decodeBase64Bytes
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 object JwtUtils {
     private val json = Json { ignoreUnknownKeys = true }
@@ -27,6 +28,7 @@ object JwtUtils {
         return expSeconds * 1000L
     }
 
+    @OptIn(ExperimentalEncodingApi::class)
     private fun decodeBase64Url(value: String): ByteArray? {
         val normalized = value
             .replace('-', '+')
@@ -37,7 +39,7 @@ object JwtUtils {
             }
 
         return try {
-            normalized.decodeBase64Bytes()
+            Base64.Default.decode(normalized)
         } catch (_: Throwable) {
             null
         }

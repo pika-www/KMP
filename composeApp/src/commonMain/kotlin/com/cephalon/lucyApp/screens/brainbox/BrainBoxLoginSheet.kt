@@ -122,6 +122,12 @@ fun BrainBoxLoginSheet(
     // 列表用手机看到的足够准确；拿到 SSID 后仍走原逻辑向设备写 wifi_config。
     val phoneScannedWifi by controller.wifiNetworks.collectAsState()
     val phoneWifiLoading by controller.isWifiLoading.collectAsState()
+    // 手机本机当前连接的 Wi‑Fi SSID（来自手机扫描结果中 isCurrent=true 的那一条）
+    val phoneCurrentSsid = phoneScannedWifi
+        .firstOrNull { it.isCurrent }
+        ?.ssid
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
     val scannedWifiNetworks = phoneScannedWifi.map { raw ->
         // phoneScannedWifi 里的 isCurrent 是手机的当前连接标记；脑花盒子当前连接的 SSID
         // 要以 network_status 为准（设备视角），所以用 currentSsid 重新算 isCurrent。
@@ -407,7 +413,7 @@ fun BrainBoxLoginSheet(
                     provisionManager.forceReconnect()
                     return@launch
                 }
-                toastState.show(errorMsg.ifBlank { "获取 OTP 失败，请重试" })
+                toastState.show("设备连接异常，请点击按钮重试")
                 isBinding = false
                 return@launch
             }
@@ -442,7 +448,7 @@ fun BrainBoxLoginSheet(
 
             val otp = pairingInfo.otp
             if (otp.isBlank()) {
-                toastState.show("获取 OTP 失败，请重试")
+                toastState.show("设备连接异常，请点击按钮重试")
                 isBinding = false
                 return@launch
             }
@@ -459,11 +465,11 @@ fun BrainBoxLoginSheet(
                         }
                         .onFailure { verifyError ->
                             println("[BrainBox] UI: 绑定确认失败 - ${verifyError.message}")
-                            toastState.show(verifyError.message ?: "读取 pairing_info 失败，绑定未确认")
+                            toastState.show("设备连接异常，请点击按钮重试")
                         }
                 }
                 .onFailure { error ->
-                    toastState.show(error.message ?: "绑定失败，请稍后重试")
+                    toastState.show("设备连接异常，请点击按钮重试")
                 }
             isBinding = false
         }
@@ -666,25 +672,26 @@ fun BrainBoxLoginSheet(
                     horizontalPadding = ds.sw(28.dp),
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
                 Text(
                     text = currentStep.title,
-                    fontSize = ds.sp(24f),
+                    fontSize = ds.sp(20f),
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF12192B),
+                    color = Color.Black.copy(alpha = 0.90f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(4.dp)))
-
-                Text(
-                    text = currentStep.subtitle,
-                    fontSize = ds.sp(14f),
-                    fontWeight = FontWeight.Normal,
-                    color = Color(0xFF595E6B),
-                )
+                if (currentStep.subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                    Text(
+                        text = currentStep.subtitle,
+                        fontSize = ds.sp(14f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color.Black.copy(alpha = 0.60f),
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
@@ -746,8 +753,8 @@ fun BrainBoxLoginSheet(
                     BrainBoxStep.Wifi -> {
                         BrainBoxWifiStep(
                             selectedDevice = selectedBleDevice,
-                            phoneSsid = selectedWifiSsid.takeIf { it.isNotBlank() } ?: currentSsid,
-                            deviceIp = provisionState.networkStatus?.ip?.takeIf { it.isNotBlank() },
+                            deviceSsid = currentSsid,
+                            phoneSsid = selectedWifiSsid.takeIf { it.isNotBlank() } ?: phoneCurrentSsid ?: currentSsid,
                             wifiPassword = wifiPassword,
                             onWifiPasswordChange = { wifiPassword = it },
                             isConnectingWifi = isConnectingWifi,

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -31,9 +32,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -68,7 +70,7 @@ internal fun AgentModelAttachmentPanel(
 ) {
     val ds = LocalDesignScale.current
     var expanded by remember { mutableStateOf(false) }
-    val selectedUris = remember { mutableStateListOf<String>() }
+    var selectedUri by remember { mutableStateOf("") }
     val gridState = rememberLazyGridState()
 
     // 收起时显示前 10 张，展开时显示全部已加载的图片
@@ -90,8 +92,11 @@ internal fun AgentModelAttachmentPanel(
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val parentHeight = maxHeight
+        val contentHeight = remember { mutableStateOf(0.dp) }
         val sheetHeight by animateDpAsState(
-            targetValue = if (expanded) parentHeight * 0.8f else parentHeight * 0.42f,
+            targetValue = if (expanded) parentHeight * 0.8f else {
+                maxOf(contentHeight.value, ds.sh(340.dp))
+            },
             animationSpec = tween(durationMillis = 300),
             label = "sheetHeight"
         )
@@ -112,9 +117,9 @@ internal fun AgentModelAttachmentPanel(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(start = ds.sw(8.dp), end = ds.sw(8.dp), bottom = ds.sh(8.dp))
+                .padding(start = ds.sw(8.dp), end = ds.sw(8.dp), bottom = ds.sh(0.dp))
                 .height(sheetHeight)
-                .clip(RoundedCornerShape(ds.sm(16.dp)))
+                .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp, bottomStart = 0.dp, bottomEnd = 0.dp))
                 .background(Color.White)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -142,63 +147,103 @@ internal fun AgentModelAttachmentPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = ds.sw(16.dp)),
+                    .padding(horizontal = ds.sw(16.dp))
+                    .clip(RoundedCornerShape(32.dp))
+                    .border(
+                        width = ds.sw(1.dp),
+                        color = Color.White,
+                        shape = RoundedCornerShape(32.dp)
+                    )
+                    .background(Color.White.copy(alpha = 0.60f))
+//                    .padding(vertical = ds.sh(17.dp))
+                ,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "上传照片",
-                    color = Color(0xFF1F2535),
-                    fontSize = ds.sp(18f),
-                    fontWeight = FontWeight.Bold
+                    color = Color(0xFF12192B),
+                    fontSize = ds.sp(20f),
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = ds.sp(26f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "查看全部",
-                    color = Color(0xFF2563EB),
+                    text = if (expanded) "收起全部" else "查看全部",
+                    color = Color(0xFF0A59F7),
                     fontSize = ds.sp(14f),
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { expanded = !expanded }
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { expanded = !expanded }
                 )
             }
 
             Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
             // ── 图片网格 ──
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Fixed(4),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = ds.sw(16.dp)),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = ds.sw(16.dp),
+                        end = ds.sw(16.dp),
+                        bottom = ds.sh(0.dp) // Adjust to 0dp to control spacing manually
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(ds.sw(6.dp)),
                     verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
                 ) {
                     // 拍照按钮
                     item {
                         ActionTile(
-                            icon = { Icon(Icons.Default.CameraAlt, contentDescription = "拍照", tint = Color(0xFF3C3C3C), modifier = Modifier.size(ds.sm(24.dp))) },
+                            icon = {
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = "拍照",
+                                    tint = Color(0xFF3C3C3C),
+                                    modifier = Modifier.size(ds.sm(24.dp))
+                                )
+                            },
                             label = "相机",
                             ds = ds,
                             onClick = onOpenCamera
                         )
                     }
+
                     // 图片列表
                     itemsIndexed(visibleImages) { _, uri ->
-                        val isSelected = uri in selectedUris
+                        val isSelected = uri == selectedUri
                         ImageTile(
                             uri = uri,
                             isSelected = isSelected,
                             ds = ds,
                             onClick = {
-                                if (isSelected) selectedUris.remove(uri)
-                                else selectedUris.add(uri)
+                                if (isSelected) {
+                                    // If already selected, deselect it
+                                    selectedUri = ""
+                                } else {
+                                    // Deselect all others, select only this one and trigger upload
+                                    selectedUri = uri
+                                    onImagesSelected(listOf(uri))
+                                }
                             }
                         )
                     }
+
                     // 加载中提示
                     if (expanded && hasMoreRecentImages) {
                         item(span = { GridItemSpan(4) }) {
@@ -218,12 +263,14 @@ internal fun AgentModelAttachmentPanel(
                     }
                 }
             }
-
+            // 确保图片网格底部到分割线总间距为24dp
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+            // 分割线
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = ds.sw(16.dp))
-                    .padding(top = ds.sh(12.dp), bottom = ds.sh(8.dp))
+                    .padding(top = ds.sh(0.dp), bottom = ds.sh(8.dp))
                     .border(width = 0.dp, color = Color.Transparent)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -242,69 +289,29 @@ internal fun AgentModelAttachmentPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(18.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) { onOpenFilePicker() },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    ) { onOpenFilePicker() }
+                    .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(12.dp)).padding(bottom = ds.sh(40.dp)),
+
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = "上传系统文件",
                     color = Color(0xFF1F2535),
-                    fontSize = ds.sp(18f),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontSize = ds.sp(14f),
+                    fontWeight = FontWeight.Medium
                 )
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowRight,
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "上传系统文件",
-                    tint = Color(0xFF8E8E93),
-                    modifier = Modifier.size(ds.sm(28.dp))
+                    tint = Color(0xFF1F2535),
+                    modifier = Modifier.size(ds.sm(16.dp))
                 )
             }
 
-            // ── 底部悬浮"添加照片"按钮（仅选中时显示）──
-            if (selectedUris.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = ds.sh(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val btnShape = RoundedCornerShape(100.dp)
-                    Box(
-                        modifier = Modifier
-                            .width(ds.sw(271.dp))
-                            .height(ds.sh(48.dp))
-                            .clip(btnShape)
-                            .border(
-                                width = 1.dp,
-                                color = Color.White.copy(alpha = 0.06f),
-                                shape = btnShape
-                            )
-                            .background(Color(0xFF010101).copy(alpha = 0.60f))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                onImagesSelected(selectedUris.toList())
-                                selectedUris.clear()
-                            }
-                            .padding(horizontal = ds.sw(21.dp), vertical = ds.sh(14.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "添加照片",
-                            color = Color.White,
-                            fontSize = ds.sp(16f),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
         }
     }
 }

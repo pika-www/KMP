@@ -31,12 +31,16 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.LinkAnnotation
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.ForgetPasswordRequest
 import org.koin.compose.koinInject
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.withLink
 
 @Composable
 fun ForgotPasswordForm(
@@ -62,46 +66,46 @@ fun ForgotPasswordForm(
     val canSubmit = account.isNotBlank() && code.isNotBlank() && pwd.isNotBlank() && confirmPwd.isNotBlank() && !isLoading &&
         pwdErr == null && confirmPwdErr == null
 
+    val normalizePhone: () -> String? = {
+        val raw = account.trim().replace(" ", "")
+        val withoutPrefix = when {
+            raw.startsWith("+86") -> raw.removePrefix("+86")
+            raw.startsWith("86") && raw.length > 11 -> raw.removePrefix("86")
+            else -> raw
+        }
+        withoutPrefix.trim().takeIf { Regex("^1\\d{10}$").matches(it) }
+    }
+
+    val codeInputShape = RoundedCornerShape(80.dp)
+    val canSendCode = normalizePhone() != null
+
     val performReset: () -> Unit = performReset@{
         if (!canSubmit) return@performReset
-        isLoading = true
-        val input = account.trim()
-        val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
-        val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
-            if (Regex("^1\\d{10}$").matches(v)) v else null
-        }
-        val isEmail = normalizedEmail != null
-        val normalizedAccount = normalizedEmail ?: normalizedPhone
-        if (normalizedAccount == null) {
-            isLoading = false
-            showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
+        val phone = normalizePhone()
+        if (phone == null) {
+            showError("请输入正确的11位手机号")
             return@performReset
         }
-        val accountType = if (isEmail) "email" else "phone"
-
+        isLoading = true
         scope.launch {
             try {
-                val existsResponse = if (isEmail) {
-                    authRepository.isEmailExist(normalizedAccount)
-                } else {
-                    authRepository.isPhoneExist(normalizedAccount)
-                }
+                val existsResponse = authRepository.isPhoneExist(phone)
                 if (existsResponse.code == 20000) {
                     val exists = existsResponse.data?.isExist ?: false
                     if (!exists) {
                         isLoading = false
-                        showError("该账号未注册")
+                        showError("该手机号未注册")
                         return@launch
                     }
                 }
 
                 val response = authRepository.forgetPassword(
                     ForgetPasswordRequest(
-                        account = normalizedAccount,
+                        account = phone,
                         code = code,
                         pwd = pwd,
                         confirmPwd = confirmPwd,
-                        type = accountType
+                        type = "phone"
                     )
                 )
                 isLoading = false
@@ -125,6 +129,8 @@ fun ForgotPasswordForm(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
             Text(
                 text = "设置新密码",
                 color = TitleColor,
@@ -134,12 +140,16 @@ fun ForgotPasswordForm(
 
             Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
-            AccountInput(
+            PhoneOnlyInput(
                 value = account,
                 onValueChange = { account = it },
                 enabled = !isLoading,
                 imeAction = ImeAction.Next,
-                onValidationError = { msg -> showError(msg) }
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -148,41 +158,31 @@ fun ForgotPasswordForm(
                 value = code,
                 onValueChange = { code = it },
                 enabled = !isLoading,
+                canSend = canSendCode,
                 imeAction = ImeAction.Next,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
                 onSendCode = { startTimer ->
-                    val input = account.trim()
-                    val normalizedEmail = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matchEntire(input)?.value
-                    val normalizedPhone = input.replace(" ", "").removePrefix("+86").let { v ->
-                        if (Regex("^1\\d{10}$").matches(v)) v else null
-                    }
-                    val isEmail = normalizedEmail != null
-                    val normalizedAccount = normalizedEmail ?: normalizedPhone
-                    if (normalizedAccount == null) {
-                        showError("请输入正确的手机号(+86 11位)或邮箱(.com)")
+                    val phone = normalizePhone()
+                    if (phone == null) {
+                        showError("请输入正确的11位手机号")
                         return@CodeInput
                     }
-
                     scope.launch {
                         isLoading = true
-                        val existsResponse = if (isEmail) {
-                            authRepository.isEmailExist(normalizedAccount)
-                        } else {
-                            authRepository.isPhoneExist(normalizedAccount)
-                        }
+                        val existsResponse = authRepository.isPhoneExist(phone)
                         if (existsResponse.code == 20000) {
                             val exists = existsResponse.data?.isExist ?: false
                             if (!exists) {
                                 isLoading = false
-                                showError("该账号未注册")
+                                showError("该手机号未注册")
                                 return@launch
                             }
                         }
-
-                        val response = if (isEmail) {
-                            authRepository.getCode(email = normalizedAccount, actionType = "modify", appType = "lucy")
-                        } else {
-                            authRepository.getCode(phone = normalizedAccount, actionType = "modify", appType = "lucy")
-                        }
+                        val response = authRepository.getCode(phone = phone, actionType = "modify", appType = "lucy")
                         isLoading = false
                         if (response.code == 20000) {
                             startTimer()
@@ -202,6 +202,11 @@ fun ForgotPasswordForm(
                 label = "设置密码",
                 imeAction = ImeAction.Next,
                 errorText = pwdErr,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
             )
 
             Spacer(modifier = Modifier.height(ds.sh(16.dp)))
@@ -214,64 +219,86 @@ fun ForgotPasswordForm(
                 imeAction = ImeAction.Done,
                 onDone = { performReset() },
                 errorText = confirmPwdErr,
+                containerShape = codeInputShape,
+                containerShadowElevation = 20.dp,
+                placeholderFontSize = 12f,
+                placeholderColor = Color.Black.copy(alpha = 0.40f),
+                inputFontSize = 14f,
             )
-        }
 
-        // 固定在底部的按钮和条款
-        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(ds.sh(48.dp))
-                .clip(RoundedCornerShape(80.dp))
-                .background(if (canSubmit) EnabledBtnColor else DisabledBtnColor)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    enabled = canSubmit
-                ) { performReset() },
-            contentAlignment = Alignment.Center
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(ds.sm(24.dp)),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Text(
-                    text = "重置并登录",
-                    color = Color.White,
-                    fontSize = ds.sp(16f),
-                    fontWeight = FontWeight.Normal,
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
-
-        Text(
-            text = buildAnnotatedString {
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append("登录即表示同意我们的 ")
+            // 重置按钮（跟随输入区域滚动，与密码登录页布局一致）
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ds.sh(40.dp))
+                    .clip(RoundedCornerShape(80.dp))
+                    .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = canSubmit
+                    ) { performReset() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(ds.sm(24.dp)),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text(
+                        text = "重置密码",
+                        color = Color.White,
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                    )
                 }
-                withStyle(SpanStyle(color = LinkColor)) {
+            }
+
+            Spacer(modifier = Modifier.height(ds.sh(40.dp)))
+        }
+
+        // ── 底部协议（固定在底部，不跟随滚动） ──
+        val uriHandler = LocalUriHandler.current
+        val termsText = buildAnnotatedString {
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append("登录即表示同意我们的")
+            }
+            withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                uriHandler.openUri("https://app.lucy.run/service.html")
+            }) {
+                withStyle(SpanStyle(
+                    color = Color.Black,
+                    textDecoration = TextDecoration.Underline,
+                )) {
                     append("《服务条款》")
                 }
-                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
-                    append(" 和 ")
-                }
-                withStyle(SpanStyle(color = LinkColor)) {
+            }
+            withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                append("和")
+            }
+            withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                uriHandler.openUri("https://app.lucy.run/privacy.html")
+            }) {
+                withStyle(SpanStyle(
+                    color = Color.Black,
+                    textDecoration = TextDecoration.Underline,
+                )) {
                     append("《隐私政策》")
                 }
-            },
-            fontSize = ds.sp(10f),
-            fontWeight = FontWeight.Normal,
+            }
+        }
+        Text(
+            text = termsText,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = ds.sp(10f),
+                fontWeight = FontWeight.Normal,
+                textAlign = TextAlign.Center,
+            ),
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
         )
-
-        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
     }
 }

@@ -2,12 +2,14 @@ package com.cephalon.lucyApp.screens
 
 import androidios.composeapp.generated.resources.Res
 import androidios.composeapp.generated.resources.login_bg
-import androidios.composeapp.generated.resources.logo
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.SizeTransform
+import androidios.composeapp.generated.resources.logo_img
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
@@ -15,7 +17,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidios.composeapp.generated.resources.ic_lock
 import androidios.composeapp.generated.resources.ic_shield_check
 import androidx.compose.material3.*
@@ -23,18 +28,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.cephalon.lucyApp.api.AuthInput
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.ui.platform.LocalUriHandler
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.api.LoginRequest
 import com.cephalon.lucyApp.components.*
@@ -64,21 +75,22 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var verifyCode by remember { mutableStateOf("") }
-    var registerPhone by remember { mutableStateOf("") }
     val toastState = rememberToastState()
     var isLoading by remember { mutableStateOf(false) }
 
     val keyboardController = LocalSoftwareKeyboardController.current
 
     var loginSheetVisible by remember { mutableStateOf(false) }
+    var showCodeLoginPage by remember { mutableStateOf(false) }
+    var showPasswordLoginPage by remember { mutableStateOf(false) }
+    var showRegisterPage by remember { mutableStateOf(false) }
     var preferEmailLogin by remember { mutableStateOf(false) }
     var sheetPage by remember { mutableStateOf(SheetPage.Login) }
     var needsRegister by remember { mutableStateOf(false) }
-    var isAccountEmail by remember { mutableStateOf(false) }
-    var normalizedAccount by remember { mutableStateOf("") }
     var sheetTitle by remember { mutableStateOf("Welcome to Lucy") }
-    // 注册页：账号已注册命中时显示「前往登录」链接
+    // 注册页：账号已注册命中时弹出弹窗
     var accountRegistered by remember { mutableStateOf(false) }
+    var showAccountRegisteredDialog by remember { mutableStateOf(false) }
     // 是否已完成「是否已注册」校验；输入变化时重置为 false，校验成功返回后置为 true。
     // 用于门控「获取验证码」按钮——必须校验通过且条件满足后才亮起。
     var accountCheckPassed by remember { mutableStateOf(false) }
@@ -109,73 +121,53 @@ fun LoginScreen(
                             pwd = password,
                             confirmPwd = confirmPassword,
                             trackId = "kmp",
-                            appType = "platform",
+                            appType = "lucy",
                             way = "phone_code"
                         )
                     } else {
                         LoginRequest(
                             phone = phone,
                             code = verifyCode,
+                            appType = "lucy",
                             trackId = "kmp",
-                            appType = "platform",
                             way = "phone_code"
                         )
                     }
                     val response = authRepository.login(request)
-                    isLoading = false
                     if (response.code == 20000 && response.data != null) {
-                        authRepository.getUserInfo()
-                        loginSheetVisible = false
                         onLoginSuccess()
                     } else {
+                        isLoading = false
                         toastState.show(response.msg)
                     }
                 }
             }
         } else if (sheetPage == SheetPage.Register) {
             // ===== 注册 =====
-            if (username.isBlank() || password.isBlank() || confirmPassword.isBlank() || verifyCode.isBlank()) {
+            val phone = username.trim()
+            if (phone.length != 11 || !Regex("^1\\d{10}$").matches(phone)) {
+                toastState.show("请输入正确的11位手机号")
+            } else if (password.isBlank() || confirmPassword.isBlank() || verifyCode.isBlank()) {
                 toastState.show("请填写所有必填项")
             } else if (password != confirmPassword) {
                 toastState.show("两次密码不一致")
-            } else if (isAccountEmail && (registerPhone.length != 11 || !Regex("^1\\d{10}$").matches(registerPhone))) {
-                toastState.show("请输入正确的11位手机号")
             } else {
                 isLoading = true
                 scope.launch {
-                    val rawAccount = AuthInput.normalizeAccount(username)
-                    val normalizedEmail = rawAccount.takeIf {
-                        Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matches(it)
-                    }
-                    val normalizedPhone = rawAccount
-                        .replace(" ", "")
-                        .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
-                        .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
-                        .takeIf { Regex("^1\\d{10}$").matches(it) }
-                    val isEmail = normalizedEmail != null
-                    val account = normalizedEmail ?: normalizedPhone
-                    if (account == null) {
-                        isLoading = false
-                        toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
-                        return@launch
-                    }
                     val request = LoginRequest(
-                        phone = if (isEmail) registerPhone else account,
-                        email = if (isEmail) account else null,
+                        phone = phone,
                         pwd = password,
                         confirmPwd = confirmPassword,
                         code = verifyCode,
                         trackId = "kmp",
-                        appType = "platform",
-                        way = if (isEmail) "email_pwd" else "phone_pwd"
+                        appType = "lucy",
+                        way = "phone_pwd"
                     )
                     val response = authRepository.login(request)
-                    isLoading = false
                     if (response.code == 20000 && response.data != null) {
-                        authRepository.getUserInfo()
-                        loginSheetVisible = false
                         onLoginSuccess()
                     } else {
+                        isLoading = false
                         toastState.show(response.msg)
                     }
                 }
@@ -183,59 +175,45 @@ fun LoginScreen(
         } else {
             // ===== 密码登录 =====
             if (username.isBlank() || password.isBlank()) {
-                toastState.show("请输入用户名和密码")
-            } else if (needsRegister && isAccountEmail && (registerPhone.length != 11 || !Regex("^1\\d{10}$").matches(registerPhone))) {
-                toastState.show("请输入正确的11位手机号")
+                toastState.show("请输入手机号和密码")
             } else {
                 isLoading = true
                 scope.launch {
-                    val rawAccount = AuthInput.normalizeAccount(username)
-                    val normalizedEmail = rawAccount.takeIf {
-                        Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$").matches(it)
-                    }
-                    val normalizedPhone = rawAccount
+                    val phone = username.trim()
                         .replace(" ", "")
                         .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
                         .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
-                        .takeIf { Regex("^1\\d{10}$").matches(it) }
-                    val isEmail = normalizedEmail != null
-                    val account = normalizedEmail ?: normalizedPhone
-                    if (account == null) {
+                    if (!Regex("^1\\d{10}$").matches(phone)) {
                         isLoading = false
-                        toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
+                        toastState.show("请输入正确的11位手机号")
                         return@launch
                     }
 
                     val request = if (needsRegister) {
-                        // 密码登录发现未注册 → 注册
                         LoginRequest(
-                            phone = if (isEmail) registerPhone else account,
-                            email = if (isEmail) account else null,
+                            phone = phone,
                             pwd = password,
                             confirmPwd = confirmPassword,
                             code = verifyCode,
                             trackId = "kmp",
-                            appType = "platform",
-                            way = if (isEmail) "email_pwd" else "phone_pwd"
+                            appType = "lucy",
+                            way = "phone_pwd"
                         )
                     } else {
                         LoginRequest(
-                            phone = if (isEmail) null else account,
-                            email = if (isEmail) account else null,
+                            phone = phone,
                             pwd = password,
                             trackId = "kmp",
-                            appType = "platform",
-                            way = if (isEmail) "email_pwd" else "phone_pwd"
+                            appType = "lucy",
+                            way = "phone_pwd"
                         )
                     }
 
                     val response = authRepository.login(request)
-                    isLoading = false
                     if (response.code == 20000 && response.data != null) {
-                        authRepository.getUserInfo()
-                        loginSheetVisible = false
                         onLoginSuccess()
                     } else {
+                        isLoading = false
                         toastState.show(response.msg)
                     }
                 }
@@ -248,61 +226,40 @@ fun LoginScreen(
         password = ""
         confirmPassword = ""
         verifyCode = ""
-        registerPhone = ""
         isLoading = false
         needsRegister = false
-        isAccountEmail = false
-        normalizedAccount = ""
         sheetTitle = "Welcome to Lucy"
         accountRegistered = false
         accountCheckPassed = false
     }
 
-    // 从当前 username 实时归一化为 (account, isEmail)；非法/空则返回 null。
-    // 提取此 helper 的原因：原先只有 validateAccount（失焦时）才会更新 normalizedAccount，
-    // 导致用户输入账号后不点别处、直接点「获取验证码」时 normalizedAccount 仍是空串，
-    // onSendCode 误判为"未输入"。需要每次点击按钮都能实时拿到最新输入。
-    val normalizeCurrentAccount: () -> Pair<String, Boolean>? = normalize@{
-        val input = username.trim()
-        if (input.isBlank()) return@normalize null
-        val emailPattern = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.com$")
-        val normalizedEmail = if (emailPattern.matches(input)) input else null
-        val normalizedPhone = input.replace(" ", "")
-            .let { v -> if (v.startsWith("+86")) v.removePrefix("+86") else v }
-            .let { v -> if (v.startsWith("86") && v.length > 11) v.removePrefix("86") else v }
-            .takeIf { Regex("^1\\d{10}$").matches(it) }
-        val isEmail = normalizedEmail != null
-        val account = normalizedEmail ?: normalizedPhone ?: return@normalize null
-        account to isEmail
+    // 实时归一化当前 username 为 11 位手机号；非法/空则返回 null。
+    val normalizeCurrentAccount: () -> String? = normalize@{
+        val input = username.trim().replace(" ", "")
+        val withoutPrefix = when {
+            input.startsWith("+86") -> input.removePrefix("+86")
+            input.startsWith("86") && input.length > 11 -> input.removePrefix("86")
+            else -> input
+        }
+        return@normalize withoutPrefix.trim().takeIf { Regex("^1\\d{10}$").matches(it) }
     }
 
-    // 失焦时只做"格式错误"提示；真正的「是否已注册」检查由下方的防抖 LaunchedEffect 负责。
     val validateAccount: () -> Unit = {
-        val input = username.trim()
-        if (input.isNotBlank() && normalizeCurrentAccount() == null) {
-            toastState.show("请输入正确的手机号(+86 11位)或邮箱(.com)")
-        }
+        // 仅触发 LaunchedEffect 中的账号存在性检查，不弹 toast。
+        // toast 由 performLogin 统一处理，避免焦点丢失 + 点击提交时重复弹出。
     }
 
-    // 输入框变更后防抖 500ms 自动校验账号是否已注册；输入继续变化会自动取消旧的 delay。
-    // 不切换 isLoading（避免自动校验期间锁住输入），仅静默更新 needsRegister / accountRegistered。
-    LaunchedEffect(username, sheetPage, loginSheetVisible) {
-        if (!loginSheetVisible || sheetPage == SheetPage.Forgot) return@LaunchedEffect
-        val normalized = normalizeCurrentAccount() ?: return@LaunchedEffect
+    LaunchedEffect(username, sheetPage, loginSheetVisible, showCodeLoginPage, showPasswordLoginPage, showRegisterPage) {
+        if (!loginSheetVisible && !showCodeLoginPage && !showPasswordLoginPage && !showRegisterPage) return@LaunchedEffect
+        if (sheetPage == SheetPage.Forgot) return@LaunchedEffect
+        val phone = normalizeCurrentAccount() ?: return@LaunchedEffect
         delay(500)
-        val (account, isEmail) = normalized
-        val response = if (isEmail) {
-            authRepository.isEmailExist(account)
-        } else {
-            authRepository.isPhoneExist(account)
-        }
+        val response = authRepository.isPhoneExist(phone)
         if (response.code == 20000) {
             val exists = response.data?.isExist ?: false
-            normalizedAccount = account
-            isAccountEmail = isEmail
             if (sheetPage == SheetPage.Register) {
-                // 注册页：命中已注册 → 展示「前往登录」链接
                 accountRegistered = exists
+                if (exists) showAccountRegisteredDialog = true
             } else {
                 accountRegistered = false
                 if (exists) {
@@ -310,8 +267,7 @@ fun LoginScreen(
                     sheetTitle = "Welcome to Lucy"
                 } else {
                     needsRegister = true
-                    val typeLabel = if (isEmail) "邮箱" else "手机号"
-                    sheetTitle = "此${typeLabel}还未注册"
+                    sheetTitle = "此手机号还未注册"
                 }
             }
             accountCheckPassed = true
@@ -321,6 +277,7 @@ fun LoginScreen(
     DesignScaleProvider(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFFF5F5F7))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -348,23 +305,24 @@ fun LoginScreen(
                     .padding(horizontal = ds.sw(26.dp)),
                 horizontalAlignment = Alignment.Start
             ) {
-                Spacer(modifier = Modifier.height(ds.sh(88.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(133.dp)))
 
                 // Logo — 无背景无边框, 64px
-                Icon(
-                    painter = painterResource(Res.drawable.logo),
+                Image(
+                    painter = painterResource(Res.drawable.logo_img),
                     contentDescription = null,
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(ds.sm(64.dp))
+                    modifier = Modifier
+                        .size(ds.sm(64.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp)))
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
 
                 // 标题
                 Text(
                     text = "欢迎使用脑花",
                     color = Color.Black.copy(alpha = 0.90f),
-                    fontSize = ds.sp(28f),
+                    fontSize = ds.sp(24f),
                     fontWeight = FontWeight.Medium,
                 )
 
@@ -390,7 +348,7 @@ fun LoginScreen(
                         resetSheetState()
                         preferEmailLogin = false
                         sheetPage = SheetPage.Login
-                        loginSheetVisible = true
+                        showCodeLoginPage = true
                     }
                 )
 
@@ -399,24 +357,24 @@ fun LoginScreen(
                 // 密码登录按钮
                 LoginGlassButton(
                     text = "通过密码登录",
-                    icon = { Icon(painterResource(Res.drawable.ic_lock), null, tint = Color.White, modifier = Modifier.size(ds.sm(20.dp))) },
-                    backgroundColor = Color.White.copy(alpha = 0.20f),
-                    textColor = Color.White,
+                    icon = { Icon(painterResource(Res.drawable.ic_lock), null, tint = Color.Black, modifier = Modifier.size(ds.sm(20.dp))) },
+                    backgroundColor = Color.White.copy(alpha = 0.90f),
+                    textColor = Color.Black,
                     onClick = {
                         resetSheetState()
                         preferEmailLogin = true
                         sheetPage = SheetPage.Login
-                        loginSheetVisible = true
+                        showPasswordLoginPage = true
                     }
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
 
                 // 底部注册提示
                 Text(
                     text = buildAnnotatedString {
                         withStyle(SpanStyle(color = Color.White.copy(alpha = 0.40f))) {
-                            append("没有账号的可以用手机号或邮箱注册 ")
+                            append("没有账号的可以用手机号注册 ")
                         }
                         withStyle(
                             SpanStyle(
@@ -436,253 +394,399 @@ fun LoginScreen(
                         resetSheetState()
                         sheetPage = SheetPage.Register
                         sheetTitle = "注册账号"
-                        loginSheetVisible = true
+                        showRegisterPage = true
                     },
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
 
-                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+                Spacer(modifier = Modifier.height(ds.sh(40.dp)))
             }
         }
 
-        HalfModalBottomSheet(
-            isVisible = loginSheetVisible,
-            onDismissRequest = { loginSheetVisible = false },
-            onDismissed = {
-                sheetPage = SheetPage.Login
-            },
-            onBack = null,
-            showBackButton = false,
-            showCloseButton = false,
-            showTopBar = false,
-            containerShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-            containerColor = Color(0xFFF5F5F5),
-            topPadding = 60.dp,
-            contentPadding = PaddingValues(0.dp)
+        // ── 密码登录全页面 ──
+        AnimatedVisibility(
+            visible = showPasswordLoginPage,
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(160)),
         ) {
-            AnimatedContent(
-                targetState = sheetPage,
-                transitionSpec = {
-                    val goingForward = (initialState == SheetPage.Login && targetState != SheetPage.Login) ||
-                        (initialState == SheetPage.Register && targetState == SheetPage.Forgot)
-                    val slideSpec = tween<IntOffset>(durationMillis = 320, easing = FastOutSlowInEasing)
-                    if (goingForward) {
-                        ContentTransform(
-                            targetContentEnter = (slideInHorizontally(
-                                animationSpec = slideSpec,
-                                initialOffsetX = { it }
-                            )),
-                            initialContentExit = (slideOutHorizontally(
-                                animationSpec = slideSpec,
-                                targetOffsetX = { -it }
-                            )),
-                            targetContentZIndex = 1f,
-                            sizeTransform = SizeTransform(clip = true)
-                        )
-                    } else {
-                        ContentTransform(
-                            targetContentEnter = (slideInHorizontally(
-                                animationSpec = slideSpec,
-                                initialOffsetX = { -it }
-                            )),
-                            initialContentExit = (slideOutHorizontally(
-                                animationSpec = slideSpec,
-                                targetOffsetX = { it }
-                            )),
-                            targetContentZIndex = 1f,
-                            sizeTransform = SizeTransform(clip = true)
-                        )
+            PasswordLoginPage(
+                username = username,
+                onUsernameChange = { if (it != username) { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } } },
+                password = password,
+                onPasswordChange = { password = it },
+                confirmPassword = confirmPassword,
+                onConfirmPasswordChange = { confirmPassword = it },
+                verifyCode = verifyCode,
+                onVerifyCodeChange = { verifyCode = it },
+                isLoading = isLoading,
+                needsRegister = needsRegister,
+                accountCheckPassed = accountCheckPassed,
+                onFocusLostValidate = validateAccount,
+                onSubmit = performLogin,
+                onSendCode = { startTimer ->
+                    val phone = normalizeCurrentAccount()
+                    if (phone == null) {
+                        toastState.show("请先输入正确的11位手机号")
+                        return@PasswordLoginPage
+                    }
+                    val actionType = if (needsRegister) "register" else "login"
+                    scope.launch {
+                        isLoading = true
+                        val response = authRepository.getCode(phone = phone, actionType = actionType, appType = "lucy")
+                        isLoading = false
+                        if (response.code == 20000) startTimer() else toastState.show(response.msg)
                     }
                 },
-                label = "LoginSheetPage"
-            ) { page ->
-                val ds = LocalDesignScale.current
-                // 获取验证码按钮的可点击条件：格式合法 + 账号校验接口已返回（+ 注册页要求未被占用）
-                val canSendCode = when {
-                    // 验证码登录：11位手机号 + 校验通过
-                    !preferEmailLogin && page == SheetPage.Login ->
-                        Regex("^1\\d{10}$").matches(username.trim()) && accountCheckPassed
-                    // 注册页：格式合法 + 账号未被占用 + 校验通过
-                    page == SheetPage.Register ->
-                        normalizeCurrentAccount() != null && !accountRegistered && accountCheckPassed
-                    // 密码登录：手机号或邮箱格式合法 + 校验通过
-                    else -> normalizeCurrentAccount() != null && accountCheckPassed
+                onDismiss = {
+                    showPasswordLoginPage = false
+                    resetSheetState()
+                },
+                onForgotPasswordSuccess = {
+                    showPasswordLoginPage = false
+                    resetSheetState()
+                },
+                toastState = toastState,
+            )
+        }
+
+        // ── 注册全页面 ──
+        AnimatedVisibility(
+            visible = showRegisterPage,
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(160)),
+        ) {
+            RegisterPage(
+                username = username,
+                onUsernameChange = { username = it; accountRegistered = false; accountCheckPassed = false },
+                password = password,
+                onPasswordChange = { password = it },
+                confirmPassword = confirmPassword,
+                onConfirmPasswordChange = { confirmPassword = it },
+                verifyCode = verifyCode,
+                onVerifyCodeChange = { verifyCode = it },
+                isLoading = isLoading,
+                accountCheckPassed = accountCheckPassed,
+                accountRegistered = accountRegistered,
+                onFocusLostValidate = validateAccount,
+                onSubmit = performLogin,
+                onSendCode = { startTimer ->
+                    val phone = normalizeCurrentAccount()
+                    if (phone == null) {
+                        toastState.show("请先输入正确的11位手机号")
+                        return@RegisterPage
+                    }
+                    scope.launch {
+                        isLoading = true
+                        val response = authRepository.getCode(phone = phone, actionType = "register", appType = "lucy")
+                        isLoading = false
+                        if (response.code == 20000) startTimer() else toastState.show(response.msg)
+                    }
+                },
+                onDismiss = {
+                    showRegisterPage = false
+                    resetSheetState()
+                },
+                onGotoLogin = {
+                    showRegisterPage = false
+                    resetSheetState()
+                    preferEmailLogin = false
+                    sheetPage = SheetPage.Login
+                    showCodeLoginPage = true
+                },
+                toastState = toastState,
+            )
+        }
+
+        // ── 账号已注册弹窗 ──
+        AnimatedVisibility(
+            visible = showAccountRegisteredDialog,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x66000000))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { showAccountRegisteredDialog = false },
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVisibility(
+                    visible = showAccountRegisteredDialog,
+                    enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                    exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                ) {
+                    AccountRegisteredDialog(
+                        onDismiss = { showAccountRegisteredDialog = false },
+                        onGotoLogin = {
+                            showAccountRegisteredDialog = false
+                            resetSheetState()
+                            preferEmailLogin = false
+                            sheetPage = SheetPage.Login
+                        },
+                    )
                 }
+            }
+        }
 
-                // 是否处于"设置密码"模式（验证码登录未注册 / 密码登录未注册 / 注册页）
-                val isSettingPassword = page == SheetPage.Register ||
-                    (page == SheetPage.Login && needsRegister)
-                // 设置密码模式下密码必须满足规则且两次一致
-                val passwordRuleOk = !isSettingPassword ||
-                    (validatePasswordRule(password) == null && password.isNotEmpty() && password == confirmPassword)
+        // ── 验证码登录全页面 ──
+        AnimatedVisibility(
+            visible = showCodeLoginPage,
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(160)),
+        ) {
+            val ds = LocalDesignScale.current
+            val uriHandler = LocalUriHandler.current
 
-                val canSubmit = when {
-                    // 验证码登录：手机号 + 验证码 (+未注册时需密码)
-                    !preferEmailLogin && page == SheetPage.Login ->
-                        username.isNotBlank() && verifyCode.isNotBlank() && !isLoading &&
-                        (!needsRegister || (password.isNotBlank() && confirmPassword.isNotBlank())) &&
-                        passwordRuleOk
-                    // 注册页：账号 + 验证码 + 密码 + 确认密码 (+邮箱时需手机号)
-                    // 若账号已注册则禁用提交（用户需点击「前往登录」跳转）
-                    page == SheetPage.Register ->
-                        !accountRegistered &&
-                        username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() &&
-                        verifyCode.isNotBlank() && (!isAccountEmail || registerPhone.isNotBlank()) && !isLoading &&
-                        passwordRuleOk
-                    // 密码登录：账号 + 密码 (+未注册时需确认密码和验证码)
-                    else ->
-                        username.isNotBlank() && password.isNotBlank() && !isLoading &&
-                        (!needsRegister || (confirmPassword.isNotBlank() && verifyCode.isNotBlank())) &&
-                        passwordRuleOk
-                }
+            val canSendCode = Regex("^1\\d{10}$").matches(username.trim()) && accountCheckPassed
+            val isSettingPassword = needsRegister
+            val passwordRuleOk = !isSettingPassword ||
+                (validatePasswordRule(password) == null && password.isNotEmpty() && password == confirmPassword)
+            val canSubmit = username.isNotBlank() && verifyCode.isNotBlank() && !isLoading &&
+                (!needsRegister || (password.isNotBlank() && confirmPassword.isNotBlank())) &&
+                passwordRuleOk
+            val passwordErr = if (isSettingPassword) validatePasswordRule(password) else null
+            val confirmPwdErr = if (isSettingPassword && confirmPassword.isNotEmpty() && password != confirmPassword) "两次输入的密码不一致" else null
 
-                when (page) {
-                    SheetPage.Login -> {
-                        LoginSheetContent(
-                            ds = ds,
-                            sheetTitle = sheetTitle,
-                            preferEmailLogin = preferEmailLogin,
-                            needsRegister = needsRegister,
-                            username = username,
-                            onUsernameChange = { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } },
-                            password = password,
-                            onPasswordChange = { password = it },
-                            confirmPassword = confirmPassword,
-                            onConfirmPasswordChange = { confirmPassword = it },
-                            verifyCode = verifyCode,
-                            onVerifyCodeChange = { verifyCode = it },
-                            isLoading = isLoading,
-                            canSubmit = canSubmit,
-                            normalizedAccount = normalizedAccount,
-                            isAccountEmail = isAccountEmail,
-                            onBackClick = { loginSheetVisible = false },
-                            onFocusLostValidate = validateAccount,
-                            onForgotClick = { sheetPage = SheetPage.Forgot },
-                            onSubmit = performLogin,
-                            onSendCode = { startTimer ->
-                                if (!preferEmailLogin) {
-                                    // 验证码登录：直接用 username 作为手机号
-                                    val phone = username.trim()
-                                    if (phone.length != 11 || !Regex("^1\\d{10}$").matches(phone)) {
-                                        toastState.show("请先输入正确的11位手机号")
-                                        return@LoginSheetContent
-                                    }
-                                    val actionType = if (needsRegister) "register" else "login"
-                                    scope.launch {
-                                        isLoading = true
-                                        val response = authRepository.getCode(phone = phone, actionType = actionType, appType = "lucy")
-                                        isLoading = false
-                                        if (response.code == 20000) startTimer() else toastState.show(response.msg)
-                                    }
-                                } else {
-                                    // 密码登录模式（未注册时需要验证码）
-                                    // 与注册页同理：不依赖失焦写入的 normalizedAccount，每次点击实时归一化。
-                                    val normalized = normalizeCurrentAccount()
-                                    if (normalized == null) {
-                                        toastState.show("请先输入正确的手机号或邮箱")
-                                        return@LoginSheetContent
-                                    }
-                                    val (account, isEmail) = normalized
-                                    normalizedAccount = account
-                                    isAccountEmail = isEmail
-                                    val pwdActionType = if (needsRegister) "register" else "login"
-                                    scope.launch {
-                                        isLoading = true
-                                        val response = if (isEmail) {
-                                            authRepository.getCode(email = account, actionType = pwdActionType, appType = "lucy")
-                                        } else {
-                                            authRepository.getCode(phone = account, actionType = pwdActionType, appType = "lucy")
-                                        }
-                                        isLoading = false
-                                        if (response.code == 20000) startTimer() else toastState.show(response.msg)
-                                    }
-                                }
+            var hadFocus by remember { mutableStateOf(false) }
+
+            val codeInputShape = RoundedCornerShape(80.dp)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFAFAFC))
+                    .statusBarsPadding()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { focusManager.clearFocus() }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .imePadding()
+                        .padding(horizontal = ds.sw(20.dp)),
+                ) {
+                    Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                    // ── 返回按钮 ──
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(32.dp))
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.05f))
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() },
+                            ) {
+                                showCodeLoginPage = false
+                                resetSheetState()
                             },
-                            toastState = toastState,
-                            registerPhone = registerPhone,
-                            onRegisterPhoneChange = { registerPhone = it },
-                            canSendCode = canSendCode,
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                            contentDescription = "Back",
+                            tint = Color.Black.copy(alpha = 0.60f),
+                            modifier = Modifier.size(
+                                width = ds.sw(11.dp),
+                                height = ds.sh(17.dp),
+                            ),
                         )
                     }
 
-                    SheetPage.Forgot -> {
-                        SheetPageContainer {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(horizontal = ds.sw(20.dp))
-                            ) {
-                                Spacer(modifier = Modifier.height(ds.sh(20.dp)))
-                                SheetBackButton(onClick = { sheetPage = SheetPage.Login })
-                                Spacer(modifier = Modifier.height(ds.sh(52.dp)))
-                                ForgotPasswordForm(
-                                    onResetSuccess = { loginSheetVisible = false },
-                                    onShowToast = { toastState.show(it) }
-                                )
-                            }
-                        }
-                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        // Logo 距返回 icon 44px
+                        Spacer(modifier = Modifier.height(ds.sh(44.dp)))
+                        Image(
+                            painter = painterResource(Res.drawable.logo_img),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(ds.sm(64.dp))
+                                .clip(RoundedCornerShape(ds.sm(12.dp))),
+                        )
 
-                    SheetPage.Register -> {
-                        LoginSheetContent(
-                            ds = ds,
-                            sheetTitle = "注册账号",
-                            preferEmailLogin = false,
-                            needsRegister = true,
-                            isRegisterPage = true,
-                            username = username,
-                            onUsernameChange = { username = it; accountRegistered = false; accountCheckPassed = false },
-                            password = password,
-                            onPasswordChange = { password = it },
-                            confirmPassword = confirmPassword,
-                            onConfirmPasswordChange = { confirmPassword = it },
-                            verifyCode = verifyCode,
-                            onVerifyCodeChange = { verifyCode = it },
-                            isLoading = isLoading,
-                            canSubmit = canSubmit,
-                            normalizedAccount = normalizedAccount,
-                            isAccountEmail = isAccountEmail,
-                            onBackClick = { loginSheetVisible = false },
-                            onFocusLostValidate = validateAccount,
-                            onForgotClick = null,
-                            onSubmit = performLogin,
-                            registerPhone = registerPhone,
-                            onRegisterPhoneChange = { registerPhone = it },
+                        // 标题 距 logo 24px
+                        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                        Text(
+                            text = "欢迎使用脑花",
+                            color = Color.Black.copy(alpha = 0.90f),
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Medium,
+                        )
+
+                        // 副标题 距标题 8px
+                        Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                        Text(
+                            text = "AI 驱动的个人数据操作系统",
+                            color = Color.Black.copy(alpha = 0.60f),
+                            fontSize = ds.sp(12f),
+                            fontWeight = FontWeight.Normal,
+                        )
+
+                        // 输入框距副标题 24px
+                        Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                        // 手机号输入
+                        PhoneOnlyInput(
+                            value = username,
+                            onValueChange = { if (it != username) { username = it; accountCheckPassed = false; if (needsRegister) { needsRegister = false; sheetTitle = "Welcome to Lucy" } } },
+                            label = "请输入您手机号",
+                            enabled = !isLoading,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                            modifier = Modifier.onFocusChanged { focusState ->
+                                if (hadFocus && !focusState.isFocused) validateAccount()
+                                hadFocus = focusState.isFocused
+                            },
+                        )
+
+                        // 输入框间隔 16px
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                        // 验证码输入
+                        CodeInput(
+                            value = verifyCode,
+                            onValueChange = { verifyCode = it },
+                            enabled = !isLoading,
+                            canSend = canSendCode,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
                             onSendCode = { startTimer ->
-                                // 实时归一化当前输入，不再依赖失焦时刻写入的 normalizedAccount——
-                                // 用户可能输完账号直接点「获取验证码」没有失焦过。
-                                val normalized = normalizeCurrentAccount()
-                                if (normalized == null) {
-                                    toastState.show("请先输入正确的手机号或邮箱")
-                                    return@LoginSheetContent
+                                val phone = normalizeCurrentAccount()
+                                if (phone == null) {
+                                    toastState.show("请先输入正确的11位手机号")
+                                    return@CodeInput
                                 }
-                                val (account, isEmail) = normalized
-                                // 同步回本地 state，让后续 performLogin 能直接用到最新归一化结果。
-                                normalizedAccount = account
-                                isAccountEmail = isEmail
+                                val actionType = if (needsRegister) "register" else "login"
                                 scope.launch {
                                     isLoading = true
-                                    val response = if (isEmail) {
-                                        authRepository.getCode(email = account, actionType = "register", appType = "lucy")
-                                    } else {
-                                        authRepository.getCode(phone = account, actionType = "register", appType = "lucy")
-                                    }
+                                    val response = authRepository.getCode(phone = phone, actionType = actionType, appType = "lucy")
                                     isLoading = false
                                     if (response.code == 20000) startTimer() else toastState.show(response.msg)
                                 }
                             },
-                            toastState = toastState,
-                            canSendCode = canSendCode,
-                            isAccountRegistered = accountRegistered,
-                            onGotoLoginFromRegister = {
-                                // 关闭注册页 → 打开验证码登录模态
-                                resetSheetState()
-                                preferEmailLogin = false
-                                sheetPage = SheetPage.Login
-                            },
                         )
+
+                        // 未注册时弹出密码设置
+                        AnimatedVisibility(
+                            visible = needsRegister,
+                            enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                            exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                PasswordInput(
+                                    value = password,
+                                    onValueChange = { password = it },
+                                    enabled = !isLoading,
+                                    label = "设置密码",
+                                    errorText = passwordErr,
+                                )
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                PasswordInput(
+                                    value = confirmPassword,
+                                    onValueChange = { confirmPassword = it },
+                                    enabled = !isLoading,
+                                    label = "再次输入密码",
+                                    errorText = confirmPwdErr,
+                                )
+                            }
+                        }
+
+                        // 按钮距输入框 32px
+                        Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+
+                        // 登录按钮
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(ds.sh(40.dp))
+                                .clip(RoundedCornerShape(80.dp))
+                                .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    enabled = canSubmit,
+                                ) { performLogin() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(ds.sm(24.dp)),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = if (needsRegister) "立即注册" else "登录",
+                                    color = Color.White,
+                                    fontSize = ds.sp(16f),
+                                    fontWeight = FontWeight.Normal,
+                                )
+                            }
+                        }
+
+                        // 底部留白，确保键盘弹起时登录按钮可滚动到可见区域
+                        Spacer(modifier = Modifier.height(ds.sh(40.dp)))
                     }
+
+                    // ── 底部协议文本 距底部安全距离 10px ──
+                    val termsText = buildAnnotatedString {
+                        withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                            append("登录即表示同意我们的")
+                        }
+                        withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                            uriHandler.openUri("https://app.lucy.run/service.html")
+                        }) {
+                            withStyle(SpanStyle(
+                                color = Color.Black,
+                                textDecoration = TextDecoration.Underline,
+                            )) {
+                                append("《服务条款》")
+                            }
+                        }
+                        withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                            append("和")
+                        }
+                        withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                            uriHandler.openUri("https://app.lucy.run/privacy.html")
+                        }) {
+                            withStyle(SpanStyle(
+                                color = Color.Black,
+                                textDecoration = TextDecoration.Underline,
+                            )) {
+                                append("《隐私政策》")
+                            }
+                        }
+                    }
+                    Text(
+                        text = termsText,
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontSize = ds.sp(10f),
+                            fontWeight = FontWeight.Normal,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(bottom = ds.sh(10.dp)),
+                    )
                 }
             }
         }
@@ -705,7 +809,7 @@ private fun LoginGlassButton(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(ds.sh(48.dp))
+            .height(ds.sh(40.dp))
             .clip(shape)
             .background(backgroundColor, shape)
             .clickable(
@@ -727,6 +831,694 @@ private fun LoginGlassButton(
                 fontSize = ds.sp(16f),
                 fontWeight = FontWeight.Medium,
             )
+        }
+    }
+}
+
+/* ───────── Password Login Page (full page) ───────── */
+
+@Composable
+private fun PasswordLoginPage(
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    confirmPassword: String,
+    onConfirmPasswordChange: (String) -> Unit,
+    verifyCode: String,
+    onVerifyCodeChange: (String) -> Unit,
+    isLoading: Boolean,
+    needsRegister: Boolean,
+    accountCheckPassed: Boolean,
+    onFocusLostValidate: () -> Unit,
+    onSubmit: () -> Unit,
+    onSendCode: (startTimer: () -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+    onForgotPasswordSuccess: () -> Unit,
+    toastState: ToastState,
+) {
+    val ds = LocalDesignScale.current
+    val focusManager = LocalFocusManager.current
+    val uriHandler = LocalUriHandler.current
+    var hadFocus by remember { mutableStateOf(false) }
+    var showForgotPassword by remember { mutableStateOf(false) }
+
+    val codeInputShape = RoundedCornerShape(80.dp)
+
+    val isSettingPassword = needsRegister
+    val passwordErr = if (isSettingPassword) validatePasswordRule(password) else null
+    val confirmPwdErr = if (isSettingPassword && confirmPassword.isNotEmpty() && password != confirmPassword) "两次输入的密码不一致" else null
+    val passwordRuleOk = !isSettingPassword ||
+        (validatePasswordRule(password) == null && password.isNotEmpty() && password == confirmPassword)
+
+    val canSendCode = normalizePhone(username) != null && accountCheckPassed
+    val canSubmit = username.isNotBlank() && password.isNotBlank() && !isLoading &&
+        (!needsRegister || (confirmPassword.isNotBlank() && verifyCode.isNotBlank())) &&
+        passwordRuleOk
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFAFAFC))
+            .statusBarsPadding()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { focusManager.clearFocus() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .padding(horizontal = ds.sw(20.dp)),
+        ) {
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+            // ── 返回按钮 ──
+            Box(
+                modifier = Modifier
+                    .size(ds.sm(32.dp))
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) {
+                        if (showForgotPassword) {
+                            showForgotPassword = false
+                        } else {
+                            onDismiss()
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                    contentDescription = "Back",
+                    tint = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.size(
+                        width = ds.sw(11.dp),
+                        height = ds.sh(17.dp),
+                    ),
+                )
+            }
+
+            if (showForgotPassword) {
+                // ForgotPasswordForm 需要有界高度才能正常使用 fillMaxSize/weight，
+                // 所以放在 weight(1f) 容器中而非 verticalScroll 内部
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .navigationBarsPadding()
+                        .padding(bottom = ds.sh(10.dp)),
+                ) {
+                    ForgotPasswordForm(
+                        onResetSuccess = onForgotPasswordSuccess,
+                        onShowToast = { toastState.show(it) },
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Spacer(modifier = Modifier.height(ds.sh(44.dp)))
+                    Image(
+                        painter = painterResource(Res.drawable.logo_img),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(ds.sm(64.dp))
+                            .clip(RoundedCornerShape(ds.sm(12.dp))),
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                    Text(
+                        text = "欢迎使用脑花",
+                        color = Color.Black.copy(alpha = 0.90f),
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                    Text(
+                        text = "AI 驱动的个人数据操作系统",
+                        color = Color.Black.copy(alpha = 0.60f),
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                    )
+                    Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                    // ── 密码登录表单 ──
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        PhoneOnlyInput(
+                            value = username,
+                            onValueChange = onUsernameChange,
+                            label = "请输入您手机号",
+                            enabled = !isLoading,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                            modifier = Modifier.onFocusChanged { focusState ->
+                                if (hadFocus && !focusState.isFocused) onFocusLostValidate()
+                                hadFocus = focusState.isFocused
+                            },
+                        )
+
+                        // 未注册时弹出验证码输入
+                        AnimatedVisibility(
+                            visible = needsRegister,
+                            enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                            exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                CodeInput(
+                                    value = verifyCode,
+                                    onValueChange = onVerifyCodeChange,
+                                    enabled = !isLoading,
+                                    canSend = canSendCode,
+                                    containerShape = codeInputShape,
+                                    containerShadowElevation = 20.dp,
+                                    placeholderFontSize = 12f,
+                                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                                    inputFontSize = 14f,
+                                    onSendCode = onSendCode,
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                        PasswordInput(
+                            value = password,
+                            onValueChange = onPasswordChange,
+                            enabled = !isLoading,
+                            label = if (needsRegister) "设置密码" else "请输入密码",
+                            errorText = passwordErr,
+                            containerShape = codeInputShape,
+                            containerShadowElevation = 20.dp,
+                            placeholderFontSize = 12f,
+                            placeholderColor = Color.Black.copy(alpha = 0.40f),
+                            inputFontSize = 14f,
+                        )
+
+                        // 忘记密码
+                        if (!needsRegister) {
+                            Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+                            Text(
+                                text = "忘记密码",
+                                color = Color.Black.copy(alpha = 0.90f),
+                                fontSize = ds.sp(12f),
+                                fontWeight = FontWeight.Normal,
+                                textDecoration = TextDecoration.Underline,
+                                lineHeight = ds.sp(16f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) { showForgotPassword = true },
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            )
+                        }
+
+                        // 未注册时弹出确认密码
+                        AnimatedVisibility(
+                            visible = needsRegister,
+                            enter = fadeIn() + androidx.compose.animation.expandVertically(),
+                            exit = fadeOut() + androidx.compose.animation.shrinkVertically(),
+                        ) {
+                            Column {
+                                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+                                PasswordInput(
+                                    value = confirmPassword,
+                                    onValueChange = onConfirmPasswordChange,
+                                    enabled = !isLoading,
+                                    label = "再次输入密码",
+                                    errorText = confirmPwdErr,
+                                    containerShape = codeInputShape,
+                                    containerShadowElevation = 20.dp,
+                                    placeholderFontSize = 12f,
+                                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                                    inputFontSize = 14f,
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+
+                        // 登录按钮
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(ds.sh(40.dp))
+                                .clip(RoundedCornerShape(80.dp))
+                                .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    enabled = canSubmit,
+                                ) { onSubmit() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(ds.sm(24.dp)),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(
+                                    text = if (needsRegister) "立即注册" else "登录",
+                                    color = Color.White,
+                                    fontSize = ds.sp(16f),
+                                    fontWeight = FontWeight.Normal,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(ds.sh(40.dp)))
+                }
+
+                // ── 底部协议 ──
+                val termsText = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                        append("登录即表示同意我们的")
+                    }
+                    withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                        uriHandler.openUri("https://app.lucy.run/service.html")
+                    }) {
+                        withStyle(SpanStyle(
+                            color = Color.Black,
+                            textDecoration = TextDecoration.Underline,
+                        )) {
+                            append("《服务条款》")
+                        }
+                    }
+                    withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                        append("和")
+                    }
+                    withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                        uriHandler.openUri("https://app.lucy.run/privacy.html")
+                    }) {
+                        withStyle(SpanStyle(
+                            color = Color.Black,
+                            textDecoration = TextDecoration.Underline,
+                        )) {
+                            append("《隐私政策》")
+                        }
+                    }
+                }
+                Text(
+                    text = termsText,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = ds.sp(10f),
+                        fontWeight = FontWeight.Normal,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(bottom = ds.sh(10.dp)),
+                )
+            }
+        }
+    }
+}
+
+/* ───────── Register Page (full page) ───────── */
+
+@Composable
+private fun RegisterPage(
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    confirmPassword: String,
+    onConfirmPasswordChange: (String) -> Unit,
+    verifyCode: String,
+    onVerifyCodeChange: (String) -> Unit,
+    isLoading: Boolean,
+    accountCheckPassed: Boolean,
+    accountRegistered: Boolean,
+    onFocusLostValidate: () -> Unit,
+    onSubmit: () -> Unit,
+    onSendCode: (startTimer: () -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+    onGotoLogin: () -> Unit,
+    toastState: ToastState,
+) {
+    val ds = LocalDesignScale.current
+    val focusManager = LocalFocusManager.current
+    val uriHandler = LocalUriHandler.current
+    var hadFocus by remember { mutableStateOf(false) }
+
+    val codeInputShape = RoundedCornerShape(80.dp)
+
+    val passwordErr = validatePasswordRule(password)
+    val confirmPwdErr = if (confirmPassword.isNotEmpty() && password != confirmPassword) "两次输入的密码不一致" else null
+    val passwordRuleOk = validatePasswordRule(password) == null && password.isNotEmpty() && password == confirmPassword
+
+    val canSendCode = normalizePhone(username) != null && !accountRegistered && accountCheckPassed
+    val canSubmit = !accountRegistered &&
+        username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank() &&
+        verifyCode.isNotBlank() && !isLoading && passwordRuleOk
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFAFAFC))
+            .statusBarsPadding()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { focusManager.clearFocus() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .padding(horizontal = ds.sw(20.dp)),
+        ) {
+            Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+            // ── 返回按钮 ──
+            Box(
+                modifier = Modifier
+                    .size(ds.sm(32.dp))
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) { onDismiss() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                    contentDescription = "Back",
+                    tint = Color.Black.copy(alpha = 0.60f),
+                    modifier = Modifier.size(
+                        width = ds.sw(11.dp),
+                        height = ds.sh(17.dp),
+                    ),
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(modifier = Modifier.height(ds.sh(44.dp)))
+                Image(
+                    painter = painterResource(Res.drawable.logo_img),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(ds.sm(64.dp))
+                        .clip(RoundedCornerShape(ds.sm(12.dp))),
+                )
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+                Text(
+                    text = "注册账号",
+                    color = Color.Black.copy(alpha = 0.90f),
+                    fontSize = ds.sp(16f),
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(ds.sh(8.dp)))
+                Text(
+                    text = "AI 驱动的个人数据操作系统",
+                    color = Color.Black.copy(alpha = 0.60f),
+                    fontSize = ds.sp(12f),
+                    fontWeight = FontWeight.Normal,
+                )
+                Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+                // 手机号输入
+                PhoneOnlyInput(
+                    value = username,
+                    onValueChange = onUsernameChange,
+                    label = "请输入您手机号",
+                    enabled = !isLoading,
+                    containerShape = codeInputShape,
+                    containerShadowElevation = 20.dp,
+                    placeholderFontSize = 12f,
+                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                    inputFontSize = 14f,
+                    modifier = Modifier.onFocusChanged { focusState ->
+                        if (hadFocus && !focusState.isFocused) onFocusLostValidate()
+                        hadFocus = focusState.isFocused
+                    },
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                // 验证码输入
+                CodeInput(
+                    value = verifyCode,
+                    onValueChange = onVerifyCodeChange,
+                    enabled = !isLoading,
+                    canSend = canSendCode,
+                    containerShape = codeInputShape,
+                    containerShadowElevation = 20.dp,
+                    placeholderFontSize = 12f,
+                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                    inputFontSize = 14f,
+                    onSendCode = onSendCode,
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                // 密码
+                PasswordInput(
+                    value = password,
+                    onValueChange = onPasswordChange,
+                    enabled = !isLoading,
+                    label = "设置密码",
+                    errorText = passwordErr,
+                    containerShape = codeInputShape,
+                    containerShadowElevation = 20.dp,
+                    placeholderFontSize = 12f,
+                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                    inputFontSize = 14f,
+                )
+
+                Spacer(modifier = Modifier.height(ds.sh(16.dp)))
+
+                // 确认密码
+                PasswordInput(
+                    value = confirmPassword,
+                    onValueChange = onConfirmPasswordChange,
+                    enabled = !isLoading,
+                    label = "再次输入密码",
+                    errorText = confirmPwdErr,
+                    containerShape = codeInputShape,
+                    containerShadowElevation = 20.dp,
+                    placeholderFontSize = 12f,
+                    placeholderColor = Color.Black.copy(alpha = 0.40f),
+                    inputFontSize = 14f,
+                )
+
+                // 账号已注册提示
+                if (accountRegistered) {
+                    Spacer(modifier = Modifier.height(ds.sh(12.dp)))
+                    Text(
+                        text = "该手机号已被注册，前往登录",
+                        color = Color.Black.copy(alpha = 0.60f),
+                        fontSize = ds.sp(12f),
+                        fontWeight = FontWeight.Normal,
+                        textDecoration = TextDecoration.Underline,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { onGotoLogin() },
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(ds.sh(32.dp)))
+
+                // 注册按钮
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ds.sh(40.dp))
+                        .clip(RoundedCornerShape(80.dp))
+                        .background(if (canSubmit) Color.Black else Color.Black.copy(alpha = 0.30f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            enabled = canSubmit,
+                        ) { onSubmit() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(ds.sm(24.dp)),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(
+                            text = "立即注册",
+                            color = Color.White,
+                            fontSize = ds.sp(16f),
+                            fontWeight = FontWeight.Normal,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(ds.sh(40.dp)))
+            }
+
+            // ── 底部协议 ──
+            val termsText = buildAnnotatedString {
+                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                    append("登录即表示同意我们的")
+                }
+                withLink(LinkAnnotation.Clickable(tag = "SERVICE") {
+                    uriHandler.openUri("https://app.lucy.run/service.html")
+                }) {
+                    withStyle(SpanStyle(
+                        color = Color.Black,
+                        textDecoration = TextDecoration.Underline,
+                    )) {
+                        append("《服务条款》")
+                    }
+                }
+                withStyle(SpanStyle(color = Color.Black.copy(alpha = 0.40f))) {
+                    append("和")
+                }
+                withLink(LinkAnnotation.Clickable(tag = "PRIVACY") {
+                    uriHandler.openUri("https://app.lucy.run/privacy.html")
+                }) {
+                    withStyle(SpanStyle(
+                        color = Color.Black,
+                        textDecoration = TextDecoration.Underline,
+                    )) {
+                        append("《隐私政策》")
+                    }
+                }
+            }
+            Text(
+                text = termsText,
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = ds.sp(10f),
+                    fontWeight = FontWeight.Normal,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(bottom = ds.sh(10.dp)),
+            )
+        }
+    }
+}
+
+// 归一化手机号（提取为顶级函数供多个 Page 复用）
+private fun normalizePhone(input: String): String? {
+    val raw = input.trim().replace(" ", "")
+    val withoutPrefix = when {
+        raw.startsWith("+86") -> raw.removePrefix("+86")
+        raw.startsWith("86") && raw.length > 11 -> raw.removePrefix("86")
+        else -> raw
+    }
+    return withoutPrefix.trim().takeIf { Regex("^1\\d{10}$").matches(it) }
+}
+
+/* ───────── Account Registered Dialog ───────── */
+
+@Composable
+private fun AccountRegisteredDialog(
+    onDismiss: () -> Unit,
+    onGotoLogin: () -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    Surface(
+        shape = RoundedCornerShape(ds.sm(20.dp)),
+        color = Color.White,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { /* consume click */ }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
+        ) {
+            Text(
+                text = "该账号已被注册，请前往登录",
+                fontSize = ds.sp(20f),
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1F2535),
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(ds.sh(24.dp)))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ds.sw(11.dp)),
+            ) {
+                // 取消按钮
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color.Black.copy(alpha = 0.05f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onDismiss() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "取消",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF1F2535),
+                    )
+                }
+
+                // 去登录按钮
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(ds.sm(100.dp)))
+                        .background(Color(0xFF1F2535))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onGotoLogin() }
+                        .padding(vertical = ds.sh(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "去登录",
+                        fontSize = ds.sp(16f),
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                    )
+                }
+            }
         }
     }
 }

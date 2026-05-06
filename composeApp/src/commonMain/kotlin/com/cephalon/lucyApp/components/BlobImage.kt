@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import com.cephalon.lucyApp.sdk.SdkSessionManager
 import org.koin.compose.koinInject
 
@@ -31,6 +32,13 @@ fun BlobImage(
     errorContent: @Composable (() -> Unit)? = null,
 ) {
     val sdkSessionManager = koinInject<SdkSessionManager>()
+    if (blobRef.isLocalImageSource()) {
+        PlatformImageThumbnail(
+            uri = blobRef,
+            modifier = modifier,
+        )
+        return
+    }
     var imageBitmap by remember(blobRef) { mutableStateOf<ImageBitmap?>(null) }
     var isLoading by remember(blobRef) { mutableStateOf(true) }
     var isError by remember(blobRef) { mutableStateOf(false) }
@@ -84,6 +92,16 @@ fun BlobImage(
             errorContent?.invoke()
         }
     }
+}
+
+private fun String.isLocalImageSource(): Boolean {
+    val value = trim()
+    return value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("ph://") ||
+        value.startsWith("ios-phasset://") ||
+        value.startsWith("assets-library://") ||
+        value.startsWith("/")
 }
 
 expect fun decodeImageBytes(bytes: ByteArray): ImageBitmap?

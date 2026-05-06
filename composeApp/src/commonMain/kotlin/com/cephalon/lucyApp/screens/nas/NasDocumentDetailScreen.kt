@@ -6,18 +6,21 @@ import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_share
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -73,75 +76,56 @@ internal fun NasDocumentDetailScreen(
     val density = LocalDensity.current
     val swipeStartEdgePx = with(density) { 28.dp.toPx() }
     val swipeBackThresholdPx = with(density) { 72.dp.toPx() }
+    val swipeEdgeWidth = 28.dp
     val sdkSessionManager = koinInject<SdkSessionManager>()
     val coroutineScope = rememberCoroutineScope()
-    val backgroundColor = if (isChatMode) Color.White else Color.Black
-    val foregroundColor = if (isChatMode) Color(0xFF111111) else Color.White
-    val headerColor = if (isChatMode) Color.White else Color.Black
+    val backgroundColor = Color(0xFFFAFAFC)
+    val foregroundColor = Color(0xFF111111)
+    val headerColor = Color(0xFFFAFAFC)
 
     var showMenu by remember { mutableStateOf(false) }
     var localFilePath by remember(document.id) { mutableStateOf<String?>(null) }
-    var fileLoading by remember(document.id) { mutableStateOf(false) }
+    var fileLoading by remember(document.id) { mutableStateOf(true) }
     var fileError by remember(document.id) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(document.fileId, targetCdi) {
         if (localFilePath != null) return@LaunchedEffect
         fileLoading = true
         fileError = null
-        coroutineScope.launch {
-            runCatching {
-                val blobRef = when {
-                    document.fileId != null -> {
-                        val getResponse = sdkSessionManager.getFileFromNas(
-                            targetCdi = targetCdi,
-                            fileId = document.fileId,
-                        ).getOrThrow()
-                        getResponse.item?.blobRef ?: throw IllegalStateException("文件详情缺少 blobRef")
-                    }
-                    document.path.isNotBlank() -> document.path
-                    else -> throw IllegalStateException("文件 ID 缺失")
+        runCatching {
+            val source = when {
+                document.path.isLocalAttachmentSource() -> document.path
+                document.fileId != null -> {
+                    val getResponse = sdkSessionManager.getFileFromNas(
+                        targetCdi = targetCdi,
+                        fileId = document.fileId,
+                    ).getOrThrow()
+                    getResponse.item?.blobRef ?: throw IllegalStateException("文件详情缺少 blobRef")
                 }
-                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
-                platformSaveCacheFile(bytes, document.name)
-            }.onSuccess { path ->
-                localFilePath = path
-                fileLoading = false
-            }.onFailure { err ->
-                fileError = err.message ?: "加载文档失败"
-                fileLoading = false
+                document.path.isNotBlank() -> document.path
+                else -> throw IllegalStateException("文件 ID 缺失")
             }
+            if (source.isLocalAttachmentSource()) {
+                source
+            } else {
+                val bytes = sdkSessionManager.fetchBlobBytes(source).getOrThrow()
+                platformSaveCacheFile(bytes, document.name)
+            }
+        }.onSuccess { path ->
+            localFilePath = path
+            fileLoading = false
+        }.onFailure { err ->
+            fileError = err.message ?: "加载文档失败"
+            fileLoading = false
         }
     }
+
+    PlatformBackHandler(onBack = onBack)
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(backgroundColor)
-            .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                    if (down.position.x > swipeStartEdgePx) return@awaitEachGesture
-
-                    val pointerId = down.id
-                    var totalDx = 0f
-                    var totalAbsDy = 0f
-
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                        if (!change.pressed) break
-
-                        val delta = change.position - change.previousPosition
-                        totalDx += delta.x
-                        totalAbsDy += abs(delta.y)
-
-                        if (totalDx > swipeBackThresholdPx && totalDx > totalAbsDy * 1.2f) {
-                            onBack()
-                            break
-                        }
-                    }
-                }
-            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -149,15 +133,18 @@ internal fun NasDocumentDetailScreen(
                     .fillMaxWidth()
                     .background(headerColor)
                     .statusBarsPadding()
-                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(12.dp)),
+                    .padding(horizontal = ds.sm(16.dp), vertical = ds.sm(4.dp)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DocDetailGlassCircleButton(size = ds.sm(36.dp), isLight = isChatMode, onClick = onBack) {
+                DocDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onBack) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
                         contentDescription = "返回",
-                        tint = foregroundColor,
-                        modifier = Modifier.size(ds.sm(16.dp))
+                        tint = Color.Black.copy(alpha = 0.60f),
+                        modifier = Modifier.size(
+                            width = ds.sw(11.dp),
+                            height = ds.sh(17.dp),
+                        ),
                     )
                 }
 
@@ -166,8 +153,8 @@ internal fun NasDocumentDetailScreen(
                         .weight(1f)
                         .padding(horizontal = ds.sm(10.dp)),
                     shape = RoundedCornerShape(999.dp),
-                    color = if (isChatMode) Color(0xFFF5F5F7) else Color(0x1AFFFFFF),
-                    border = BorderStroke(1.dp, if (isChatMode) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE6E6E6))
                 ) {
                     Text(
                         text = buildString {
@@ -189,7 +176,7 @@ internal fun NasDocumentDetailScreen(
                 }
 
                 if (isChatMode) {
-                    DocDetailGlassCircleButton(size = ds.sm(36.dp), isLight = true, onClick = onDownload) {
+                    DocDetailGlassCircleButton(size = ds.sm(32.dp), onClick = onDownload) {
                         Icon(
                             painter = painterResource(Res.drawable.ic_download),
                             contentDescription = "下载",
@@ -199,54 +186,30 @@ internal fun NasDocumentDetailScreen(
                     }
                 } else {
                     Box {
-                        DocDetailGlassCircleButton(size = ds.sm(36.dp), onClick = { showMenu = true }) {
+                        DocDetailGlassCircleButton(size = ds.sm(32.dp), onClick = { showMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "更多",
-                                tint = Color.White,
-                                modifier = Modifier.size(ds.sm(16.dp))
+                                tint = Color.Black.copy(alpha = 0.40f),
+                                modifier = Modifier.size(ds.sm(18.dp))
                             )
                         }
                         DropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false },
-                            containerColor = Color(0xFF1C1C1E),
-                            shape = RoundedCornerShape(ds.sm(12.dp))
+                            containerColor = Color.White,
+                            shape = RoundedCornerShape(16.dp)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("发送脑花", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_share),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
+                                text = { Text("发送脑花", color = Color(0xFF111111)) },
                                 onClick = { showMenu = false; onShare() }
                             )
                             DropdownMenuItem(
-                                text = { Text("下载", color = Color.White) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_download),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
+                                text = { Text("下载", color = Color(0xFF111111)) },
                                 onClick = { showMenu = false; onDownload() }
                             )
                             DropdownMenuItem(
                                 text = { Text("删除", color = Color(0xFFFF3B30)) },
-                                leadingIcon = {
-                                    Icon(
-                                        painter = painterResource(Res.drawable.ic_delete),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF3B30),
-                                        modifier = Modifier.size(ds.sm(18.dp))
-                                    )
-                                },
                                 onClick = { showMenu = false; onDelete() }
                             )
                         }
@@ -275,11 +238,17 @@ internal fun NasDocumentDetailScreen(
                         )
                     }
                     localFilePath != null -> {
-                        PlatformDocumentPreview(
-                            source = localFilePath!!,
-                            fileName = document.name,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = ds.sm(12.dp), vertical = ds.sm(0.dp))
+                        ) {
+                            PlatformDocumentPreview(
+                                source = localFilePath!!,
+                                fileName = document.name,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                     else -> {
                         Text(
@@ -292,6 +261,43 @@ internal fun NasDocumentDetailScreen(
             }
         } // end Column
 
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(swipeEdgeWidth)
+                    .pointerInput(onBack, swipeStartEdgePx, swipeBackThresholdPx) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                            if (down.position.x > swipeStartEdgePx) return@awaitEachGesture
+
+                            val pointerId = down.id
+                            var totalDx = 0f
+                            var totalAbsDy = 0f
+
+                            while (true) {
+                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                if (!change.pressed) break
+
+                                val delta = change.position - change.previousPosition
+                                totalDx += delta.x
+                                totalAbsDy += abs(delta.y)
+
+                                if (totalDx > swipeBackThresholdPx && totalDx > totalAbsDy * 1.2f) {
+                                    onBack()
+                                    break
+                                }
+                            }
+                        }
+                    }
+            )
+        }
+
         if (!isChatMode) {
             Box(
                 modifier = Modifier
@@ -303,7 +309,7 @@ internal fun NasDocumentDetailScreen(
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "搜索",
-                        tint = Color.White,
+                        tint = foregroundColor,
                         modifier = Modifier.size(ds.sm(20.dp))
                     )
                 }
@@ -315,25 +321,32 @@ internal fun NasDocumentDetailScreen(
 @Composable
 private fun DocDetailGlassCircleButton(
     size: Dp,
-    isLight: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier.size(size),
-        shape = CircleShape,
-        color = if (isLight) Color.White else Color(0x1AFFFFFF),
-        border = BorderStroke(1.dp, if (isLight) Color(0xFFE6E6E6) else Color(0x0FFFFFFF))
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.05f))
+            .border(
+                width = 0.5.dp,
+                color = Color.Black.copy(alpha = 0.06f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
+        content()
     }
+}
+
+private fun String.isLocalAttachmentSource(): Boolean {
+    val value = trim()
+    return value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("ph://") ||
+        value.startsWith("assets-library://") ||
+        value.startsWith("/")
 }

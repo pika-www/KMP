@@ -1,5 +1,6 @@
 package com.cephalon.lucyApp.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -13,7 +14,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +29,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -64,13 +69,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
 import com.cephalon.lucyApp.components.DesignScaleProvider
 import com.cephalon.lucyApp.components.LocalDesignScale
@@ -91,7 +102,6 @@ import com.cephalon.lucyApp.sdk.MediaAttachment
 import com.cephalon.lucyApp.screens.agentmodel.uriDisplayName
 import com.cephalon.lucyApp.screens.agentmodel.ConversationItem
 import com.cephalon.lucyApp.screens.agentmodel.displayName
-import com.cephalon.lucyApp.screens.agentmodel.AgentModelAttachmentPanel
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelSearchScreen
 import androidx.compose.ui.text.input.TextFieldValue
 import com.cephalon.lucyApp.screens.agentmodel.AgentModelComposer
@@ -109,20 +119,29 @@ import com.cephalon.lucyApp.screens.nas.NasSendFileType
 import com.cephalon.lucyApp.api.AuthRepository
 import com.cephalon.lucyApp.sdk.NpcReplyEvent
 import com.cephalon.lucyApp.sdk.SdkSessionManager
+import com.cephalon.lucyApp.ws.BalanceWsManager
+import com.russhwolf.settings.Settings
 import org.koin.compose.koinInject
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.cephalon.lucyApp.screens.agentmodel.asAudioRecording
 import com.cephalon.lucyApp.screens.nas.NasAudioDetailScreen
@@ -131,6 +150,8 @@ import com.cephalon.lucyApp.screens.nas.NasDocumentDetailScreen
 import com.cephalon.lucyApp.screens.nas.NasDocumentItem
 import com.cephalon.lucyApp.screens.nas.NasImageDetailScreen
 import com.cephalon.lucyApp.screens.nas.NasImageItem
+import com.cephalon.lucyApp.screens.nas.NasScreen
+import androidios.composeapp.generated.resources.ai_npc
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -148,6 +169,14 @@ private fun mergeStreamingAssistantText(existing: String, incoming: String): Str
     }
 
     return existing + incoming
+}
+
+private fun mergeIndependentFinalText(existing: String, incoming: String): String {
+    val trimmedIncoming = incoming.trim()
+    if (trimmedIncoming.isBlank()) return existing
+    if (existing.isBlank()) return trimmedIncoming
+    if (existing.contains(trimmedIncoming)) return existing
+    return existing.trimEnd() + "\n\n" + trimmedIncoming
 }
 
 private fun List<StreamEvent>.addOrUpdate(event: StreamEvent): List<StreamEvent> {
@@ -224,6 +253,7 @@ private fun detectDraftAttachmentType(fileName: String): DraftAttachmentType {
     val ext = fileName.substringAfterLast('.', "").lowercase()
     return when (ext) {
         "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "svg", "tiff", "ico" -> DraftAttachmentType.Image
+        "mp3", "m4a", "aac", "wav", "flac", "ogg", "oga", "opus", "amr", "caf", "aiff", "aif" -> DraftAttachmentType.Audio
         else -> DraftAttachmentType.File
     }
 }
@@ -361,6 +391,8 @@ fun AgentModelScreen(
     // 必须声明在使用它的 helper 函数（upsert/remove/append）之前 ——
     // Kotlin 局部声明不支持前向引用。
     val messageIdToCdi = remember { mutableStateMapOf<String, String>() }
+    val messageIdToConversationId = remember { mutableStateMapOf<String, String>() }
+    val messageIdToReplyHostAssistantId = remember { mutableStateMapOf<String, String>() }
 
     fun updateConversation(
         conversationId: String?,
@@ -432,12 +464,21 @@ fun AgentModelScreen(
     ) {
         val targetCdi = messageIdToCdi[messageId]
         mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
-            val updatedMessages = conversation.messages.toMutableList()
-            // ── 查找流式消息的目标位置（三级优先） ──
-            // 1. messageId 匹配 + timestamp==null → 正在流式输出的消息
-            //    （media event 插入的消息一定有 timestamp，不会被误命中）
-            var targetIndex = updatedMessages.indexOfLast {
-                it is ChatItem.Assistant && it.messageId == messageId && it.timestamp == null
+            val msgs = conversation.messages.toMutableList()
+            // 1. 优先更新仍在流式中的同 messageId assistant，避免覆盖已经完成的历史 final。
+            var idx = msgs.indexOfLast {
+                it is ChatItem.Assistant &&
+                    it.messageId == messageId &&
+                    it.isStreaming
+            }
+            // 2. 其次更新尚未绑定 messageId 的空占位符。
+            // 2. 兜底：刚添加的占位符（messageId 尚未回填）
+            if (idx < 0) {
+                idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == null && it.text.isBlank() }
+            }
+            // 3. 最后才更新最后一条同 messageId assistant，用于历史恢复 / 延迟到达的非 final 事件。
+            if (idx < 0) {
+                idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == messageId }
             }
             // 2. 尚未绑定 messageId 的原始占位符
             if (targetIndex < 0) {
@@ -479,6 +520,61 @@ fun AgentModelScreen(
                 messages = updatedMessages,
                 lastActiveAt = currentTimeMillis()
             )
+        }
+    }
+
+    fun upsertAssistantFinalMessage(
+        conversationId: String?,
+        sourceMessageId: String,
+        event: NpcReplyEvent,
+    ) {
+        val targetCdi = messageIdToCdi[sourceMessageId]
+        mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
+            val msgs = conversation.messages.toMutableList()
+            val replyHostAssistantId = messageIdToReplyHostAssistantId[sourceMessageId]
+            val replyHostIdx =
+                replyHostAssistantId
+                    ?.let { hostId ->
+                        msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.assistantId == hostId
+                        }
+                    }
+                    ?: -1
+            val targetIdx =
+                when {
+                    replyHostIdx >= 0 -> replyHostIdx
+                    else -> msgs.indexOfLast {
+                        it is ChatItem.Assistant &&
+                            it.messageId == sourceMessageId &&
+                            (it.isStreaming || it.text.isBlank())
+                    }.takeIf { it >= 0 }
+                        ?: msgs.indexOfLast {
+                            it is ChatItem.Assistant && it.messageId == sourceMessageId
+                        }
+                }
+
+            if (targetIdx >= 0) {
+                val current = msgs[targetIdx] as ChatItem.Assistant
+                msgs[targetIdx] = current.copy(
+                    text = event.text?.let { mergeIndependentFinalText(current.text, it) } ?: current.text,
+                    messageId = sourceMessageId,
+                    attachments = (current.attachments + event.attachments).distinctBy { it.blobRef },
+                    timestamp = event.timestamp ?: current.timestamp,
+                )
+                messageIdToReplyHostAssistantId[sourceMessageId] = current.assistantId
+            } else {
+                val newMessage = ChatItem.Assistant(
+                    text = event.text.orEmpty(),
+                    messageId = sourceMessageId,
+                    attachments = event.attachments,
+                    timestamp = event.timestamp,
+                    isStreaming = true,
+                )
+                msgs.add(newMessage)
+                messageIdToReplyHostAssistantId[sourceMessageId] = newMessage.assistantId
+            }
+
+            conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
         }
     }
 
@@ -526,7 +622,7 @@ fun AgentModelScreen(
             val msgs = conversation.messages.toMutableList()
             val idx = msgs.indexOfLast {
                 it is ChatItem.Assistant &&
-                    (it as ChatItem.Assistant).text.isBlank() &&
+                    it.text.isBlank() &&
                     (messageId == null || it.messageId == messageId || it.messageId == null)
             }
             if (idx >= 0) msgs.removeAt(idx)
@@ -567,25 +663,58 @@ fun AgentModelScreen(
     val currentConversation = conversations.firstOrNull { it.id == selectedConversationId }
         ?: orderedConversations.firstOrNull()
     val currentMessages = currentConversation?.messages.orEmpty()
+    var hasInitializedBottomForConversation by remember(selectedConversationId) { mutableStateOf(false) }
 
 
     val messageListState = rememberLazyListState()
+    var shouldAutoFollowBottom by remember { mutableStateOf(true) }
+    var lastMessageListInteractionAt by remember { mutableStateOf(0L) }
+    val autoFollowBottomThresholdPx = with(LocalDensity.current) { 120.dp.roundToPx() }
 
-    // 用户是否已经在（接近）底部：允许约 32px 容差，避免浮点/间距导致误判。
-    // 在底部 → streaming 循环会继续跟随；不在底部 → 用户自由滚动，我们不再强拉回底部。
-    val isNearBottom by remember(messageListState) {
+    // 计算距离底部的像素距离：
+    // - 小于阈值：认为仍在底部附近，允许流式输出继续自动跟随。
+    // - 大于阈值：认为用户正在浏览历史，停止自动拉到底部。
+    val bottomDistancePx by remember(messageListState) {
         derivedStateOf {
             val info = messageListState.layoutInfo
             val visible = info.visibleItemsInfo
             if (visible.isEmpty()) {
-                true
+                0
             } else {
                 val lastVisible = visible.last()
-                val lastIndex = info.totalItemsCount - 1
-                lastVisible.index >= lastIndex &&
-                    lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 32
+                val itemsBelowLastVisible = (info.totalItemsCount - 1 - lastVisible.index).coerceAtLeast(0)
+                val viewportGap = (lastVisible.offset + lastVisible.size - info.viewportEndOffset).coerceAtLeast(0)
+                if (itemsBelowLastVisible > 0) {
+                    autoFollowBottomThresholdPx + 1
+                } else {
+                    viewportGap
+                }
             }
         }
+    }
+
+    val isNearBottom by remember(messageListState) {
+        derivedStateOf {
+            bottomDistancePx <= autoFollowBottomThresholdPx
+        }
+    }
+
+    LaunchedEffect(isNearBottom) {
+        if (isNearBottom) {
+            shouldAutoFollowBottom = true
+        }
+    }
+
+    LaunchedEffect(messageListState, isNearBottom) {
+        snapshotFlow { messageListState.isScrollInProgress }
+            .collect { scrolling ->
+                if (scrolling) {
+                    lastMessageListInteractionAt = currentTimeMillis()
+                    if (!isNearBottom) {
+                        shouldAutoFollowBottom = false
+                    }
+                }
+            }
     }
 
     var inputText by remember { mutableStateOf(TextFieldValue("")) }
@@ -599,7 +728,9 @@ fun AgentModelScreen(
     var showProfilePage by remember { mutableStateOf(false) }
     var showRechargePage by remember { mutableStateOf(false) }
     var showRechargePackagePage by remember { mutableStateOf(false) }
-    var showNasNotSupportedDialog by remember { mutableStateOf(false) }
+    var showNasUpgradePage by remember { mutableStateOf(false) }
+    var showNasScreen by remember { mutableStateOf(false) }
+    var taobaoLinkUrl by remember { mutableStateOf<String?>(null) }
     var showSearchPage by remember { mutableStateOf(false) }
     var emptyViewState by remember { mutableStateOf(0) }
     val draftAttachments = remember { mutableStateListOf<DraftAttachment>() }
@@ -612,17 +743,120 @@ fun AgentModelScreen(
     val attachmentUploadStates = remember { mutableStateMapOf<String, AttachmentUploadState>() }
     val pendingStopMessageIds = remember { mutableStateListOf<String>() }
     val hiddenStopReplyMessageIds = remember { mutableStateListOf<String>() }
+    val discardedReplyMessageIds = remember { mutableStateListOf<String>() }
     val processedEventIds = remember { mutableStateListOf<String>() }
     var toastMessage by remember { mutableStateOf<String?>(null) }
+    var composerHeightPx by remember { mutableStateOf(0) }
+    var composerInputFocused by remember { mutableStateOf(false) }
     val audioBlobCacheMap = remember { mutableStateMapOf<String, String>() }
     val loadingAudioBlobRefs = remember { mutableStateListOf<String>() }
+    val density = LocalDensity.current
+    val keyboardFollowExtraPx = with(density) { 24.dp.roundToPx() }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val toastBottomPadding = with(density) { composerHeightPx.toDp() + 16.dp }
+
+    LaunchedEffect(currentCdi, NasSendToChatStore.pendingItems.size) {
+        val targetCdi = currentCdi?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (NasSendToChatStore.pendingItems.isEmpty()) return@LaunchedEffect
+
+        val incomingItems = NasSendToChatStore.consume()
+        incomingItems.forEach { item ->
+            val resolvedBlobRef = runCatching {
+                sdkSessionManager.getFileFromNas(
+                    targetCdi = targetCdi,
+                    fileId = item.fileId,
+                ).getOrThrow().item?.blobRef?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+
+            val draftType = when (item.fileType) {
+                NasSendFileType.Image -> DraftAttachmentType.Image
+                NasSendFileType.Audio -> DraftAttachmentType.Audio
+                NasSendFileType.Document -> DraftAttachmentType.File
+            }
+            val attachmentUri = resolvedBlobRef ?: item.previewBlobRef
+            val existingIndex = draftAttachments.indexOfFirst {
+                it.nasFileId == item.fileId || (
+                    it.nasFileId == null &&
+                        it.uri == attachmentUri &&
+                        it.displayName == item.fileName
+                    )
+            }
+            val attachment = DraftAttachment(
+                type = draftType,
+                uri = attachmentUri,
+                displayName = item.fileName,
+                blobRef = resolvedBlobRef,
+                nasFileId = item.fileId,
+            )
+            if (existingIndex >= 0) {
+                draftAttachments[existingIndex] = attachment
+            } else {
+                draftAttachments.add(attachment)
+            }
+        }
+        attachmentsExpanded = false
+    }
+
+    // ── 余额不足提醒（仅一次） ──
+    val balanceWsManager = koinInject<BalanceWsManager>()
+    val settings = koinInject<Settings>()
+    var showLowBalanceDialog by remember { mutableStateOf(false) }
+    val balanceData by balanceWsManager.balance.collectAsState()
+    val totalBalance = (balanceData.balances["1"] ?: 0L) + (balanceData.balances["4"] ?: 0L)
+
+    val lowBalanceDismissedKey = effectiveUserId?.let { "$LOW_BALANCE_DISMISSED_KEY.$it" }
+
+    LaunchedEffect(totalBalance, lowBalanceDismissedKey) {
+        if (totalBalance in 1..499) {
+            val key = lowBalanceDismissedKey ?: return@LaunchedEffect
+            val dismissed = settings.getBoolean(key, false)
+            if (!dismissed) {
+                showLowBalanceDialog = true
+            }
+        }
+    }
+
+    LaunchedEffect(selectedConversationId, currentMessages.size) {
+        if (hasInitializedBottomForConversation) return@LaunchedEffect
+        if (currentMessages.isEmpty()) {
+            hasInitializedBottomForConversation = true
+            return@LaunchedEffect
+        }
+        val lastIndex = currentMessages.size + 1
+        messageListState.scrollToItem(lastIndex)
+        shouldAutoFollowBottom = true
+        hasInitializedBottomForConversation = true
+    }
 
     // 发送 / 新增消息时动画滚动到底部
-    LaunchedEffect(currentMessages.size) {
-        if (currentMessages.isNotEmpty()) {
+    LaunchedEffect(currentMessages.size, shouldAutoFollowBottom) {
+        if (shouldAutoFollowBottom && currentMessages.isNotEmpty()) {
             // +2: top_spacer + bottom_spacer
             val lastIndex = currentMessages.size + 1
             messageListState.animateScrollToItem(lastIndex)
+        }
+    }
+
+    LaunchedEffect(composerInputFocused, imeBottomPx, bottomDistancePx, currentMessages.size) {
+        if (!composerInputFocused || imeBottomPx <= 0 || currentMessages.isEmpty()) return@LaunchedEffect
+        delay(180)
+        if (!composerInputFocused || imeBottomPx <= 0 || currentMessages.isEmpty()) return@LaunchedEffect
+
+        val scrollByPx = (imeBottomPx + bottomDistancePx + keyboardFollowExtraPx).coerceAtLeast(0)
+        if (scrollByPx > 0) {
+            shouldAutoFollowBottom = true
+            var previousValue = 0f
+            animate(
+                initialValue = 0f,
+                targetValue = scrollByPx.toFloat(),
+                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+            ) { value, _ ->
+                val delta = value - previousValue
+                if (delta != 0f) {
+                    messageListState.dispatchRawDelta(delta)
+                }
+                previousValue = value
+            }
         }
     }
 
@@ -633,8 +867,9 @@ fun AgentModelScreen(
         if (!assistantReplyStreaming) return@LaunchedEffect
         while (isActive) {
             delay(200)
-            if (!isNearBottom) continue
+            if (!shouldAutoFollowBottom) continue
             if (messageListState.isScrollInProgress) continue
+            if (currentTimeMillis() - lastMessageListInteractionAt < 350L) continue
             val total = messageListState.layoutInfo.totalItemsCount
             if (total > 0) {
                 messageListState.scrollToItem(total - 1)
@@ -642,15 +877,35 @@ fun AgentModelScreen(
         }
     }
 
+    fun scrollToLatestMessage() {
+        coroutineScope.launch {
+            withTimeoutOrNull(500L) {
+                snapshotFlow { messageListState.layoutInfo.totalItemsCount }
+                    .filter { it > 0 }
+                    .first()
+            }
+            val total = messageListState.layoutInfo.totalItemsCount
+            if (total > 0) {
+                messageListState.scrollToItem(total - 1)
+            }
+        }
+    }
+
+    fun finishComposerEditing() {
+        focusManager.clearFocus(force = true)
+    }
+
     fun AudioRecording.toNasAudioItem(): NasAudioItem {
         val format = name.substringAfterLast('.', "").lowercase().ifBlank { "m4a" }
+        val resolvedBlobRef = blobRef?.takeIf { it.isNotBlank() }
+            ?: error("音频 blobRef 缺失")
         return NasAudioItem(
             id = id,
             name = name,
-            type = inferContentType(name) ?: "audio/*",
+            type = inferContentType(name),
             format = format,
             sizeKB = 0,
-            path = path,
+            path = resolvedBlobRef,
             time = "",
             durationSec = 0,
         )
@@ -782,6 +1037,124 @@ fun AgentModelScreen(
         }
     }
 
+    fun handleToggleUserAudioAttachmentPlayback(attachment: DraftAttachment) {
+        val initialBlobRef = attachment.blobRef
+            ?: (attachmentUploadStates[attachment.uri] as? AttachmentUploadState.Success)?.blobRef
+        val nasFileId = attachment.nasFileId
+        val fileName = attachment.displayName?.trim()?.takeIf { it.isNotBlank() }
+            ?: uriDisplayName(attachment.uri)
+        coroutineScope.launch {
+            val blobRef = initialBlobRef ?: run {
+                if (nasFileId == null) {
+                    toastMessage = "音频仍在上传，暂不可播放"
+                    return@launch
+                }
+                runCatching {
+                    sdkSessionManager.getFileFromNas(
+                        targetCdi = currentCdi.orEmpty(),
+                        fileId = nasFileId,
+                    ).getOrThrow().item?.blobRef
+                }.getOrNull()?.takeIf { it.isNotBlank() }
+            }
+
+            if (blobRef.isNullOrBlank()) {
+                toastMessage = "音频仍在上传，暂不可播放"
+                return@launch
+            }
+
+            val sourceId = "chat-audio-$blobRef"
+            val playbackState = mediaAccessController.audioPlaybackState
+
+            if (playbackState.sourceId == sourceId) {
+                val cachedPath = audioBlobCacheMap[blobRef] ?: return@launch
+                mediaAccessController.toggleAudioPlayback(sourceId, fileName, cachedPath)
+                return@launch
+            }
+
+            val cachedPath = audioBlobCacheMap[blobRef]
+            if (cachedPath != null) {
+                mediaAccessController.toggleAudioPlayback(sourceId, fileName, cachedPath)
+                return@launch
+            }
+
+            if (blobRef in loadingAudioBlobRefs) return@launch
+            loadingAudioBlobRefs.add(blobRef)
+            runCatching {
+                val bytes = sdkSessionManager.fetchBlobBytes(blobRef).getOrThrow()
+                val path = platformSaveCacheFile(bytes, fileName)
+                audioBlobCacheMap[blobRef] = path
+                mediaAccessController.toggleAudioPlayback(sourceId, fileName, path)
+            }.onFailure { e ->
+                toastMessage = "音频加载失败: ${e.message}"
+            }
+            loadingAudioBlobRefs.remove(blobRef)
+        }
+    }
+
+    fun handleUserAttachmentOpen(attachment: DraftAttachment) {
+        focusManager.clearFocus()
+        attachmentsExpanded = false
+        val nasFileId = attachment.nasFileId
+        val blobRef = attachment.blobRef
+            ?: (attachmentUploadStates[attachment.uri] as? AttachmentUploadState.Success)?.blobRef
+        if (nasFileId == null && blobRef.isNullOrBlank()) {
+            toastMessage = when (attachment.type) {
+                DraftAttachmentType.Audio -> "音频仍在上传，暂不可预览"
+                DraftAttachmentType.Image -> "图片仍在上传，暂不可预览"
+                DraftAttachmentType.File -> "文件仍在上传，暂不可预览"
+            }
+            return
+        }
+        val fileName = attachment.displayName?.trim()?.takeIf { it.isNotBlank() }
+            ?: uriDisplayName(attachment.uri)
+        val contentType = inferContentType(fileName)
+        val format = fileName.substringAfterLast('.', "").lowercase().ifBlank { "file" }
+
+        when (attachment.type) {
+            DraftAttachmentType.Image -> {
+                val imageItem = NasImageItem(
+                    id = "user-image-${attachment.uri.hashCode()}",
+                    fileId = nasFileId,
+                    name = fileName,
+                    type = contentType,
+                    format = format,
+                    sizeKB = 0,
+                    path = blobRef ?: attachment.uri,
+                    time = "",
+                    location = null,
+                    resolution = "",
+                )
+                selectedChatImages = listOf(imageItem)
+                selectedChatImageId = imageItem.id
+            }
+            DraftAttachmentType.Audio -> {
+                selectedChatAudio = NasAudioItem(
+                    id = "user-audio-${attachment.uri.hashCode()}",
+                    fileId = nasFileId,
+                    name = fileName,
+                    type = contentType,
+                    format = format,
+                    sizeKB = 0,
+                    path = blobRef ?: attachment.uri,
+                    time = "",
+                    durationSec = 0,
+                )
+            }
+            DraftAttachmentType.File -> {
+                selectedChatDocument = NasDocumentItem(
+                    id = "user-doc-${attachment.uri.hashCode()}",
+                    fileId = nasFileId,
+                    name = fileName,
+                    type = contentType,
+                    format = format,
+                    sizeKB = 0,
+                    path = blobRef ?: attachment.uri,
+                    time = "",
+                )
+            }
+        }
+    }
+
     fun handleAttachmentOpen(attachment: MediaAttachment, gallery: List<MediaAttachment>) {
         focusManager.clearFocus()
         attachmentsExpanded = false
@@ -871,30 +1244,35 @@ fun AgentModelScreen(
     // 监听异步文件/媒体推送（无 source_message_id 或已完成请求的后续 final），
     // 按 (sourceMessageId, timestamp) 去重，按 timestamp 插入正确位置。
     LaunchedEffect(Unit) {
-        sdkSessionManager.incomingMediaEvents.collect { event ->
-            println("[MediaEvent] 收到异步媒体推送: type=${event.eventType}, text=${event.text?.take(50)}, attachments=${event.attachments.size}, sourceMessageId=${event.sourceMessageId}, timestamp=${event.timestamp}")
-            val targetConvId = selectedConversationId
-            val chatText = event.text ?: ""
-            val chatAttachments = event.attachments
-            if (chatAttachments.isEmpty() && chatText.isBlank()) return@collect
-
-            val srcMsgId = event.sourceMessageId
-            val ts = event.timestamp
-
-            val conv = conversations.firstOrNull { it.id == targetConvId }
-            val existingMessages = conv?.messages.orEmpty()
-            val existingAssistants = existingMessages.filterIsInstance<ChatItem.Assistant>()
-
-            // ── 去重：(sourceMessageId, timestamp) 为唯一标识 ──
-            // 1. 有 sourceMessageId → (sourceMessageId, timestamp) 精确匹配，或 (sourceMessageId + text) 兜底
-            // 2. 无 sourceMessageId → text 完全匹配
-            val duplicate: ChatItem.Assistant? = if (srcMsgId != null) {
-                existingAssistants.firstOrNull { it.messageId == srcMsgId && ts != null && it.timestamp == ts }
-                    ?: (if (chatText.isNotBlank()) existingAssistants.firstOrNull { it.messageId == srcMsgId && it.text == chatText } else null)
+        sdkSessionManager.npcReplyEvents.collect { event ->
+            val msgId = event.messageId
+            val eventId = event.eventId?.trim().orEmpty()
+            if (msgId.isNotBlank() && msgId in discardedReplyMessageIds) {
+                return@collect
+            }
+            val isStopReply = msgId.isNotBlank() && msgId in hiddenStopReplyMessageIds
+            if (isStopReply && pendingStopMessageIds.remove(msgId)) {
+            }
+            if (isStopReply && event.type != "assistant.partial" && event.type != "assistant.final" && event.type != "assistant.complete") {
+                if (pendingStopMessageIds.remove(msgId)) {
+                }
+                return@collect
+            }
+            if (event.type != "assistant.final" && event.type != "assistant.complete" && eventId.isNotEmpty()) {
+                if (processedEventIds.contains(eventId)) {
+                    return@collect
+                }
+                processedEventIds.add(eventId)
+                if (processedEventIds.size > 500) {
+                    processedEventIds.removeAt(0)
+                }
+            }
+            val convId = if (msgId.isNotBlank()) {
+                activeStreamingRequests[msgId]
+                    ?: messageIdToConversationId[msgId]
+                    ?: selectedConversationId
             } else {
-                if (chatText.isNotBlank()) {
-                    existingAssistants.firstOrNull { it.text == chatText }
-                } else null
+                selectedConversationId
             }
 
             if (duplicate != null) {
@@ -967,60 +1345,83 @@ fun AgentModelScreen(
                             streamEvents = a.streamEvents.addOrUpdate(StreamEvent("typing", "正在输入", isActive = true)),
                         )
                     }
-                    if (streaming) streamingStarted = true
-
-                    // 直接渲染 SDK 返回的文本，不做打字机效果
-                    if (text.isNotBlank() && text != lastText) {
-                        lastText = text
-                        upsertStreamingAssistantMessageInConversation(convId, msgId, text, timestamp = state?.timestamp)
+                }
+                "tool.start" -> {
+                    val toolName = event.toolName ?: event.text ?: "工具"
+                    updateAssistantMessage(convId, msgId) { a ->
+                        a.copy(
+                            messageId = msgId, isStreaming = true,
+                            streamEvents = a.streamEvents
+                                .addOrUpdate(StreamEvent("tool", toolName, isActive = true)),
+                        )
                     }
-
-                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本 或 有错误 或 已有附件）
-                    val errorText = state?.errorText
-                    val finalAttachments = state?.attachments ?: emptyList()
-                    val finished = !streaming && (streamingStarted || text.isNotBlank() || errorText != null || finalAttachments.isNotEmpty())
-                    if (finished) {
-                        if ((text.isNotBlank() && lastText != text) || finalAttachments.isNotEmpty()) {
-                            upsertStreamingAssistantMessageInConversation(convId, msgId, text, finalAttachments, timestamp = state?.timestamp)
-                        }
-                        // 如果有错误，追加错误提示到对话中
-                        if (errorText != null) {
-                            removeAssistantPlaceholderInConversation(convId, msgId)
-                            // 错误消息也得走和占位符同一台设备的存档：用户可能已切走。
-                            appendMessageToConversationOnCdi(
-                                convId,
-                                targetCdi = messageIdToCdi[msgId],
-                                message = ChatItem.Error(errorText),
+                }
+                "tool.end" -> {
+                    val toolName = event.toolName ?: event.text ?: "工具"
+                    updateAssistantMessage(convId, msgId) { a ->
+                        a.copy(
+                            messageId = msgId, isStreaming = true,
+                            streamEvents = a.streamEvents.addOrUpdate(StreamEvent("tool", toolName, isActive = false)),
+                        )
+                    }
+                }
+                "reasoning.partial" -> {
+                    updateAssistantMessage(convId, msgId) { a ->
+                        a.copy(
+                            messageId = msgId, isStreaming = true,
+                            reasoningText = event.text ?: a.reasoningText,
+                            streamEvents = a.streamEvents.addOrUpdate(StreamEvent("reasoning", "Thinks", isActive = true)),
+                        )
+                    }
+                }
+                "reasoning.final" -> {
+                    updateAssistantMessage(convId, msgId) { a ->
+                        a.copy(
+                            messageId = msgId, isStreaming = true,
+                            reasoningText = event.text ?: a.reasoningText,
+                            // streamEvents = a.streamEvents.addOrUpdate(StreamEvent("reasoning", "Thinks")),
+                        )
+                    }
+                }
+                "assistant.partial" -> {
+                    if (event.text != null) {
+                        updateAssistantMessage(convId, msgId) { a ->
+                            a.copy(
+                                text = mergeStreamingAssistantText(a.text, event.text), messageId = msgId, isStreaming = true,
+                                streamEvents = a.streamEvents
+                                    .addOrUpdate(StreamEvent("typing", "输入完成")), // 标记完成
                             )
                         }
                     }
                 }
                 "assistant.final" -> {
+                    upsertAssistantFinalMessage(convId, msgId, event)
+                }
+                "assistant.complete" -> {
                     if (pendingStopMessageIds.isNotEmpty()) {
-                        println("[Stop] 收到首个 assistant.final msgId=$msgId，恢复发送按钮")
                         pendingStopMessageIds.clear()
                     }
                     updateAssistantMessage(convId, msgId) { a ->
                         val completedStreamEvents = a.streamEvents.markAllInactive().let { events ->
                             if (events.any { it.type == "reasoning" }) {
-                                events.addOrUpdate(StreamEvent("reasoning", "done"))
-                            } else {
+                                events
+                                // .addOrUpdate(StreamEvent("reasoning", "reasoning"))
+                            } 
+                            else {
                                 events
                             }
-                        }
+                        }.addOrUpdate(StreamEvent("finish", "Finish"))
                         a.copy(
-                            text = event.text ?: a.text,
+                            text = event.text?.let { mergeIndependentFinalText(a.text, it) } ?: a.text,
                             messageId = msgId,
-                            attachments = if (event.attachments.isNotEmpty()) event.attachments else a.attachments,
+                            attachments = (a.attachments + event.attachments).distinctBy { it.blobRef },
                             timestamp = event.timestamp ?: a.timestamp,
                             isStreaming = false,
-                            streamEvents = completedStreamEvents
-                                .addOrUpdate(StreamEvent("finish", "Finish")),
+                            streamEvents = completedStreamEvents,
                         )
                     }
                     activeStreamingRequests.remove(msgId)
-                    messageIdToCdi.remove(msgId)
-                    println("[Event] assistant.final 聚合更新 msgId=$msgId, convId=$convId, waitingSettle=true")
+                    println("[Event] assistant.complete 结束流式 msgId=$msgId, convId=$convId, eventId=${event.eventId}")
                 }
                 "error" -> {
                     updateAssistantMessage(convId, msgId) { a ->
@@ -1044,7 +1445,6 @@ fun AgentModelScreen(
                     )
                     println("[Event] error msgId=$msgId, convId=$convId, error=${event.text}")
                     activeStreamingRequests.remove(msgId)
-                    messageIdToCdi.remove(msgId)
                 }
             }
         }
@@ -1148,10 +1548,14 @@ fun AgentModelScreen(
             // 都用 sendingCdi 做路由 key。
             val sendingCdi = currentCdi
 
+            shouldAutoFollowBottom = true
+
             // ── 特殊指令：脑花 功能/能力 → 直接展示技能卡片，不走 publishTextToNpc ──
             if (attachments.isEmpty() && isBrainBoxCapabilityQuery(text)) {
                 appendMessageToConversation(targetConversationId, ChatItem.User(text))
                 appendMessageToConversation(targetConversationId, ChatItem.SkillSuggestions)
+                scrollToLatestMessage()
+                finishComposerEditing()
                 inputText = TextFieldValue("")
                 attachmentsExpanded = false
                 return@Unit
@@ -1182,8 +1586,13 @@ fun AgentModelScreen(
             println("[Chat] 发送消息: text=\"$outgoingText\", initialTargetCdi=$initialTargetCdi, snapshotOnlineCdis=$onlineDeviceCdis, localCount=${localMediaAttachments.size}, nasCount=${nasAttachments.size}, sendingCdi=$sendingCdi")
             appendMessageToConversation(
                 targetConversationId,
-                ChatItem.Assistant("")
+                ChatItem.Assistant(text = "")
             )
+            scrollToLatestMessage()
+
+            finishComposerEditing()
+            inputText = TextFieldValue("")
+            attachmentsExpanded = false
             coroutineScope.launch {
                 println("[Chat] ensureConnectedIfTokenValid 开始...")
                 val connectResult = sdkSessionManager.ensureConnectedIfTokenValid()
@@ -1193,7 +1602,7 @@ fun AgentModelScreen(
                     mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
-                            it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                            it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                         }
                         if (idx >= 0) msgs.removeAt(idx)
                         conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1237,7 +1646,7 @@ fun AgentModelScreen(
                     mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
-                            it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                            it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                         }
                         if (idx >= 0) msgs.removeAt(idx)
                         conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1278,7 +1687,7 @@ fun AgentModelScreen(
                             mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                                 val msgs = conv.messages.toMutableList()
                                 val idx = msgs.indexOfLast {
-                                    it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                                    it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                                 }
                                 if (idx >= 0) msgs.removeAt(idx)
                                 conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1291,13 +1700,14 @@ fun AgentModelScreen(
                             return@launch
                         }
                         val nasResponse = getResult.getOrThrow()
-                        val blobRef = nasResponse.item?.blobRef
+                        val item = nasResponse.item
+                        val blobRef = item?.blobRef
                         if (blobRef.isNullOrBlank()) {
                             println("[Chat] NAS 文件缺少 blobRef fileId=$nasFileId")
                             mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                                 val msgs = conv.messages.toMutableList()
                                 val idx = msgs.indexOfLast {
-                                    it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                                    it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                                 }
                                 if (idx >= 0) msgs.removeAt(idx)
                                 conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1311,7 +1721,7 @@ fun AgentModelScreen(
                         }
                         val fileName = att.displayName ?: "file"
                         val contentType = inferContentType(fileName)
-                        val size = (nasResponse.item?.size ?: 0L)
+                        val size = item.size ?: 0L
                         mediaItems.add(SdkSessionManager.MediaItem(
                             blobRef = blobRef,
                             contentType = contentType,
@@ -1335,9 +1745,8 @@ fun AgentModelScreen(
 
                     // 关键：把 messageId → sendingCdi 登记下来，后续流式回复/错误会用这个映射
                     // 把更新路由到原设备的存档里，即使此刻用户已经切换到其它设备。
-                    if (sendingCdi != null) {
-                        messageIdToCdi[messageId] = sendingCdi
-                    }
+                    messageIdToCdi[messageId] = sendingCdi
+                    messageIdToConversationId[messageId] = targetConversationId
 
                     // 回填用户消息 + Assistant 占位符的 messageId；同样按 sendingCdi 路由：
                     // 当前设备还是它就走内存，不是就直接落到它的磁盘存档。
@@ -1353,7 +1762,22 @@ fun AgentModelScreen(
                         if (userIdx >= 0) {
                             when (val old = msgs[userIdx]) {
                                 is ChatItem.User -> msgs[userIdx] = old.copy(messageId = messageId)
-                                is ChatItem.UserAttachments -> msgs[userIdx] = old.copy(messageId = messageId)
+                                is ChatItem.UserAttachments -> {
+                                    val resolvedAttachments = old.attachments.map { attachment ->
+                                        if (attachment.nasFileId != null) {
+                                            attachment.copy(blobRef = attachment.blobRef ?: attachment.uri)
+                                        } else {
+                                            val uploadedBlobRef = uploadStatesSnapshot[attachment.uri]
+                                                ?.let { it as? AttachmentUploadState.Success }
+                                                ?.blobRef
+                                            attachment.copy(blobRef = uploadedBlobRef ?: attachment.blobRef)
+                                        }
+                                    }
+                                    msgs[userIdx] = old.copy(
+                                        attachments = resolvedAttachments,
+                                        messageId = messageId,
+                                    )
+                                }
                                 else -> {}
                             }
                         }
@@ -1363,19 +1787,18 @@ fun AgentModelScreen(
                         val assistantIdx = msgs.indexOfLast {
                             it is ChatItem.Assistant &&
                                     it.messageId == null &&
-                                    (it as ChatItem.Assistant).text.isBlank()
+                                    it.text.isBlank()
                         }
                         println("[Chat] 回填 messageId: userIdx=$userIdx, assistantIdx=$assistantIdx, totalMsgs=${msgs.size}")
                         if (assistantIdx >= 0) {
-                            msgs[assistantIdx] = ChatItem.Assistant("", messageId)
+                            val placeholder = msgs[assistantIdx] as ChatItem.Assistant
+                            msgs[assistantIdx] = placeholder.copy(messageId = messageId)
                         }
                         conv.copy(messages = msgs)
                     }
 
-                    if (targetConversationId != null) {
-                        activeStreamingRequests[messageId] = targetConversationId
-                        println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, cdi=$sendingCdi, size=${activeStreamingRequests.size}")
-                    }
+                    activeStreamingRequests[messageId] = targetConversationId
+                    println("[Chat] activeStreamingRequests 已添加: msgId=$messageId → convId=$targetConversationId, cdi=$sendingCdi, size=${activeStreamingRequests.size}")
                 }
 
                 sendResult.onFailure { error ->
@@ -1384,7 +1807,7 @@ fun AgentModelScreen(
                     mutateConversationOnCdi(targetConversationId, sendingCdi) { conv ->
                         val msgs = conv.messages.toMutableList()
                         val idx = msgs.indexOfLast {
-                            it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank()
+                            it is ChatItem.Assistant && it.messageId == null && it.text.isBlank()
                         }
                         if (idx >= 0) msgs.removeAt(idx)
                         conv.copy(messages = msgs, lastActiveAt = currentTimeMillis())
@@ -1410,6 +1833,15 @@ fun AgentModelScreen(
 
     val sendStopMessage = Unit@{
         if (!isStopMode) return@Unit
+        val activeReplyMessageId = activeStreamingRequests.keys.lastOrNull()
+        if (activeReplyMessageId.isNullOrBlank()) return@Unit
+        activeStreamingRequests.remove(activeReplyMessageId)
+        discardedReplyMessageIds.remove(activeReplyMessageId)
+        discardedReplyMessageIds.add(activeReplyMessageId)
+        if (discardedReplyMessageIds.size > 50) {
+            discardedReplyMessageIds.removeAt(0)
+        }
+        println("[Stop] 标记丢弃回复 source_message_id=$activeReplyMessageId")
         val targetCdi = currentCdi
         if (targetCdi == null || targetCdi !in onlineDeviceCdis) {
             toastMessage = "设备不在线，请等待设备上线后重试"
@@ -1439,100 +1871,62 @@ fun AgentModelScreen(
         }
     }
 
+    // 详情页过渡动画参数
+    val detailEnterSlide = slideInHorizontally(
+        animationSpec = tween(220, easing = FastOutSlowInEasing)
+    ) { it / 5 } + fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing))
+    val detailExitSlide = slideOutHorizontally(
+        animationSpec = tween(200, easing = FastOutSlowInEasing)
+    ) { it / 5 } + fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing))
+    val nasEnterSlide = slideInHorizontally(
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        initialOffsetX = { it / 3 }
+    ) + fadeIn(animationSpec = tween(durationMillis = 240))
+    val nasExitSlide = slideOutHorizontally(
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        targetOffsetX = { it / 3 }
+    ) + fadeOut(animationSpec = tween(durationMillis = 180))
+    val imageEnter = fadeIn(animationSpec = tween(260)) + scaleIn(
+        initialScale = 0.92f, animationSpec = tween(260, easing = FastOutSlowInEasing)
+    )
+    val imageExit = fadeOut(animationSpec = tween(220)) + scaleOut(
+        targetScale = 0.92f, animationSpec = tween(220, easing = FastOutSlowInEasing)
+    )
+
+    // remember snapshot：AnimatedVisibility exit 动画期间 state 已被清空，
+    // 需要缓存最后一次非 null 的值，让退场动画仍能渲染内容。
+    val rememberedChatImages = remember { mutableStateOf<List<NasImageItem>>(emptyList()) }
+    val rememberedChatImageId = remember { mutableStateOf<String?>(null) }
+    val rememberedChatAudio = remember { mutableStateOf<NasAudioItem?>(null) }
+    val rememberedChatDocument = remember { mutableStateOf<NasDocumentItem?>(null) }
+    val rememberedRecordingAudio = remember { mutableStateOf<NasAudioItem?>(null) }
+
+    if (selectedChatImages.isNotEmpty()) rememberedChatImages.value = selectedChatImages
+    if (selectedChatImageId != null) rememberedChatImageId.value = selectedChatImageId
+    if (selectedChatAudio != null) rememberedChatAudio.value = selectedChatAudio
+    if (selectedChatDocument != null) rememberedChatDocument.value = selectedChatDocument
+    if (selectedRecordingAudio != null) rememberedRecordingAudio.value = selectedRecordingAudio
+
+    fun openNasScreen() {
+        focusManager.clearFocus()
+        attachmentsExpanded = false
+        previewState = null
+        showNasScreen = true
+    }
+
+    val blackTextSelectionColors = remember {
+        TextSelectionColors(
+            handleColor = Color.Black,
+            backgroundColor = Color.Black.copy(alpha = 0.22f)
+        )
+    }
+
     DesignScaleProvider {
+    CompositionLocalProvider(LocalTextSelectionColors provides blackTextSelectionColors) {
     Box(modifier = Modifier.fillMaxSize()) {
-    if (selectedChatImageId != null && selectedChatImages.isNotEmpty()) {
-        NasImageDetailScreen(
-            images = selectedChatImages,
-            initialImageId = selectedChatImageId!!,
-            targetCdi = currentCdi.orEmpty(),
-            onBack = {
-                selectedChatImageId = null
-                selectedChatImages = emptyList()
-            },
-            onShare = {},
-            onDownload = { currentImage ->
-                currentMessages
-                    .filterIsInstance<ChatItem.Assistant>()
-                    .flatMap { it.attachments }
-                    .firstOrNull { it.blobRef == currentImage.path }
-                    ?.let(::handleAttachmentDownload)
-            },
-            onDelete = {},
-            isChatMode = true,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (selectedChatAudio != null) {
-        val currentChatAudio = selectedChatAudio!!
-        NasAudioDetailScreen(
-            audio = currentChatAudio,
-            targetCdi = currentCdi.orEmpty(),
-            mediaController = mediaAccessController,
-            onBack = {
-                mediaAccessController.stopAudioPlayback()
-                selectedChatAudio = null
-            },
-            onShare = {},
-            onDownload = {
-                currentMessages
-                    .filterIsInstance<ChatItem.Assistant>()
-                    .flatMap { it.attachments }
-                    .firstOrNull { it.blobRef == currentChatAudio.path }
-                    ?.let(::handleAttachmentDownload)
-            },
-            onDelete = {},
-            isChatMode = true,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (selectedChatDocument != null) {
-        val currentChatDocument = selectedChatDocument!!
-        NasDocumentDetailScreen(
-            document = currentChatDocument,
-            targetCdi = currentCdi.orEmpty(),
-            onBack = { selectedChatDocument = null },
-            onShare = {},
-            onDownload = {
-                currentMessages
-                    .filterIsInstance<ChatItem.Assistant>()
-                    .flatMap { it.attachments }
-                    .firstOrNull { it.blobRef == currentChatDocument.path }
-                    ?.let(::handleAttachmentDownload)
-            },
-            onDelete = {},
-            isChatMode = true,
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (selectedRecordingAudio != null) {
-        val currentRecordingAudio = selectedRecordingAudio!!
-        NasAudioDetailScreen(
-            audio = currentRecordingAudio,
-            targetCdi = currentCdi.orEmpty(),
-            mediaController = mediaAccessController,
-            onBack = {
-                mediaAccessController.stopAudioPlayback()
-                selectedRecordingAudio = null
-            },
-            onShare = {},
-            onDownload = {
-                coroutineScope.launch {
-                    toastMessage = "正在下载…"
-                    runCatching {
-                        val bytes = mediaAccessController.readUriToBytes(currentRecordingAudio.path)
-                            ?: error("读取录音失败")
-                        platformSaveFile(bytes, currentRecordingAudio.name, currentRecordingAudio.type)
-                    }.onSuccess {
-                        toastMessage = "下载成功"
-                    }.onFailure { e ->
-                        toastMessage = "保存失败: ${e.message}"
-                    }
-                }
-            },
-            onDelete = {},
-            isChatMode = false,
-            resolveAudioFile = { currentRecordingAudio.path },
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else if (previewState == null) {
+
+    // ── 主聊天始终渲染 ──
+    if (previewState == null) {
         Scaffold(
             containerColor = Color(0xFFF5F5F7),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1542,145 +1936,136 @@ fun AgentModelScreen(
                     .fillMaxSize()
                     .background(Color(0xFFF5F5F7))
                     .padding(padding)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        focusManager.clearFocus()
+                        attachmentsExpanded = false
+                    }
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    Surface(color = Color(0xFFF5F5F7)) {
+                    Surface(color = Color.White) {
                         AgentModelTopBar(
                             title = "脑花",
-                            subtitle = "内容由 AI 生成",
+                            subtitle = if (currentCdi != null && currentCdi in onlineDeviceCdis) "设备在线" else "设备离线",
                             onOpenProfile = {
                                 focusManager.clearFocus()
                                 attachmentsExpanded = false
                                 previewState = null
                                 showProfilePage = true
                             },
-                            onCall = {
-                                attachmentsExpanded = false
-                                uriHandler.openUri("tel:")
-                            },
                             onPillClick = {
                                 focusManager.clearFocus()
                                 attachmentsExpanded = false
                                 previewState = null
-                                if (currentMessages.isNotEmpty()) {
-                                    coroutineScope.launch {
-                                        val cdi = currentCdi
-                                        val device = if (!cdi.isNullOrBlank())
-                                            authRepository.findDeviceByChannelDeviceId(cdi) else null
-                                        if (device?.deviceType == "ai_npc") {
-                                            onNavigateToNas()
-                                        } else {
-                                            showNasNotSupportedDialog = true
-                                        }
+                                coroutineScope.launch {
+                                    val cdi = currentCdi
+                                    val device = if (!cdi.isNullOrBlank()) {
+                                        authRepository.findDeviceByChannelDeviceId(cdi)
+                                    } else {
+                                        null
                                     }
-                                } else {
-                                    showRechargePage = true
+                                    if (device?.deviceType == "ai_npc") {
+                                        openNasScreen()
+                                    } else {
+                                        showNasUpgradePage = true
+                                    }
                                 }
                             },
-                            hasMessages = currentMessages.isNotEmpty(),
                             isDeviceOnline = currentCdi != null && currentCdi in onlineDeviceCdis
                         )
                     }
                     if (currentMessages.isEmpty() && emptyViewState != 2) {
                         val ds = LocalDesignScale.current
-                        val glassBrush = Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFFDFDFDF).copy(alpha = 0.10f),
-                                Color.White
-                            )
-                        )
-                        val cardShape = RoundedCornerShape(ds.sm(16.dp))
+                        val capabilityCardShape = RoundedCornerShape(ds.sm(200.dp))
 
                         // ── 欢迎页 ──
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = ds.sw(20.dp))
-                                .pointerInput(Unit) {
-                                    awaitEachGesture {
-                                        awaitFirstDown(pass = PointerEventPass.Initial)
-                                        val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                                        if (up != null) { focusManager.clearFocus() }
-                                    }
-                                },
+                                .background(Color(0xFFFAFAFC))
+                                .padding(horizontal = ds.sw(20.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "探索您的精力上线",
-                                    color = Color(0xFF1F2535),
+                                    text = "探索您的精力上限",
+                                    color = Color.Black.copy(alpha = 0.9f),
                                     fontSize = ds.sp(28f),
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                Spacer(modifier = Modifier.height(ds.sh(33.dp)))
+                                Spacer(modifier = Modifier.height(ds.sh(25.dp)))
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .shadow(8.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
-                                        .clip(cardShape)
-                                        .background(glassBrush)
-                                        .border(1.dp, Color.White, cardShape)
-                                        .padding(horizontal = ds.sw(16.dp), vertical = ds.sh(14.dp)),
+                                        .width(ds.sw(224.dp))
+                                        .height(ds.sh(40.dp))
+                                        .shadow(
+                                            elevation = 30.dp,
+                                            shape = capabilityCardShape,
+                                            ambientColor = Color.Black.copy(alpha = 0.05f),
+                                            spotColor = Color.Black.copy(alpha = 0.05f)
+                                        )
+                                        .clip(capabilityCardShape)
+                                        .background(Color.Black.copy(alpha = 0.05f))
+                                        .border(
+                                            width = 0.5.dp,
+                                            color = Color.Black.copy(alpha = 0.05f),
+                                            shape = capabilityCardShape
+                                        ),
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                appendMessageToConversation(
+                                                    selectedConversationId,
+                                                    ChatItem.SkillSuggestions
+                                                )
+                                                emptyViewState = 2
+                                            }
                                     ) {
-                                        // 文字区域可点击 → 以对话形式展示技能列表
-                                        Row(
+                                        Text(
+                                            text = "探索脑花的能力",
+                                            color = Color.Black.copy(alpha = 0.9f),
+                                            fontSize = ds.sp(16f),
+                                            fontWeight = FontWeight.Medium,
+                                            lineHeight = ds.sp(22f),
+                                            textAlign = TextAlign.Center,
                                             modifier = Modifier
-                                                .weight(1f)
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    appendMessageToConversation(
-                                                        selectedConversationId,
-                                                        ChatItem.SkillSuggestions
-                                                    )
-                                                    emptyViewState = 2
-                                                },
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .align(Alignment.Center)
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.CenterEnd)
+                                                .padding(end = ds.sw(16.dp))
+                                                .size(ds.sm(22.dp)),
+                                            contentAlignment = Alignment.Center,
                                         ) {
-                                            Text(
-                                                text = "探索脑花的能力",
-                                                color = Color(0xFF1F2535),
-                                                fontSize = ds.sp(16f),
-                                                fontWeight = FontWeight.Normal
+                                            Icon(
+                                                painter = painterResource(Res.drawable.ic_close_circle),
+                                                contentDescription = "Close",
+                                                tint = Color.Unspecified,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) { emptyViewState = 2 }
                                             )
                                         }
-                                        // 关闭按钮
-                                        Icon(
-                                            painter = painterResource(Res.drawable.ic_close_circle),
-                                            contentDescription = "Close",
-                                            tint = Color.Unspecified,
-                                            modifier = Modifier
-                                                .size(ds.sm(24.dp))
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) { emptyViewState = 2 }
-                                        )
                                     }
                                 }
                             }
                         }
                     } else {
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f)
-                            .pointerInput(Unit) {
-                                awaitEachGesture {
-                                    awaitFirstDown(pass = PointerEventPass.Initial)
-                                    val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                                    if (up != null) {
-                                        focusManager.clearFocus()
-                                        attachmentsExpanded = false
-                                    }
-                                }
-                            }
-                        ) {
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                             AgentModelMessageList(
                                 messages = currentMessages,
                                 playingRecordingId = mediaAccessController.playingRecordingId,
@@ -1689,12 +2074,15 @@ fun AgentModelScreen(
                                 onImageClick = { previewState = it },
                                 onFileClick = { mediaAccessController.openFilePreview(it) },
                                 onAudioFileOpen = ::handleRecordingOpen,
+                                onUserAttachmentOpen = ::handleUserAttachmentOpen,
+                                onToggleUserAudioAttachmentPlayback = ::handleToggleUserAudioAttachmentPlayback,
                                 onTapMessageArea = {
                                     focusManager.clearFocus()
                                     attachmentsExpanded = false
                                 },
                                 onSkillClick = { skillText ->
                                     inputText = TextFieldValue(skillText)
+                                    focusManager.clearFocus()
                                     sendMessage()
                                 },
                                 onAttachmentOpen = ::handleAttachmentOpen,
@@ -1709,6 +2097,21 @@ fun AgentModelScreen(
                                 hiddenStatusMessageIds = hiddenStopReplyMessageIds.toSet(),
                                 listState = messageListState,
                                 modifier = Modifier
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(pass = PointerEventPass.Final)
+                                            lastMessageListInteractionAt = currentTimeMillis()
+                                            val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
+                                            if (up != null) {
+                                                lastMessageListInteractionAt = currentTimeMillis()
+                                                val isShortTap = up.uptimeMillis - down.uptimeMillis < 200L
+                                                if (isShortTap && !messageListState.isScrollInProgress) {
+                                                    focusManager.clearFocus()
+                                                    attachmentsExpanded = false
+                                                }
+                                            }
+                                        }
+                                    }
                                     .fillMaxSize()
                                     .padding(horizontal = 20.dp)
                             )
@@ -1734,7 +2137,20 @@ fun AgentModelScreen(
 
                     AgentModelComposer(
                         inputText = inputText,
-                        onInputTextChange = { inputText = it },
+                        onInputTextChange = { updatedValue ->
+                            val previousLineCount = inputText.text.lineSequence().count().coerceAtLeast(1)
+                            val nextLineCount = updatedValue.text.lineSequence().count().coerceAtLeast(1)
+                            inputText = updatedValue
+                            if (composerInputFocused && nextLineCount > previousLineCount) {
+                                shouldAutoFollowBottom = true
+                                coroutineScope.launch {
+                                    val total = messageListState.layoutInfo.totalItemsCount
+                                    if (total > 0) {
+                                        messageListState.scrollToItem(total - 1)
+                                    }
+                                }
+                            }
+                        },
                         draftAttachments = draftAttachments,
                         onRemoveDraftAttachment = { att ->
                             draftAttachments.remove(att)
@@ -1743,17 +2159,32 @@ fun AgentModelScreen(
                             }
                         },
                         onImageClick = { previewState = it },
-                        onFileClick = { mediaAccessController.openFilePreview(it.asPickedFile()) },
-                        onAudioClick = { handleRecordingOpen(it.asAudioRecording()) },
-                        playingRecordingId = mediaAccessController.playingRecordingId,
-                        onToggleRecordingPlayback = { recordingPath ->
-                            mediaAccessController.toggleRecordingPlayback(
-                                com.cephalon.lucyApp.media.AudioRecording(
-                                    id = recordingPath,
-                                    name = recordingPath.substringAfterLast('/'),
-                                    path = recordingPath
+                        onFileClick = ::handleUserAttachmentOpen,
+                        onAudioClick = { attachment ->
+                            coroutineScope.launch {
+                                val blobRef = attachment.blobRef
+                                    ?: (attachmentUploadStates[attachment.uri] as? AttachmentUploadState.Success)?.blobRef
+                                    ?: attachment.nasFileId?.let { fileId ->
+                                        runCatching {
+                                            sdkSessionManager.getFileFromNas(
+                                                targetCdi = currentCdi.orEmpty(),
+                                                fileId = fileId,
+                                            ).getOrThrow().item?.blobRef
+                                        }.getOrNull()?.takeIf { it.isNotBlank() }
+                                    }
+                                if (blobRef.isNullOrBlank()) {
+                                    toastMessage = "音频仍在上传，暂不可预览"
+                                    return@launch
+                                }
+                                handleRecordingOpen(
+                                    attachment.asAudioRecording().copy(blobRef = blobRef)
                                 )
-                            )
+                            }
+                        },
+                        audioPlaybackState = mediaAccessController.audioPlaybackState,
+                        loadingAudioBlobRefs = loadingAudioBlobRefs.toSet(),
+                        onToggleRecordingPlayback = { attachment ->
+                            handleToggleUserAudioAttachmentPlayback(attachment)
                         },
                         isRecording = mediaAccessController.isRecording,
                         isVoiceBusy = isVoiceBusy,
@@ -1766,52 +2197,71 @@ fun AgentModelScreen(
                         attachmentsExpanded = attachmentsExpanded,
                         onToggleAttachments = {
                             attachmentsExpanded = !attachmentsExpanded
-                            if (attachmentsExpanded) focusManager.clearFocus()
+                        },
+                        onOpenCamera = {
+                            mediaAccessController.openCamera()
+                        },
+                        onOpenGallery = {
+                            mediaAccessController.openGallery()
+                        },
+                        onOpenFilePicker = {
+                            mediaAccessController.openFilePicker()
                         },
                         onSend = sendMessage,
                         onStop = sendStopMessage,
                         isStopMode = isStopMode,
                         isSendDisabled = false,
                         onSuggestionClick = { appendMessageToConversation(selectedConversationId, ChatItem.User(it)) },
+                        onInputFocusChanged = { composerInputFocused = it },
                         uploadStates = attachmentUploadStates,
+                        modifier = Modifier.onSizeChanged { composerHeightPx = it.height },
                     )
 
                 
                 }
 
-                if (attachmentsExpanded) {
-                    AgentModelAttachmentPanel(
-                        recentImages = mediaAccessController.recentImages,
-                        hasMoreRecentImages = mediaAccessController.hasMoreRecentImages,
-                        onLoadMoreRecentImages = { mediaAccessController.loadMoreRecentImages() },
-                        onOpenCamera = {
-                            mediaAccessController.openCamera()
-                        },
-                        onOpenFilePicker = {
-                            mediaAccessController.openFilePicker()
-                        },
-                        onImagesSelected = { uris ->
-                            uris.forEach { uri ->
-                                if (uri.isNotBlank() && draftAttachments.none { it.type == DraftAttachmentType.Image && it.uri == uri }) {
-                                    draftAttachments.add(DraftAttachment(DraftAttachmentType.Image, uri))
-                                    startAttachmentUpload(uri)
-                                }
-                            }
-                            attachmentsExpanded = false
-                        },
-                        onDismiss = { attachmentsExpanded = false },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
                 AgentModelProfileScreen(
                     isVisible = showProfilePage,
                     onDismiss = { showProfilePage = false },
-                    onNavigateToNas = onNavigateToNas,
+                    onNavigateToNas = ::openNasScreen,
                     onNavigateToHome = onNavigateToHome,
                     onLogout = onLogout,
                     modifier = Modifier.fillMaxSize()
                 )
+
+                AnimatedVisibility(
+                    visible = showNasScreen,
+                    enter = nasEnterSlide,
+                    exit = nasExitSlide,
+                ) {
+                    NasScreen(
+                        onBack = { showNasScreen = false },
+                        isVisible = showNasScreen
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = showNasUpgradePage,
+                    enter = nasEnterSlide,
+                    exit = nasExitSlide,
+                ) {
+                    LaunchedEffect(Unit) {
+                        val links = authRepository.getTaobaoLinks()
+                        taobaoLinkUrl = links?.aiNpc?.takeIf { it.isNotBlank() }
+                    }
+                    NasUpgradePage(
+                        modifier = Modifier.fillMaxSize(),
+                        onBack = { showNasUpgradePage = false },
+                        onBuy = {
+                            val url = taobaoLinkUrl?.takeIf { it.isNotBlank() }
+                            if (url != null) {
+                                uriHandler.openUri(url)
+                            } else {
+                                toastMessage = "购买链接获取失败，请稍后重试"
+                            }
+                        },
+                    )
+                }
 
                 AnimatedVisibility(
                     visible = showRechargePage,
@@ -1838,7 +2288,11 @@ fun AgentModelScreen(
                     )
                 }
 
-                if (showNasNotSupportedDialog) {
+                AnimatedVisibility(
+                    visible = showLowBalanceDialog,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(150)),
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -1846,16 +2300,29 @@ fun AgentModelScreen(
                             .clickable(
                                 indication = null,
                                 interactionSource = remember { MutableInteractionSource() }
-                            ) { showNasNotSupportedDialog = false },
+                            ) {
+                                lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                showLowBalanceDialog = false
+                            },
                         contentAlignment = Alignment.Center
                     ) {
-                        NasNotSupportedDialog(
-                            onDismiss = { showNasNotSupportedDialog = false },
-                            onBuy = {
-                                showNasNotSupportedDialog = false
-                                uriHandler.openUri("https://item.taobao.com/item.htm?ft=t&id=1041156653398")
-                            }
-                        )
+                        AnimatedVisibility(
+                            visible = showLowBalanceDialog,
+                            enter = scaleIn(initialScale = 0.85f, animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                            exit = scaleOut(targetScale = 0.85f, animationSpec = tween(150)) + fadeOut(animationSpec = tween(150)),
+                        ) {
+                            LowBalanceReminderDialog(
+                                onDismiss = {
+                                    lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                    showLowBalanceDialog = false
+                                },
+                                onRecharge = {
+                                    lowBalanceDismissedKey?.let { settings.putBoolean(it, true) }
+                                    showLowBalanceDialog = false
+                                    showRechargePage = true
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -1886,6 +2353,140 @@ fun AgentModelScreen(
 
     } // end if previewState == null
 
+    // ── 图片详情 (淡入 + 缩放) ──
+    AnimatedVisibility(
+        visible = selectedChatImageId != null && selectedChatImages.isNotEmpty(),
+        enter = imageEnter,
+        exit = imageExit,
+    ) {
+        val imgs = rememberedChatImages.value
+        val imgId = rememberedChatImageId.value
+        if (imgs.isNotEmpty() && imgId != null) {
+            NasImageDetailScreen(
+                images = imgs,
+                initialImageId = imgId,
+                targetCdi = currentCdi.orEmpty(),
+                onBack = {
+                    selectedChatImageId = null
+                    selectedChatImages = emptyList()
+                },
+                onShare = {},
+                onDownload = { currentImage ->
+                    currentMessages
+                        .filterIsInstance<ChatItem.Assistant>()
+                        .flatMap { it.attachments }
+                        .firstOrNull { it.blobRef == currentImage.path }
+                        ?.let(::handleAttachmentDownload)
+                },
+                onDelete = {},
+                isChatMode = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    // ── 音频详情 (从右侧滑入) ──
+    AnimatedVisibility(
+        visible = selectedChatAudio != null,
+        enter = detailEnterSlide,
+        exit = detailExitSlide,
+    ) {
+        val chatAudio = rememberedChatAudio.value
+        if (chatAudio != null) {
+            NasAudioDetailScreen(
+                audio = chatAudio,
+                targetCdi = currentCdi.orEmpty(),
+                mediaController = mediaAccessController,
+                onBack = {
+                    mediaAccessController.stopAudioPlayback()
+                    selectedChatAudio = null
+                },
+                onShare = {},
+                onDownload = {
+                    currentMessages
+                        .filterIsInstance<ChatItem.Assistant>()
+                        .flatMap { it.attachments }
+                        .firstOrNull { it.blobRef == chatAudio.path }
+                        ?.let(::handleAttachmentDownload)
+                },
+                onDelete = {},
+                isChatMode = true,
+                resolveAudioFile = {
+                    val source = chatAudio.path
+                    if (source.isBlank()) error("音频源为空")
+                    val bytes = sdkSessionManager.fetchBlobBytes(source).getOrThrow()
+                    platformSaveCacheFile(bytes, chatAudio.name)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    // ── 文档详情 (从右侧滑入) ──
+    AnimatedVisibility(
+        visible = selectedChatDocument != null,
+        enter = detailEnterSlide,
+        exit = detailExitSlide,
+    ) {
+        val chatDoc = rememberedChatDocument.value
+        if (chatDoc != null) {
+            NasDocumentDetailScreen(
+                document = chatDoc,
+                targetCdi = currentCdi.orEmpty(),
+                onBack = { selectedChatDocument = null },
+                onShare = {},
+                onDownload = {
+                    currentMessages
+                        .filterIsInstance<ChatItem.Assistant>()
+                        .flatMap { it.attachments }
+                        .firstOrNull { it.blobRef == chatDoc.path }
+                        ?.let(::handleAttachmentDownload)
+                },
+                onDelete = {},
+                isChatMode = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    // ── 录音详情 (从右侧滑入) ──
+    AnimatedVisibility(
+        visible = selectedRecordingAudio != null,
+        enter = detailEnterSlide,
+        exit = detailExitSlide,
+    ) {
+        val recAudio = rememberedRecordingAudio.value
+        if (recAudio != null) {
+            NasAudioDetailScreen(
+                audio = recAudio,
+                targetCdi = currentCdi.orEmpty(),
+                mediaController = mediaAccessController,
+                onBack = {
+                    mediaAccessController.stopAudioPlayback()
+                    selectedRecordingAudio = null
+                },
+                onShare = {},
+                onDownload = {
+                    coroutineScope.launch {
+                        toastMessage = "正在下载…"
+                        runCatching {
+                            val bytes = mediaAccessController.readUriToBytes(recAudio.path)
+                                ?: error("读取录音失败")
+                            platformSaveFile(bytes, recAudio.name, recAudio.type)
+                        }.onSuccess {
+                            toastMessage = "下载成功"
+                        }.onFailure { e ->
+                            toastMessage = "保存失败: ${e.message}"
+                        }
+                    }
+                },
+                onDelete = {},
+                isChatMode = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
     // 搜索页（侧边栏）- 保持隐藏
     if (showSearchPage) {
         AgentModelSearchScreen(
@@ -1900,7 +2501,8 @@ fun AgentModelScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 120.dp),
+                .padding(bottom = toastBottomPadding)
+                .zIndex(100f),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Surface(
@@ -1926,13 +2528,16 @@ fun AgentModelScreen(
         )
     }
     } // Box
+    } // CompositionLocalProvider
     } // DesignScaleProvider
 }
 
+private const val LOW_BALANCE_DISMISSED_KEY = "low_balance_reminder_dismissed"
+
 @Composable
-private fun NasNotSupportedDialog(
+private fun LowBalanceReminderDialog(
     onDismiss: () -> Unit,
-    onBuy: () -> Unit,
+    onRecharge: () -> Unit,
 ) {
     val ds = LocalDesignScale.current
     Surface(
@@ -1949,7 +2554,7 @@ private fun NasNotSupportedDialog(
                 .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(24.dp)),
         ) {
             Text(
-                text = "NAS 功能提示",
+                text = "脑力值余额不足",
                 fontSize = ds.sp(20f),
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFF1F2535),
@@ -1960,7 +2565,7 @@ private fun NasNotSupportedDialog(
             Spacer(modifier = Modifier.height(ds.sh(4.dp)))
 
             Text(
-                text = "只有 AI NPC 支持 NAS 功能",
+                text = "脑力值当前已用尽，请尽快去充值，点击下方按钮充值或者去〈个人中心〉充值。",
                 fontSize = ds.sp(14f),
                 fontWeight = FontWeight.Normal,
                 color = Color(0xFF717580),
@@ -1985,7 +2590,7 @@ private fun NasNotSupportedDialog(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "知道了",
+                        text = "取消",
                         fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
                         color = Color(0xFF1F2535),
@@ -1996,22 +2601,118 @@ private fun NasNotSupportedDialog(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(ds.sm(100.dp)))
-                        .background(Color.Black.copy(alpha = 0.05f))
+                        .background(Color(0xFF1F2535))
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
-                        ) { onBuy() }
+                        ) { onRecharge() }
                         .padding(vertical = ds.sh(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "去购买",
+                        text = "去充值",
                         fontSize = ds.sp(16f),
                         fontWeight = FontWeight.Normal,
-                        color = Color(0xFFE84026),
+                        color = Color.White,
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NasUpgradePage(
+    onBack: () -> Unit,
+    onBuy: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val ds = LocalDesignScale.current
+    Column(
+        modifier = Modifier
+            .then(modifier)
+            .background(Color(0xFFFAFAFC))
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = ds.sw(20.dp), vertical = ds.sh(12.dp))
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = ds.sh(4.dp), bottom = ds.sh(16.dp)),
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(ds.sm(28.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(28.dp))
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.05f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = com.cephalon.lucyApp.screens.agentmodel.BackIcon,
+                            contentDescription = "Back",
+                            tint = Color.Black.copy(alpha = 0.60f),
+                            modifier = Modifier.size(
+                                width = ds.sw(11.dp),
+                                height = ds.sh(17.dp),
+                            ),
+                        )
+                    }
+                }
+                Text(
+                    text = "AI NPC",
+                    fontSize = ds.sp(20f),
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Black.copy(alpha = 0.90f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Image(
+                    painter = painterResource(Res.drawable.ai_npc),
+                    contentDescription = "AI NPC",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = ds.sh(16.dp), bottom = ds.sh(8.dp))
+                .height(ds.sh(40.dp))
+                .clip(RoundedCornerShape(ds.sm(100.dp)))
+                .background(Color(0xFF1F1F22))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { onBuy() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "去购买 AI NPC",
+                fontSize = ds.sp(18f),
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+            )
         }
     }
 }

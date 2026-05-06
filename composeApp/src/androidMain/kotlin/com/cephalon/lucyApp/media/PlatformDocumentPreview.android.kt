@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidios.composeapp.generated.resources.Res
+import com.cephalon.lucyApp.screens.agentmodel.AndroidAppContextHolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
@@ -56,19 +58,38 @@ actual fun PlatformDocumentPreview(
         fileName.substringAfterLast('.', source.substringAfterLast('.', "")).lowercase()
     }
 
-    if (extension == "pdf") {
-        AndroidPdfDocumentPreview(
-            source = source,
-            fileName = fileName,
-            modifier = modifier
-        )
-    } else {
-        AndroidUnsupportedDocumentPreview(
-            source = source,
-            fileName = fileName,
-            modifier = modifier
-        )
+    when (extension) {
+        "md", "markdown", "txt", "log", "json", "xml", "yaml", "yml", "csv" -> {
+            TextDocumentPreview(
+                source = source,
+                fileName = fileName,
+                modifier = modifier
+            )
+        }
+        "pdf" -> {
+            AndroidPdfDocumentPreview(
+                source = source,
+                fileName = fileName,
+                modifier = modifier
+            )
+        }
+        else -> {
+            AndroidUnsupportedDocumentPreview(
+                source = source,
+                fileName = fileName,
+                modifier = modifier
+            )
+        }
     }
+}
+
+suspend actual fun platformReadTextDocument(
+    source: String,
+    fileName: String,
+): String {
+    val context = AndroidAppContextHolder.appContext
+    val file = materializeDocumentFile(context = context, source = source, fileName = fileName)
+    return file.readText(Charsets.UTF_8)
 }
 
 @Composable
@@ -186,7 +207,11 @@ private fun AndroidUnsupportedDocumentPreview(
                     }
                 }
             },
-            modifier = Modifier.padding(top = 20.dp)
+            modifier = Modifier.padding(top = 20.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Black,
+                contentColor = Color.White,
+            )
         ) {
             Text("打开系统预览")
         }

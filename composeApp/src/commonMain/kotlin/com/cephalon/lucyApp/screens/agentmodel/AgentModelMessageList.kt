@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -51,13 +52,9 @@ import com.cephalon.lucyApp.media.PlatformImageThumbnail
 import kotlinx.coroutines.delay
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import org.jetbrains.compose.resources.painterResource
 import androidios.composeapp.generated.resources.Res
-import androidios.composeapp.generated.resources.ic_skill_image
-import androidios.composeapp.generated.resources.ic_skill_voice
-import androidios.composeapp.generated.resources.ic_skill_document
-import androidios.composeapp.generated.resources.ic_skill_chat
-import androidios.composeapp.generated.resources.ic_skill_knowledge
 import androidios.composeapp.generated.resources.ic_download
 import androidios.composeapp.generated.resources.ic_doc
 import androidios.composeapp.generated.resources.ic_audio
@@ -75,8 +72,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import kotlinx.datetime.Instant
@@ -85,7 +82,7 @@ import kotlinx.datetime.toLocalDateTime
 
 
 /** 根据文件扩展名推断 MIME content type，用于 contentType 为 null 时的兜底分类 */
-private fun inferContentTypeFromFileName(fileName: String?): String? {
+internal fun inferContentTypeFromFileName(fileName: String?): String? {
     if (fileName.isNullOrBlank()) return null
     val ext = fileName.substringAfterLast('.', "").lowercase()
     return when (ext) {
@@ -121,6 +118,8 @@ internal fun AgentModelMessageList(
     onImageClick: (ImagePreviewState) -> Unit,
     onFileClick: (PickedFile) -> Unit,
     onAudioFileOpen: (AudioRecording) -> Unit = {},
+    onUserAttachmentOpen: (DraftAttachment) -> Unit = {},
+    onToggleUserAudioAttachmentPlayback: (DraftAttachment) -> Unit = {},
     onTapMessageArea: () -> Unit,
     onSkillClick: (String) -> Unit = {},
     onAttachmentOpen: (MediaAttachment, List<MediaAttachment>) -> Unit = { _, _ -> },
@@ -148,11 +147,7 @@ internal fun AgentModelMessageList(
 
         itemsIndexed(items = messages, key = { index, item ->
             when (item) {
-                is ChatItem.Assistant -> if (item.messageId != null && item.timestamp != null) {
-                    "assistant_${item.messageId}_${item.timestamp}"
-                } else {
-                    "assistant_${item.messageId ?: "anon_$index"}"
-                }
+                is ChatItem.Assistant -> item.assistantId
                 is ChatItem.User -> "user_$index"
                 is ChatItem.UserAttachments -> "attachments_$index"
                 is ChatItem.System -> "system_$index"
@@ -163,9 +158,9 @@ internal fun AgentModelMessageList(
         }) { index, item ->
             when (item) {
                 is ChatItem.Assistant -> {
-                    val isThinkingActive = isStopMode && item.messageId != null && item.messageId in activeThinkingMessageIds
+                    val isThinkingActive = item.messageId != null && item.messageId in activeThinkingMessageIds
                     val shouldHideStatusBubble = item.messageId != null && item.messageId in hiddenStatusMessageIds
-                    Column(modifier = Modifier.fillMaxWidth(0.8f)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         // ── 可折叠思考状态气泡 ──
                         if (!shouldHideStatusBubble && (isThinkingActive || item.streamEvents.isNotEmpty())) {
                             ThinkingBubble(
@@ -213,23 +208,20 @@ internal fun AgentModelMessageList(
                 is ChatItem.User -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
                         Surface(
-                            // 右侧用户发送气泡统一 22dp 圆角（旧值 99dp 是胶囊形）
                             shape = RoundedCornerShape(ds.sm(22.dp)),
-                            color = Color.White,
-                            border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
+                            color = Color.Black.copy(alpha = 0.90f),
                             modifier = Modifier
-                                .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
                             SelectionContainer {
                                 Text(
                                     text = item.text,
-                                    color = Color(0xFF1F2535),
+                                    color = Color.White,
                                     fontSize = ds.sp(14f),
-                                    fontWeight = FontWeight.Normal,
-                                    lineHeight = ds.sp(20f),
-                                    modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(8.dp))
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = ds.sp(16f),
+                                    modifier = Modifier.padding(horizontal = ds.sw(16.dp), vertical = ds.sh(10.dp))
                                 )
                             }
                         }
@@ -238,15 +230,10 @@ internal fun AgentModelMessageList(
 
                 is ChatItem.UserAttachments -> {
                     BubbleContainer(alignEnd = true) { bubbleMaxWidth ->
-                        val imageCellSize = ((bubbleMaxWidth - ds.sw(28.dp) - ds.sw(8.dp)) / 2).coerceAtMost(ds.sm(132.dp))
-                        val fileCellWidth = (bubbleMaxWidth - ds.sw(28.dp) - ds.sw(8.dp)) / 2
                         Surface(
-                            // 右侧用户附件气泡同样 22dp，和文字气泡视觉一致
                             shape = RoundedCornerShape(ds.sm(22.dp)),
-                            color = Color.White,
-                            border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
+                            color = Color.Black.copy(alpha = 0.90f),
                             modifier = Modifier
-                                .clickable { onTapMessageArea() }
                                 .wrapContentWidth()
                                 .widthIn(max = bubbleMaxWidth)
                         ) {
@@ -257,116 +244,23 @@ internal fun AgentModelMessageList(
                             ) {
                                 val messageText = item.text
                                 if (!messageText.isNullOrBlank()) {
-                                    Text(
-                                        text = messageText,
-                                        fontSize = ds.sp(14f),
-                                        fontWeight = FontWeight.Normal,
-                                        lineHeight = ds.sp(20f),
-                                        color = Color(0xFF1F2535)
-                                    )
-                                }
-
-                                val images = item.attachments.filter { it.type == DraftAttachmentType.Image }
-                                val files = item.attachments.filter { it.type == DraftAttachmentType.File }
-                                val audios = item.attachments.filter { it.type == DraftAttachmentType.Audio }
-
-                                if (images.isNotEmpty()) {
-                                    val imageUris = images.map { it.uri }
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
-                                    ) {
-                                        images.chunked(2).forEachIndexed { rowIndex, rowImages ->
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
-                                            ) {
-                                                ImageAttachmentCell(
-                                                    attachment = rowImages.getOrNull(0),
-                                                    onClick = {
-                                                        onImageClick(
-                                                            ImagePreviewState(
-                                                                images = imageUris,
-                                                                selectedIndex = rowIndex * 2
-                                                            )
-                                                        )
-                                                    },
-                                                    modifier = Modifier.size(imageCellSize)
-                                                )
-                                                rowImages.getOrNull(1)?.let { secondAttachment ->
-                                                    ImageAttachmentCell(
-                                                        attachment = secondAttachment,
-                                                        onClick = {
-                                                            onImageClick(
-                                                                ImagePreviewState(
-                                                                    images = imageUris,
-                                                                    selectedIndex = rowIndex * 2 + 1
-                                                                )
-                                                            )
-                                                        },
-                                                        modifier = Modifier.size(imageCellSize)
-                                                    )
-                                                }
-                                            }
-                                        }
+                                    SelectionContainer {
+                                        Text(
+                                            text = messageText,
+                                            fontSize = ds.sp(14f),
+                                            fontWeight = FontWeight.Medium,
+                                            lineHeight = ds.sp(16f),
+                                            color = Color.White
+                                        )
                                     }
                                 }
-
-                                val allFiles = files + audios
-                                if (allFiles.isNotEmpty()) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
-                                        allFiles.chunked(2).forEach { rowFiles ->
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
-                                            ) {
-                                                rowFiles.forEach { attachment ->
-                                                    Surface(
-                                                        shape = RoundedCornerShape(ds.sm(12.dp)),
-                                                        color = Color(0xFFF5F5F5),
-                                                        border = BorderStroke(1.dp, Color(0xFFE7E7E7)),
-                                                        modifier = Modifier
-                                                            .width(fileCellWidth)
-                                                            .height(ds.sh(72.dp))
-                                                            .clickable {
-                                                                if (attachment.type == DraftAttachmentType.Audio) {
-                                                                    onAudioFileOpen(attachment.asAudioRecording())
-                                                                } else {
-                                                                    onFileClick(attachment.asPickedFile())
-                                                                }
-                                                            }
-                                                    ) {
-                                                        Column(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .padding(horizontal = ds.sw(10.dp), vertical = ds.sh(10.dp)),
-                                                            verticalArrangement = Arrangement.spacedBy(ds.sh(6.dp))
-                                                        ) {
-                                                            Surface(
-                                                                shape = RoundedCornerShape(999.dp),
-                                                                color = Color(0xFF111111)
-                                                            ) {
-                                                                Text(
-                                                                    text = attachment.fileExtensionLabel(),
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    color = Color.White,
-                                                                    modifier = Modifier.padding(horizontal = ds.sw(8.dp), vertical = ds.sh(3.dp))
-                                                                )
-                                                            }
-                                                            Text(
-                                                                text = attachment.displayName(),
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                color = Color(0xFF111111),
-                                                                maxLines = 2,
-                                                                overflow = TextOverflow.Ellipsis
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                if (rowFiles.size == 1) {
-                                                    Spacer(modifier = Modifier.width(fileCellWidth))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                UserAttachmentsContent(
+                                    attachments = item.attachments,
+                                    onAttachmentOpen = onUserAttachmentOpen,
+                                    audioPlaybackState = audioPlaybackState,
+                                    loadingAudioBlobRefs = loadingAudioBlobRefs,
+                                    onToggleAudioAttachmentPlayback = onToggleUserAudioAttachmentPlayback,
+                                )
                             }
                         }
                     }
@@ -403,7 +297,8 @@ internal fun AgentModelMessageList(
                                         AudioRecording(
                                             id = item.id,
                                             name = item.name,
-                                            path = item.path
+                                            path = item.path,
+                                            blobRef = item.blobRef
                                         )
                                     )
                                 }
@@ -441,7 +336,8 @@ internal fun AgentModelMessageList(
                                             AudioRecording(
                                                 id = item.id,
                                                 name = item.name,
-                                                path = item.path
+                                                path = item.path,
+                                                blobRef = item.blobRef
                                             )
                                         )
                                     }
@@ -493,6 +389,16 @@ internal fun AgentModelMessageList(
     }
 }
 
+internal fun DraftAttachment.asMediaAttachment(): MediaAttachment {
+    val resolvedBlobRef = blobRef?.trim().takeUnless { it.isNullOrBlank() } ?: uri
+    val inferredContentType = inferContentTypeFromFileName(displayName())
+    return MediaAttachment(
+        blobRef = resolvedBlobRef,
+        contentType = inferredContentType,
+        fileName = displayName(),
+    )
+}
+
 @Composable
 private fun rememberThinkingStatusText(): String {
     var step by remember { mutableStateOf(0) }
@@ -516,63 +422,54 @@ private fun SkillSuggestionsBubble(
 ) {
     val ds = LocalDesignScale.current
     val skillItems = listOf(
-        Res.drawable.ic_skill_image to "脑花找图片，模糊的信息也能找",
-        Res.drawable.ic_skill_voice to "脑花翻录音 记得一句就能翻出来",
-        Res.drawable.ic_skill_document to "脑花调文档 文件名忘了也能调",
-        Res.drawable.ic_skill_chat to "脑花搞内容 从想法到发出不断更",
-        Res.drawable.ic_skill_knowledge to "脑花控手机 插上硬件听你使唤",
+        "📷️  脑花找图片 模糊的信息也能找",
+        "🎙️  脑花翻录音 记得一句就能翻出来",
+        "📄  脑花调文档  文件名忘了也能调",
+        "📝  脑花搞内容 从想法到发出不断更",
+        "📱  脑花控手机 插上硬件听你使唤",
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = ds.sw(4.dp), vertical = ds.sh(8.dp)),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        Text(
-            text = "Hi，我是脑花",
-            fontSize = ds.sp(18f),
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF12192B)
-        )
-        Text(
-            text = "试试输入以下 Skill 来帮助完成工作细节",
-            fontSize = ds.sp(12f),
-            color = Color(0xFF595E6B)
-        )
+            Text(
+                text = "Hi，我是脑花",
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = ds.sp(24f),
+                color = Color.Black.copy(alpha = 0.9f)
+            )
+            Text(
+                text = "试试点击以下 Skill 来帮助完成工作细节",
+                fontSize = ds.sp(16f),
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = ds.sp(24f),
+                color = Color.Black.copy(alpha = 0.9f)
+            )
 
-        Spacer(modifier = Modifier.height(ds.sh(4.dp)))
+            Spacer(modifier = Modifier.height(ds.sh(12.dp)))
 
-        skillItems.forEach { (iconRes, text) ->
-            Card(
-                shape = RoundedCornerShape(ds.sm(99.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.10f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSkillClick(text) }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(ds.sh(44.dp))
-                        .padding(horizontal = ds.sw(16.dp)),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ds.sw(8.dp))
-                ) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(ds.sm(20.dp))
-                    )
-                    Text(
-                        text = text,
-                        color = Color(0xFF12192B),
-                        fontSize = ds.sp(14f),
-                        fontWeight = FontWeight.Normal
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(ds.sh(12.dp))) {
+                skillItems.forEach { text ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSkillClick(text) }
+                            .padding(vertical = ds.sh(2.dp)),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = text,
+                            color = Color.Black.copy(alpha = 0.9f),
+                            fontSize = ds.sp(14f),
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
                 }
             }
-        }
     }
 }
 
@@ -594,11 +491,13 @@ private fun AssistantAttachments(
         it.effectiveContentType()?.startsWith("audio") != true
     }
 
+    val onlyOneImage = imageAttachments.size == 1 && audioAttachments.isEmpty() && docAttachments.isEmpty()
+
     Surface(
         shape = RoundedCornerShape(ds.sm(22.dp)),
         color = Color.White,
         border = BorderStroke(0.5.dp, Color(0xFF1F2535).copy(alpha = 0.20f)),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = if (onlyOneImage) Modifier else Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
@@ -606,34 +505,62 @@ private fun AssistantAttachments(
             verticalArrangement = Arrangement.spacedBy(ds.sh(10.dp))
         ) {
             // ── 图片 ──
-            imageAttachments.forEach { att ->
-                Box(
-                    modifier = Modifier
-                        .size(ds.sw(120.dp))
-                        .clip(RoundedCornerShape(ds.sm(8.dp)))
-                        .clickable { onAttachmentOpen(att, imageAttachments) },
-                ) {
-                    BlobImage(
-                        blobRef = att.blobRef,
-                        contentDescription = att.fileName,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+            if (imageAttachments.isNotEmpty()) {
+                val imgSize = ds.sw(120.dp)
+                val imgSpacing = ds.sw(8.dp)
+
+                @Composable
+                fun ImageCell(att: MediaAttachment, index: Int) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(ds.sm(6.dp))
-                            .size(ds.sm(24.dp))
-                            .clip(RoundedCornerShape(ds.sm(12.dp)))
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .clickable { onAttachmentDownload(att) },
-                        contentAlignment = Alignment.Center,
+                            .size(imgSize)
+                            .clip(RoundedCornerShape(ds.sm(8.dp)))
+                            .clickable { onAttachmentOpen(att, imageAttachments) },
                     ) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_download),
-                            contentDescription = "下载",
-                            modifier = Modifier.size(ds.sm(14.dp)),
-                            tint = Color.White,
+                        BlobImage(
+                            blobRef = att.blobRef,
+                            contentDescription = att.fileName,
+                            modifier = Modifier.fillMaxSize(),
                         )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(ds.sm(6.dp))
+                                .size(ds.sm(24.dp))
+                                .clip(RoundedCornerShape(ds.sm(12.dp)))
+                                .background(Color.Black.copy(alpha = 0.45f))
+                                .clickable { onAttachmentDownload(att) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painter = painterResource(Res.drawable.ic_download),
+                                contentDescription = "下载",
+                                modifier = Modifier.size(ds.sm(14.dp)),
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                }
+
+                if (imageAttachments.size == 1) {
+                    // 单张：宽度自适应，不撑满
+                    ImageCell(att = imageAttachments[0], index = 0)
+                } else if (imageAttachments.size == 2) {
+                    // 两张：并排显示
+                    Row(horizontalArrangement = Arrangement.spacedBy(imgSpacing)) {
+                        imageAttachments.forEachIndexed { index, att ->
+                            ImageCell(att = att, index = index)
+                        }
+                    }
+                } else {
+                    // 3张以上：横向滑动，露出约 2.x 张暗示可滑动
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(imgSpacing),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
+                        imageAttachments.forEachIndexed { index, att ->
+                            ImageCell(att = att, index = index)
+                        }
                     }
                 }
             }
@@ -671,7 +598,83 @@ private fun AssistantAttachments(
 }
 
 @Composable
-private fun AttachmentFileCard(
+private fun UserAttachmentsContent(
+    attachments: List<DraftAttachment>,
+    onAttachmentOpen: (DraftAttachment) -> Unit,
+    audioPlaybackState: AudioPlaybackState,
+    loadingAudioBlobRefs: Set<String>,
+    onToggleAudioAttachmentPlayback: (DraftAttachment) -> Unit,
+) {
+    val ds = LocalDesignScale.current
+    val imageAttachments = attachments.filter { it.type == DraftAttachmentType.Image }
+    val audioAttachments = attachments.filter { it.type == DraftAttachmentType.Audio }
+    val docAttachments = attachments.filter { it.type == DraftAttachmentType.File }
+
+    if (attachments.isEmpty()) return
+
+    if (imageAttachments.isNotEmpty()) {
+        val imgSize = ds.sw(120.dp)
+        val imgSpacing = ds.sw(8.dp)
+
+        @Composable
+        fun UserImageCell(att: DraftAttachment) {
+            ImageAttachmentCell(
+                attachment = att,
+                onClick = { onAttachmentOpen(att) },
+                modifier = Modifier.size(imgSize),
+            )
+        }
+
+        if (imageAttachments.size == 1) {
+            UserImageCell(att = imageAttachments[0])
+        } else if (imageAttachments.size == 2) {
+            Row(horizontalArrangement = Arrangement.spacedBy(imgSpacing)) {
+                imageAttachments.forEach { att ->
+                    UserImageCell(att = att)
+                }
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(imgSpacing),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                imageAttachments.forEach { att ->
+                    UserImageCell(att = att)
+                }
+            }
+        }
+    }
+
+    if (audioAttachments.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+            audioAttachments.forEach { att ->
+                AudioAttachmentCard(
+                    attachment = att.asMediaAttachment(),
+                    timestamp = null,
+                    audioPlaybackState = audioPlaybackState,
+                    isLoading = att.blobRef in loadingAudioBlobRefs,
+                    onPlayToggle = { onToggleAudioAttachmentPlayback(att) },
+                    onClick = { onAttachmentOpen(att) },
+                )
+            }
+        }
+    }
+
+    if (docAttachments.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(ds.sh(8.dp))) {
+            docAttachments.forEach { att ->
+                AttachmentFileCard(
+                    icon = Res.drawable.ic_doc,
+                    fileName = att.displayName(),
+                    onClick = { onAttachmentOpen(att) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AttachmentFileCard(
     icon: org.jetbrains.compose.resources.DrawableResource,
     fileName: String,
     onClick: () -> Unit,
@@ -735,7 +738,7 @@ private fun formatAudioTimestamp(epochMillis: Long?): String {
 }
 
 @Composable
-private fun AudioAttachmentCard(
+internal fun AudioAttachmentCard(
     attachment: MediaAttachment,
     timestamp: Long?,
     audioPlaybackState: AudioPlaybackState,
@@ -827,11 +830,13 @@ private fun ThinkingBubble(
     streamingStatusText: String?,
     ds: com.cephalon.lucyApp.components.DesignScale,
 ) {
-    var expanded by remember { mutableStateOf(true) }
+    var expanded by remember { mutableStateOf(false) }
 
-    // 对话结束后自动折叠
+    // 流式思考中自动展开，结束后自动折叠
     LaunchedEffect(isStreaming) {
-        if (!isStreaming && events.isNotEmpty()) {
+        if (isStreaming) {
+            expanded = true
+        } else if (events.isNotEmpty()) {
             expanded = false
         }
     }
@@ -889,7 +894,7 @@ private fun ThinkingBubble(
                     Spacer(Modifier.height(ds.sh(4.dp)))
                     val summary = when (lastEvent.type) {
                         "delivered" -> "已送达"
-                        "typing" -> "正在输入"
+                        "typing" -> if (lastEvent.isActive) "正在输入" else "输入完成"
                         "reasoning" -> "思考中"
                         "tool" -> "🔧 ${lastEvent.label}"
                         "finish" -> "✓ ${lastEvent.label}"
@@ -1016,9 +1021,13 @@ private fun StatusEventRow(
     ) {
         EventCheckIcon(isActive = event.isActive, ds = ds)
         Spacer(modifier = Modifier.width(ds.sw(8.dp)))
+        val displayLabel = when (event.type) {
+            "typing" -> if (event.isActive) "正在输入" else "输入完成"
+            else -> event.label
+        }
         val dots = if (event.isActive) rememberAnimatedDots() else ""
         Text(
-            text = "${event.label}$dots",
+            text = "$displayLabel$dots",
             fontSize = ds.sp(11f),
             color = if (event.isActive) Color(0xFF999999) else Color(0xFF666666),
             fontWeight = FontWeight.Normal,
@@ -1152,7 +1161,7 @@ private fun EventCheckIcon(
     isActive: Boolean,
     ds: com.cephalon.lucyApp.components.DesignScale,
 ) {
-    val iconSize = ds.sm(16.dp)
+    val iconSize = ds.sm(12.dp)
     val strokeColor = Color(0xFFCCCCCC)
     val fillColor = Color(0xFF4CAF50)
     val checkColor = Color.White
@@ -1243,9 +1252,10 @@ private fun ImageAttachmentCell(
             modifier = modifier
                 .clickable { onClick() }
         ) {
-            if (attachment.nasFileId != null) {
+            val resolvedBlobRef = attachment.blobRef?.trim()?.takeIf { it.isNotBlank() }
+            if (attachment.nasFileId != null || resolvedBlobRef != null) {
                 BlobImage(
-                    blobRef = attachment.uri,
+                    blobRef = resolvedBlobRef ?: attachment.uri,
                     contentDescription = attachment.displayName,
                     modifier = Modifier.fillMaxSize()
                 )

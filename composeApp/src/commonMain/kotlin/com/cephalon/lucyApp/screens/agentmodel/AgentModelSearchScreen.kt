@@ -106,7 +106,7 @@ internal fun AgentModelSearchScreen(
                         .weight(1f)
                         .focusRequester(focusRequester),
                     decorationBox = { innerTextField ->
-                        Box {
+                        Box(contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
                                 Text(
                                     text = "搜索对话...",

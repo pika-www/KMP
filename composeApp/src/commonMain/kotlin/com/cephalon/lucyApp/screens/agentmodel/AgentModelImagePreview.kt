@@ -2,6 +2,7 @@ package com.cephalon.lucyApp.screens.agentmodel
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -35,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.cephalon.lucyApp.components.BlobImage
 import com.cephalon.lucyApp.components.LocalDesignScale
 import kotlinx.coroutines.launch
 import com.cephalon.lucyApp.media.PlatformImagePreview
@@ -76,11 +79,20 @@ internal fun AgentModelImagePreview(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close preview",
-                        tint = Color.White
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(ds.sm(32.dp))
+                            .background(Color.White.copy(alpha = 0.10f), CircleShape)
+                            .border(0.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close preview",
+                            tint = Color(0xFF717580),
+                            modifier = Modifier.size(ds.sm(18.dp))
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -110,10 +122,27 @@ internal fun AgentModelImagePreview(
                         .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
-                    PlatformImagePreview(
-                        uri = images[page],
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    val imageSource = images[page]
+                    if (imageSource.isLocalAttachmentSource()) {
+                        PlatformImagePreview(
+                            uri = imageSource,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        BlobImage(
+                            blobRef = imageSource,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            errorContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black)
+                                )
+                            }
+                        )
+                    }
                 }
             }
 
@@ -144,14 +173,32 @@ internal fun AgentModelImagePreview(
                                 containerColor = if (isSelected) Color(0xFF2A2A2A) else Color(0xFF161616)
                             )
                         ) {
-                            PlatformImageThumbnail(
-                                uri = uri,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (uri.isLocalAttachmentSource()) {
+                                PlatformImageThumbnail(
+                                    uri = uri,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                BlobImage(
+                                    blobRef = uri,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+private fun String.isLocalAttachmentSource(): Boolean {
+    val value = trim()
+    return value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("ph://") ||
+        value.startsWith("ios-phasset://") ||
+        value.startsWith("assets-library://") ||
+        value.startsWith("/")
 }

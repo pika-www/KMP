@@ -1,6 +1,7 @@
 package com.cephalon.lucyApp
 
 import android.os.Build
+import com.cephalon.lucyApp.BuildConfig
 
 class AndroidPlatform : Platform {
     override val name: String = "Android ${Build.VERSION.SDK_INT}"

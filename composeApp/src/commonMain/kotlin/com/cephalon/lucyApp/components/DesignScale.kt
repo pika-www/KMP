@@ -2,24 +2,13 @@ package com.cephalon.lucyApp.components
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.*
 import kotlin.math.min
 
 /**
- * 基于设计稿 375×812 的等比缩放工具。
- * 通过 [DesignScaleProvider] 注入后，任意子组件均可通过 [LocalDesignScale] 获取。
+ * 设计稿适配系统（375 × 812）
  */
 @Immutable
 data class DesignScale(
@@ -27,31 +16,58 @@ data class DesignScale(
     val scaleH: Float,
     val scaleMin: Float,
 ) {
-    /** 水平方向缩放 (基于设计稿宽度 375) */
-    fun sw(value: Dp): Dp = value * scaleW
 
-    /** 垂直方向缩放 (基于设计稿高度 812) */
-    fun sh(value: Dp): Dp = value * scaleH
+    // =========================
+    // 📐 布局：dp 体系（px 思维）
+    // =========================
 
-    /** 等比缩放 min(scaleW, scaleH)，用于图标、圆角等 */
-    fun sm(value: Dp): Dp = value * scaleMin
+    /** 设计稿 px -> dp */
+    fun px(value: Float): Dp = (value * scaleW).dp
 
-    /** 文字等比缩放 */
-    fun sp(value: Float): TextUnit = (value * scaleMin).sp
+    fun sw(dp: Dp): Dp = dp * scaleW
+    fun sh(dp: Dp): Dp = dp * scaleH
+    fun sm(dp: Dp): Dp = dp * scaleMin
+
+    /** 设计稿 px (Float) -> 适配后 dp，省去手动写 .dp */
+    fun sw(px: Float): Dp = (px * scaleW).dp
+    fun sh(px: Float): Dp = (px * scaleH).dp
+    fun sm(px: Float): Dp = (px * scaleMin).dp
+
+    // =========================
+    // 🔤 字体：sp 体系（核心）
+    // =========================
+
+    /**
+     * 标准字体（推荐默认用这个）
+     * 设计稿 px -> sp
+     */
+    fun sp(value: Float): TextUnit {
+        return (value * scaleW).sp
+    }
+
+    /**
+     * 安全字体（防止大屏过大 / 小屏过小）
+     */
+    fun spSafe(value: Float): TextUnit {
+        val fontScale = scaleW.coerceIn(0.95f, 1.15f)
+        return (value * fontScale).sp
+    }
 
     companion object {
-        const val DESIGN_WIDTH = 375f
+        const val DESIGN_WIDTH = 360f
         const val DESIGN_HEIGHT = 812f
     }
 }
 
+/**
+ * 全局 Scale
+ */
 val LocalDesignScale = staticCompositionLocalOf {
-    DesignScale(scaleW = 1f, scaleH = 1f, scaleMin = 1f)
+    DesignScale(1f, 1f, 1f)
 }
 
 /**
- * 包裹子组件，自动测量屏幕尺寸并注入 [DesignScale]。
- * 子组件内通过 `LocalDesignScale.current` 获取缩放值。
+ * Provider：自动适配屏幕
  */
 @Composable
 fun DesignScaleProvider(
@@ -59,27 +75,30 @@ fun DesignScaleProvider(
     content: @Composable () -> Unit
 ) {
     BoxWithConstraints(modifier = modifier) {
+
         var lastWidth by remember { mutableStateOf(maxWidth) }
         var stableHeight by remember { mutableStateOf(maxHeight) }
 
+        // 屏幕变化（旋转 / 分屏）
         if (maxWidth != lastWidth) {
-            // 宽度变化 → 真正的配置变更（旋转/折叠/分屏）→ 更新高度基准
             lastWidth = maxWidth
             stableHeight = maxHeight
-        } else if (maxHeight > stableHeight) {
-            // 高度增大（键盘收起等）→ 恢复高度基准
+        }
+        // 键盘收起恢复
+        else if (maxHeight > stableHeight) {
             stableHeight = maxHeight
         }
-        // 高度单独减小（键盘弹出）→ 不更新 stableHeight，缩放不变
+
+        val scaleW = maxWidth.value / DesignScale.DESIGN_WIDTH
+        val scaleH = stableHeight.value / DesignScale.DESIGN_HEIGHT
+        val scaleMin = scaleW
 
         val scale = DesignScale(
-            scaleW = maxWidth.value / DesignScale.DESIGN_WIDTH,
-            scaleH = stableHeight.value / DesignScale.DESIGN_HEIGHT,
-            scaleMin = min(
-                maxWidth.value / DesignScale.DESIGN_WIDTH,
-                stableHeight.value / DesignScale.DESIGN_HEIGHT
-            )
+            scaleW = scaleW,
+            scaleH = scaleH,
+            scaleMin = scaleMin
         )
+
         CompositionLocalProvider(LocalDesignScale provides scale) {
             content()
         }
