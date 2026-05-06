@@ -426,25 +426,59 @@ fun AgentModelScreen(
     fun updateAssistantMessage(
         conversationId: String?,
         messageId: String,
-        transform: (ChatItem.Assistant) -> ChatItem.Assistant,
+        text: String,
+        attachments: List<MediaAttachment> = emptyList(),
+        timestamp: Long? = null,
     ) {
         val targetCdi = messageIdToCdi[messageId]
         mutateConversationOnCdi(conversationId, targetCdi) { conversation ->
-            val msgs = conversation.messages.toMutableList()
-            // 1. 按 messageId 查找
-            var idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == messageId }
-            // 2. 兜底：刚添加的占位符（messageId 尚未回填）
-            if (idx < 0) {
-                idx = msgs.indexOfLast { it is ChatItem.Assistant && it.messageId == null && (it as ChatItem.Assistant).text.isBlank() }
+            val updatedMessages = conversation.messages.toMutableList()
+            // ── 查找流式消息的目标位置（三级优先） ──
+            // 1. messageId 匹配 + timestamp==null → 正在流式输出的消息
+            //    （media event 插入的消息一定有 timestamp，不会被误命中）
+            var targetIndex = updatedMessages.indexOfLast {
+                it is ChatItem.Assistant && it.messageId == messageId && it.timestamp == null
             }
-            if (idx >= 0) {
-                msgs[idx] = transform(msgs[idx] as ChatItem.Assistant)
+            // 2. 尚未绑定 messageId 的原始占位符
+            if (targetIndex < 0) {
+                targetIndex = updatedMessages.indexOfLast {
+                    it is ChatItem.Assistant &&
+                        it.messageId == null &&
+                        it.text == STREAMING_PLACEHOLDER_TEXT
+                }
+                if (targetIndex >= 0) {
+                    println("[Streaming] upsert fallback: 用孤立占位符 idx=$targetIndex 替代")
+                }
+            }
+            // 3. 兜底：messageId 匹配（含已有 timestamp 的消息）
+            if (targetIndex < 0) {
+                targetIndex = updatedMessages.indexOfLast {
+                    it is ChatItem.Assistant && it.messageId == messageId
+                }
+                if (targetIndex >= 0) {
+                    println("[Streaming] upsert fallback: 按 messageId 兜底 idx=$targetIndex")
+                }
+            }
+            println("[Streaming] upsert convId=$conversationId msgId=$messageId targetCdi=$targetCdi targetIdx=$targetIndex textLen=${text.length} totalMsgs=${updatedMessages.size}")
+            val existing = updatedMessages.getOrNull(targetIndex) as? ChatItem.Assistant
+            // 合并而非替换：新附件与已有附件按 blobRef 去重合并，防止分批到达丢文件
+            val mergedAttachments = if (attachments.isEmpty()) {
+                existing?.attachments ?: emptyList()
             } else {
                 // 没有匹配的 assistant 消息 → 创建新的（跨会话恢复 / 延迟到达）
                 msgs.add(transform(ChatItem.Assistant(text = "", messageId = messageId)))
                 println("[Event] updateAssistantMessage 未找到匹配消息，创建新 assistant msgId=$messageId")
             }
-            conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+            val mergedTimestamp = timestamp ?: existing?.timestamp
+            if (targetIndex >= 0) {
+                updatedMessages[targetIndex] = ChatItem.Assistant(text, messageId, mergedAttachments, mergedTimestamp)
+            } else {
+                updatedMessages.add(ChatItem.Assistant(text, messageId, mergedAttachments, mergedTimestamp))
+            }
+            conversation.copy(
+                messages = updatedMessages,
+                lastActiveAt = currentTimeMillis()
+            )
         }
     }
 
@@ -834,55 +868,87 @@ fun AgentModelScreen(
         sdkSessionManager.connectIfTokenValid()
     }
 
-    // ── 统一事件驱动：收到一条服务端推送就渲染一条 ──
+    // 监听异步文件/媒体推送（无 source_message_id 或已完成请求的后续 final），
+    // 按 (sourceMessageId, timestamp) 去重，按 timestamp 插入正确位置。
     LaunchedEffect(Unit) {
-        sdkSessionManager.npcReplyEvents.collect { event ->
-            val msgId = event.messageId
-            val eventId = event.eventId?.trim().orEmpty()
-            val isStopReply = msgId.isNotBlank() && msgId in hiddenStopReplyMessageIds
-            if (isStopReply && pendingStopMessageIds.remove(msgId)) {
-                println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
-            }
-            if (isStopReply && event.type != "assistant.partial" && event.type != "assistant.final") {
-                if (pendingStopMessageIds.remove(msgId)) {
-                    println("[Stop] 收到 stop 回执 source_message_id=$msgId，恢复发送按钮")
-                }
-                println("[Stop] 跳过 /stop 非文本回复渲染 type=${event.type} msgId=$msgId")
-                return@collect
-            }
-            if (event.type != "assistant.final" && eventId.isNotEmpty()) {
-                if (processedEventIds.contains(eventId)) {
-                    println("[Event] 跳过重复事件 eventId=$eventId type=${event.type} msgId=$msgId")
-                    return@collect
-                }
-                processedEventIds.add(eventId)
-                if (processedEventIds.size > 500) {
-                    processedEventIds.removeAt(0)
-                }
-            }
-            val convId = if (msgId.isNotBlank()) {
-                activeStreamingRequests[msgId] ?: selectedConversationId
+        sdkSessionManager.incomingMediaEvents.collect { event ->
+            println("[MediaEvent] 收到异步媒体推送: type=${event.eventType}, text=${event.text?.take(50)}, attachments=${event.attachments.size}, sourceMessageId=${event.sourceMessageId}, timestamp=${event.timestamp}")
+            val targetConvId = selectedConversationId
+            val chatText = event.text ?: ""
+            val chatAttachments = event.attachments
+            if (chatAttachments.isEmpty() && chatText.isBlank()) return@collect
+
+            val srcMsgId = event.sourceMessageId
+            val ts = event.timestamp
+
+            val conv = conversations.firstOrNull { it.id == targetConvId }
+            val existingMessages = conv?.messages.orEmpty()
+            val existingAssistants = existingMessages.filterIsInstance<ChatItem.Assistant>()
+
+            // ── 去重：(sourceMessageId, timestamp) 为唯一标识 ──
+            // 1. 有 sourceMessageId → (sourceMessageId, timestamp) 精确匹配，或 (sourceMessageId + text) 兜底
+            // 2. 无 sourceMessageId → text 完全匹配
+            val duplicate: ChatItem.Assistant? = if (srcMsgId != null) {
+                existingAssistants.firstOrNull { it.messageId == srcMsgId && ts != null && it.timestamp == ts }
+                    ?: (if (chatText.isNotBlank()) existingAssistants.firstOrNull { it.messageId == srcMsgId && it.text == chatText } else null)
             } else {
-                selectedConversationId
-            } ?: return@collect
+                if (chatText.isNotBlank()) {
+                    existingAssistants.firstOrNull { it.text == chatText }
+                } else null
+            }
 
-            println("[Event] 收到事件 type=${event.type}, msgId=$msgId, convId=$convId, textLen=${event.text?.length ?: 0}, attachments=${event.attachments.size}")
-
-            // 过滤不需要渲染的事件类型
-            if (event.type in setOf("config.updated", "config.error", "restart.scheduled", "restart.completed")) {
+            if (duplicate != null) {
+                // 重复消息：仅当有新附件时合并，否则跳过
+                if (chatAttachments.isNotEmpty()) {
+                    val existingRefs = duplicate.attachments.map { it.blobRef }.toSet()
+                    val newAtts = chatAttachments.filter { it.blobRef !in existingRefs }
+                    if (newAtts.isNotEmpty()) {
+                        println("[MediaEvent] 去重命中，合并 ${newAtts.size} 个新附件")
+                        updateConversation(targetConvId) { conversation ->
+                            val msgs = conversation.messages.toMutableList()
+                            val idx = msgs.indexOf(duplicate)
+                            if (idx >= 0) {
+                                msgs[idx] = duplicate.copy(attachments = duplicate.attachments + newAtts)
+                            }
+                            conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
+                        }
+                    } else {
+                        println("[MediaEvent] 去重命中，无新附件，跳过")
+                    }
+                } else {
+                    println("[MediaEvent] 去重命中，跳过: text=${chatText.take(50)}")
+                }
                 return@collect
             }
 
-            // 无 sourceMessageId 的事件 → 独立消息，去重后追加
-            if (msgId.isBlank()) {
-                if (event.attachments.isEmpty() && event.text.isNullOrBlank()) return@collect
-                appendAttachmentsToLatestAssistant(
-                    conversationId = convId,
-                    attachments = event.attachments,
-                    text = event.text,
-                    timestamp = event.timestamp,
-                )
-                return@collect
+            // ── 新消息：按 timestamp 全局排序插入 ──
+            // 把没有 timestamp 的 Assistant（含流式占位符）视为 Long.MAX_VALUE，
+            // 确保有 timestamp 的异步消息总是插到占位符/流式消息之前。
+            val newMsg = ChatItem.Assistant(
+                text = chatText,
+                messageId = srcMsgId,
+                attachments = chatAttachments,
+                timestamp = ts,
+            )
+            updateConversation(targetConvId) { conversation ->
+                val msgs = conversation.messages.toMutableList()
+                if (ts != null) {
+                    val insertBeforeIdx = msgs.indexOfFirst { m ->
+                        m is ChatItem.Assistant && (m.timestamp ?: Long.MAX_VALUE) > ts
+                    }
+                    if (insertBeforeIdx >= 0) {
+                        println("[MediaEvent] 按 timestamp 插入到 idx=$insertBeforeIdx")
+                        msgs.add(insertBeforeIdx, newMsg)
+                    } else {
+                        println("[MediaEvent] 追加到末尾")
+                        msgs.add(newMsg)
+                    }
+                } else {
+                    // 无 timestamp → 追加到末尾
+                    println("[MediaEvent] 无 timestamp，追加到末尾")
+                    msgs.add(newMsg)
+                }
+                conversation.copy(messages = msgs, lastActiveAt = currentTimeMillis())
             }
 
             when (event.type) {
@@ -901,52 +967,30 @@ fun AgentModelScreen(
                             streamEvents = a.streamEvents.addOrUpdate(StreamEvent("typing", "正在输入", isActive = true)),
                         )
                     }
-                }
-                "tool.start" -> {
-                    val toolName = event.toolName ?: event.text ?: "工具"
-                    updateAssistantMessage(convId, msgId) { a ->
-                        a.copy(
-                            messageId = msgId, isStreaming = true,
-                            streamEvents = a.streamEvents
-                                .addOrUpdate(StreamEvent("typing", "正在输入")) // 标记 typing 完成
-                                .addOrUpdate(StreamEvent("tool", toolName, isActive = true)),
-                        )
+                    if (streaming) streamingStarted = true
+
+                    // 直接渲染 SDK 返回的文本，不做打字机效果
+                    if (text.isNotBlank() && text != lastText) {
+                        lastText = text
+                        upsertStreamingAssistantMessageInConversation(convId, msgId, text, timestamp = state?.timestamp)
                     }
-                }
-                "tool.end" -> {
-                    val toolName = event.toolName ?: event.text ?: "工具"
-                    updateAssistantMessage(convId, msgId) { a ->
-                        a.copy(
-                            messageId = msgId, isStreaming = true,
-                            streamEvents = a.streamEvents.addOrUpdate(StreamEvent("tool", toolName, isActive = false)),
-                        )
-                    }
-                }
-                "reasoning.partial" -> {
-                    updateAssistantMessage(convId, msgId) { a ->
-                        a.copy(
-                            messageId = msgId, isStreaming = true,
-                            reasoningText = event.text ?: a.reasoningText,
-                            streamEvents = a.streamEvents.addOrUpdate(StreamEvent("reasoning", "Thinks", isActive = true)),
-                        )
-                    }
-                }
-                "reasoning.final" -> {
-                    updateAssistantMessage(convId, msgId) { a ->
-                        a.copy(
-                            messageId = msgId, isStreaming = true,
-                            reasoningText = event.text ?: a.reasoningText,
-                            streamEvents = a.streamEvents.addOrUpdate(StreamEvent("reasoning", "Thinks")),
-                        )
-                    }
-                }
-                "assistant.partial" -> {
-                    if (event.text != null) {
-                        updateAssistantMessage(convId, msgId) { a ->
-                            a.copy(
-                                text = mergeStreamingAssistantText(a.text, event.text), messageId = msgId, isStreaming = true,
-                                streamEvents = a.streamEvents
-                                    .addOrUpdate(StreamEvent("typing", "正在输入")), // 标记完成
+
+                    // 结束条件：streaming 变为 false 且（曾经开始过 或 已有最终文本 或 有错误 或 已有附件）
+                    val errorText = state?.errorText
+                    val finalAttachments = state?.attachments ?: emptyList()
+                    val finished = !streaming && (streamingStarted || text.isNotBlank() || errorText != null || finalAttachments.isNotEmpty())
+                    if (finished) {
+                        if ((text.isNotBlank() && lastText != text) || finalAttachments.isNotEmpty()) {
+                            upsertStreamingAssistantMessageInConversation(convId, msgId, text, finalAttachments, timestamp = state?.timestamp)
+                        }
+                        // 如果有错误，追加错误提示到对话中
+                        if (errorText != null) {
+                            removeAssistantPlaceholderInConversation(convId, msgId)
+                            // 错误消息也得走和占位符同一台设备的存档：用户可能已切走。
+                            appendMessageToConversationOnCdi(
+                                convId,
+                                targetCdi = messageIdToCdi[msgId],
+                                message = ChatItem.Error(errorText),
                             )
                         }
                     }

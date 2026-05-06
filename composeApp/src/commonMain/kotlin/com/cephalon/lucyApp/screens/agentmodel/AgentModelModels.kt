@@ -59,9 +59,6 @@ internal sealed class ChatItem {
         override val messageId: String? = null,
         val attachments: List<MediaAttachment> = emptyList(),
         val timestamp: Long? = null,
-        val streamEvents: List<StreamEvent> = emptyList(),
-        val isStreaming: Boolean = false,
-        val reasoningText: String? = null,
     ) : ChatItem()
     data class User(
         val text: String,

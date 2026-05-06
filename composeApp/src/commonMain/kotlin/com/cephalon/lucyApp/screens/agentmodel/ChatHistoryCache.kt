@@ -30,9 +30,6 @@ private data class SerializableChatItem(
     val mediaContentTypes: List<String?>? = null,
     val mediaFileNames: List<String?>? = null,
     val timestamp: Long? = null,
-    val streamEventTypes: List<String>? = null,
-    val streamEventLabels: List<String>? = null,
-    val reasoningText: String? = null,
 )
 
 @Serializable
@@ -60,9 +57,6 @@ private fun ChatItem.toSerializable(): SerializableChatItem? = when (this) {
         mediaContentTypes = attachments.map { it.contentType }.ifEmpty { null },
         mediaFileNames = attachments.map { it.fileName }.ifEmpty { null },
         timestamp = timestamp,
-        streamEventTypes = streamEvents.map { it.type }.ifEmpty { null },
-        streamEventLabels = streamEvents.map { it.label }.ifEmpty { null },
-        reasoningText = reasoningText,
     )
     is ChatItem.User -> SerializableChatItem(type = "user", text = text, messageId = messageId)
     is ChatItem.UserAttachments -> SerializableChatItem(
@@ -94,10 +88,7 @@ private fun SerializableChatItem.toChatItem(): ChatItem? = when (type) {
                 fileName = mediaFileNames?.getOrNull(i),
             )
         } ?: emptyList()
-        val events = streamEventTypes?.mapIndexed { i, t ->
-            StreamEvent(type = t, label = streamEventLabels?.getOrNull(i) ?: "", isActive = false)
-        } ?: emptyList()
-        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments, timestamp = timestamp, streamEvents = events, reasoningText = reasoningText)
+        ChatItem.Assistant(text = text ?: "", messageId = messageId, attachments = mediaAttachments, timestamp = timestamp)
     }
     "user" -> ChatItem.User(text = text ?: "", messageId = messageId)
     "user_attachments" -> {

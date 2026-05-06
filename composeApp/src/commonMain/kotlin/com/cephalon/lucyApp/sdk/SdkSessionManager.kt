@@ -1272,38 +1272,22 @@ class SdkSessionManager(
                     val completedEventKey = if (hasSourceId && machineEvent != null) buildCompletedEventKey(incomingSourceMessageId!!, machineEvent) else null
 
                     if (hasSourceId && !sourceMatched) {
-                        // 已完成后的完全重复事件 → 直接丢弃；不同 timestamp / 内容的事件继续放行。
-                        if (completedEventKey != null && completedEventKey in _completedEventKeys) {
-                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成，丢弃重复事件 type=${machineEvent?.type} timestamp=${machineEvent?.timestamp}")
-                            return@startUserChannelConsumer
-                        }
-                        // 不在活跃列表也不在已完成列表 → 发射到 npcReplyEvents 供 UI 直接处理（不过滤内容，允许 tool.start 等状态事件通过）
-                        if (machineEvent != null) {
-                            completedEventKey?.let(::rememberCompletedEventKey)
-                            if (machineEvent.type == "assistant.final") {
-                                val aggregate = recordAssistantFinalChunk(incomingSourceMessageId ?: "", machineEvent).aggregate
-                                appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 已完成但收到新的 assistant.final，按 timestamp 聚合后转发 latestTimestamp=${aggregate.latestTimestamp}")
-                                _npcReplyEvents.tryEmit(NpcReplyEvent(
-                                    messageId = incomingSourceMessageId ?: "",
-                                    type = machineEvent.type,
-                                    text = aggregate.text,
-                                    eventId = machineEvent.eventId,
-                                    toolName = machineEvent.toolName,
-                                    attachments = aggregate.attachments,
-                                    timestamp = aggregate.latestTimestamp,
-                                ))
-                                return@startUserChannelConsumer
-                            }
-                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，转发到 npcReplyEvents type=${machineEvent.type}")
-                            _npcReplyEvents.tryEmit(NpcReplyEvent(
-                                messageId = incomingSourceMessageId ?: "",
-                                type = machineEvent.type,
-                                text = machineEvent.text,
-                                eventId = machineEvent.eventId,
-                                toolName = machineEvent.toolName,
-                                attachments = machineEvent.attachments,
-                                timestamp = machineEvent.timestamp,
-                            ))
+                        // 有 source_message_id 但匹配不上活跃请求
+                        // 仅 assistant.final 转发（服务器可能对同一请求分批发送多个 final）
+                        // 其他类型（partial/start/reasoning 等中间事件）直接丢弃，避免重复渲染
+                        if (machineEvent?.type == "assistant.final" &&
+                            (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())
+                        ) {
+                            appLogD(TAG, "[Consumer] source_message_id=$incomingSourceMessageId 不在活跃列表，assistant.final 转为异步媒体推送")
+                            _incomingMediaEvents.tryEmit(
+                                IncomingMediaEvent(
+                                    text = machineEvent.text,
+                                    attachments = machineEvent.attachments,
+                                    eventType = machineEvent.type,
+                                    sourceMessageId = incomingSourceMessageId,
+                                    timestamp = machineEvent.timestamp,
+                                )
+                            )
                         } else {
                             appLogD(TAG, "[Consumer] 过滤掉无法解析的事件: source_message_id=$incomingSourceMessageId")
                         }
@@ -1320,16 +1304,16 @@ class SdkSessionManager(
                             return@startUserChannelConsumer
                         }
                         if (machineEvent != null && (machineEvent.attachments.isNotEmpty() || !machineEvent.text.isNullOrBlank())) {
-                            _npcReplyEvents.tryEmit(NpcReplyEvent(
-                                messageId = "",
-                                type = machineEvent.type,
-                                text = machineEvent.text,
-                                eventId = machineEvent.eventId,
-                                toolName = machineEvent.toolName,
-                                attachments = machineEvent.attachments,
-                                timestamp = machineEvent.timestamp,
-                            ))
-                            appLogD(TAG, "[Consumer] 已发射 NpcReplyEvent (无sourceMessageId) type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
+                            _incomingMediaEvents.tryEmit(
+                                IncomingMediaEvent(
+                                    text = machineEvent.text,
+                                    attachments = machineEvent.attachments,
+                                    eventType = machineEvent.type,
+                                    sourceMessageId = machineEvent.sourceMessageId,
+                                    timestamp = machineEvent.timestamp,
+                                )
+                            )
+                            appLogD(TAG, "[Consumer] 已发射 IncomingMediaEvent type=${machineEvent.type} attachments=${machineEvent.attachments.size}")
                         }
                         return@startUserChannelConsumer
                     }
@@ -1868,8 +1852,8 @@ class SdkSessionManager(
                         text = aggregate.text.ifBlank { state.text },
                         streaming = true,
                         streamingStatusText = null,
-                        attachments = aggregate.attachments.ifEmpty { state.attachments },
-                        timestamp = aggregate.latestTimestamp ?: state.timestamp,
+                        attachments = mergedAttachments,
+                        timestamp = event.timestamp ?: state.timestamp,
                     )
                 }
                 if (isLatest) {
@@ -2046,7 +2030,7 @@ class SdkSessionManager(
             root["timestamp"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         }.getOrNull()
 
-        return NpcMachineEvent(type = type, text = text, eventId = eventId, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments, timestamp = timestamp)
+        return NpcMachineEvent(type = type, text = text, sourceMessageId = sourceMessageId, toolName = toolName, attachments = attachments, timestamp = timestamp)
     }
 
     private fun extractTextFromEventObject(root: JsonObject): String? {
@@ -2459,17 +2443,11 @@ data class MediaAttachment(
     val fileName: String? = null,
 )
 
-/**
- * 统一的 NPC 回复事件，每收到一条服务端推送就发射一条到 UI。
- * UI 根据 [type] 决定如何渲染/更新对话列表。
- */
-data class NpcReplyEvent(
-    val messageId: String,
-    val type: String,
-    val text: String? = null,
-    val eventId: String? = null,
-    val toolName: String? = null,
-    val attachments: List<MediaAttachment> = emptyList(),
+data class IncomingMediaEvent(
+    val text: String?,
+    val attachments: List<MediaAttachment>,
+    val eventType: String,
+    val sourceMessageId: String? = null,
     val timestamp: Long? = null,
 )
 
@@ -2491,19 +2469,6 @@ data class ReplyState(
     val attachments: List<MediaAttachment> = emptyList(),
     val errorText: String? = null,
     val timestamp: Long? = null,
-)
-
-private data class AssistantFinalChunk(
-    val key: String,
-    val timestamp: Long?,
-    val text: String?,
-    val attachments: List<MediaAttachment>,
-)
-
-private data class AssistantFinalAggregate(
-    val text: String,
-    val attachments: List<MediaAttachment>,
-    val latestTimestamp: Long?,
 )
 
 enum class SdkConnectionState {
